@@ -4,8 +4,8 @@ import { supabase } from '../supabaseClient';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import AuthModal from './AuthModal';
 import FavoritesModal from './FavoritesModal';
+import ErrorBoundary from './ErrorBoundary';
 import { isVipUser } from '../vipList';
-import ErrorBoundary from './ErrorBoundary'; // ★追加
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
@@ -18,8 +18,8 @@ const LANGUAGES = {
   fr: { code: 'fr', label: '🇫🇷 Français', placeholder: 'Ex: Châteaux du Japon...' },
 };
 
-// ★地図コンポーネント (メモ化して再レンダリングを防止)
-const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, addLog }) => {
+// 地図コンポーネント (reuseMapsを削除して安定性重視)
+const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError }) => {
   return (
     <Map
       ref={mapRef}
@@ -31,8 +31,8 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       terrain={{ source: 'mapbox-dem', exaggeration: 1.5 }}
       onMoveEnd={onMoveEnd}
       style={{ width: '100%', height: '100%' }}
-      // reuseMaps={true} // ★ブラックアウトの原因になりやすいので一旦無効化
-      onError={(e) => addLog(`Map Error: ${e.error.message}`)} // マップのエラーをキャッチ
+      onError={onError} // エラーハンドリング
+      // reuseMaps={true} ← ★削除！これがブラックアウトの原因でした
     >
       <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
       {geoJsonData && (
@@ -48,8 +48,6 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
 const GlobeContent = () => {
   const mapRef = useRef(null);
   const audioRef = useRef(null);
-  
-  // Refで状態を保持（レンダリング回避）
   const locationsRef = useRef([]);
   const selectedLocationRef = useRef(null);
   const isGeneratingRef = useRef(false);
@@ -63,6 +61,7 @@ const GlobeContent = () => {
   const [inputTheme, setInputTheme] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
+  const [logs, setLogs] = useState([]); // デバッグログ
 
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -70,15 +69,8 @@ const GlobeContent = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showFavList, setShowFavList] = useState(false);
   const [favorites, setFavorites] = useState(new Set());
-  
-  // ★デバッグ用ログ
-  const [logs, setLogs] = useState([]);
-  const addLog = (msg) => {
-    console.log(msg);
-    setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 5));
-  };
 
-  // UI状態
+  // 音量設定
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [bgmVolume, setBgmVolume] = useState(0.5);
   const [voiceVolume, setVoiceVolume] = useState(1.0);
@@ -86,7 +78,12 @@ const GlobeContent = () => {
 
   const initialViewState = { longitude: 13.4, latitude: 41.9, zoom: 3 };
 
-  // Ref同期
+  // ログ出力関数
+  const addLog = (msg) => {
+    console.log(msg);
+    setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 5));
+  };
+
   useEffect(() => { locationsRef.current = locations; }, [locations]);
   useEffect(() => { selectedLocationRef.current = selectedLocation; }, [selectedLocation]);
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
@@ -98,7 +95,7 @@ const GlobeContent = () => {
       if (error) throw error;
       if (data) {
         setLocations(data);
-        addLog(`Loaded ${data.length} spots.`);
+        addLog(`Loaded ${data.length} spots`);
       }
     } catch (e) {
       addLog(`Fetch Error: ${e.message}`);
@@ -118,10 +115,8 @@ const GlobeContent = () => {
   }, []);
 
   const setupUser = (u) => {
-    setUser(u);
-    fetchFavorites(u.id);
-    fetchProfile(u.id, u.email);
-    addLog(`User: ${u.email}`);
+    setUser(u); fetchFavorites(u.id); fetchProfile(u.id, u.email);
+    addLog(`Login: ${u.email}`);
   };
 
   const clearUser = () => {
@@ -131,12 +126,8 @@ const GlobeContent = () => {
   const fetchProfile = async (userId, email) => {
     const isVip = isVipUser(email);
     const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
-    if (data) {
-      setProfile(data);
-      setIsPremium(isVip || data.is_premium);
-    } else {
-      setIsPremium(isVip);
-    }
+    if (data) { setProfile(data); setIsPremium(isVip || data.is_premium); }
+    else { setIsPremium(isVip); }
   };
 
   const fetchFavorites = async (userId) => {
@@ -153,11 +144,11 @@ const GlobeContent = () => {
       if (isFav) {
         await supabase.from('favorites').delete().eq('user_id', user.id).eq('spot_id', spotId);
         const newFavs = new Set(favorites); newFavs.delete(spotId); setFavorites(newFavs);
-        addLog("Removed from favorites");
+        addLog("Fav removed");
       } else {
         await supabase.from('favorites').insert({ user_id: user.id, spot_id: spotId });
         const newFavs = new Set(favorites); newFavs.add(spotId); setFavorites(newFavs);
-        addLog("Added to favorites");
+        addLog("Fav added");
       }
     } catch(e) { addLog(`Fav Error: ${e.message}`); }
   };
@@ -168,10 +159,10 @@ const GlobeContent = () => {
     mapRef.current?.flyTo({ center: [spot.lon, spot.lat], zoom: 6, speed: 1.2, curve: 1 });
   };
 
-  // 翻訳機能
+  // 翻訳機能 (手動トリガーにも対応)
   const translateAndFix = async (spot, lang) => {
-    if (statusMessage === "翻訳データを生成中...") return;
-    setStatusMessage("翻訳データを生成中...");
+    if (statusMessage.includes("生成中")) return;
+    setStatusMessage("翻訳中...");
     addLog(`翻訳開始: ${spot.name}`);
 
     try {
@@ -182,14 +173,13 @@ const GlobeContent = () => {
         Translate/Rewrite into ${LANGUAGES[lang].name}.
         Target: "${spot.name}"
         Desc: "${spot.description}"
-        Output JSON: { "name": "Name", "description": "Desc (max 150 chars)" }
+        Output JSON only: { "name": "Name", "description": "Desc (max 150 chars)" }
       `;
 
       const result = await model.generateContent(prompt);
       const text = result.response.text().replace(/```json/g, "").replace(/```/g, "").trim();
       const json = JSON.parse(text);
 
-      // 保存処理
       const nameCol = lang === 'ja' ? 'name_ja' : `name_${lang}`;
       const descCol = lang === 'ja' ? 'description_ja' : `description_${lang}`;
       const updateData = { [nameCol]: json.name, [descCol]: json.description };
@@ -197,27 +187,27 @@ const GlobeContent = () => {
       const { error } = await supabase.from('spots').update(updateData).eq('id', spot.id);
       if (error) throw error;
       
-      addLog("翻訳完了・保存成功");
+      addLog("翻訳完了・保存");
 
-      // ローカル更新
       const updatedLocations = locations.map(l => l.id === spot.id ? { ...l, ...updateData } : l);
       setLocations(updatedLocations);
-      locationsRef.current = updatedLocations; // Refも更新
+      locationsRef.current = updatedLocations;
 
-      // 表示更新
       if (selectedLocationRef.current && selectedLocationRef.current.id === spot.id) {
         const newData = { ...spot, ...updateData, name: json.name, description: json.description };
         setDisplayData(newData);
         speak(json.description);
       }
     } catch (e) {
-      addLog(`翻訳エラー: ${e.message}`);
+      addLog(`翻訳失敗: ${e.message}`);
+      if (e.message.includes("429")) {
+        alert("現在、Google翻訳AIが混雑しています(429 Error)。\nしばらく待ってから『翻訳』ボタンを押してください。");
+      }
     } finally {
       setStatusMessage("");
     }
   };
 
-  // 表示・翻訳判定ロジック
   useEffect(() => {
     if (!selectedLocation) {
       setDisplayData(null);
@@ -230,37 +220,30 @@ const GlobeContent = () => {
     let displayName = selectedLocation[`name${suffix}`];
     let displayDesc = selectedLocation[`description${suffix}`];
 
-    // フォールバック
     if (!displayName) displayName = selectedLocation.name;
     if (!displayDesc) displayDesc = selectedLocation.description;
 
-    // ★修正: 翻訳判定ロジック (より厳密に)
+    // 翻訳判定
     const isJapaneseMode = currentLang === 'ja';
-    
-    // 日本語が含まれているかチェック (ひらがなカタカナ漢字)
     const hasJapaneseChars = displayName && /[ぁ-んァ-ン一-龯]/.test(displayName);
-    
-    // 説明文が手抜き、または英語のままかチェック
     const isWeakDesc = !displayDesc || displayDesc.length < 10 || displayDesc.includes("World Heritage") || displayDesc === "世界遺産";
     
-    // 日本語モードなのに「日本語文字がない」または「説明が弱い」なら翻訳
-    const needsTranslation = isJapaneseMode && (!hasJapaneseChars || isWeakDesc);
-
-    if (needsTranslation) {
-      addLog(`翻訳が必要と判定: ${displayName}`);
-      const tempData = { ...selectedLocation, name: displayName, description: "翻訳中..." };
-      setDisplayData(tempData);
-      translateAndFix(selectedLocation, currentLang);
-    } else {
-      const newData = { ...selectedLocation, name: displayName, description: displayDesc };
-      setDisplayData(newData);
+    // 自動翻訳は「API制限」を考慮して、極力手動にするか、確実な時だけにする
+    // ここでは「表示データセット」のみ行い、翻訳が必要な場合はボタンを表示する
+    const newData = { ...selectedLocation, name: displayName, description: displayDesc, needsTranslation: isJapaneseMode && (!hasJapaneseChars || isWeakDesc) };
+    
+    setDisplayData(newData);
+    
+    // 翻訳不要ならすぐ喋る
+    if (!newData.needsTranslation) {
       window.speechSynthesis.cancel();
       speak(newData.description);
     }
+    
   }, [selectedLocation, currentLang]);
 
   const speak = (text) => {
-    if (!text || text === "翻訳中...") { setIsPlaying(false); return; }
+    if (!text) { setIsPlaying(false); return; }
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = { ja: 'ja-JP', en: 'en-US', zh: 'zh-CN', es: 'es-ES', fr: 'fr-FR' }[currentLang];
     utterance.volume = voiceVolume;
@@ -272,7 +255,7 @@ const GlobeContent = () => {
   const handleGenerate = async () => {
     if (!inputTheme) return;
     setIsGenerating(true);
-    setStatusMessage("AIが生成中...");
+    setStatusMessage("AI生成中...");
     try {
       const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
       const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -283,7 +266,6 @@ const GlobeContent = () => {
       
       const insertData = newSpots.map(s => {
         const spot = { ...s };
-        // 生成時はとりあえず name_ja にも入れておく
         spot['name_ja'] = s.name;
         spot['description_ja'] = s.description;
         return spot;
@@ -306,7 +288,6 @@ const GlobeContent = () => {
     features: locations.map(loc => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [loc.lon, loc.lat] }, properties: { ...loc } }))
   }), [locations]);
 
-  // マップ移動終了時
   const handleMoveEnd = useCallback((evt) => {
     if (!evt.originalEvent || isGeneratingRef.current) return;
     const map = mapRef.current?.getMap();
@@ -318,8 +299,6 @@ const GlobeContent = () => {
     if (features.length > 0) {
       const bestTarget = features[0].properties;
       const fullLocation = locationsRef.current.find(l => l.id === bestTarget.id) || bestTarget;
-      
-      // Refを使って比較（再レンダリング防止）
       if (!selectedLocationRef.current || fullLocation.id !== selectedLocationRef.current.id) {
         setSelectedLocation(fullLocation);
         map.flyTo({ center: [fullLocation.lon, fullLocation.lat], speed: 0.6, curve: 1 });
@@ -337,7 +316,6 @@ const GlobeContent = () => {
     return (<div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}><span style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>{name}</span><div style={{ display: 'flex', gap: '5px' }}>{tags.map((tag, i) => (<span key={i} style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '10px', backgroundColor: '#00ffcc', color: '#000', fontWeight: 'bold' }}>#{tag}</span>))}</div></div>);
   };
 
-  // BGM制御
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -353,7 +331,7 @@ const GlobeContent = () => {
     <div style={{ width: "100vw", height: "100dvh", background: "black", fontFamily: 'sans-serif', position: 'relative', overflow: 'hidden' }}>
       <audio ref={audioRef} src="/bgm.mp3" loop />
       
-      {/* デバッグコンソール（画面左下） */}
+      {/* デバッグログ */}
       <div style={{ 
         position: 'absolute', bottom: '10px', left: '10px', zIndex: 100, 
         background: 'rgba(0,0,0,0.7)', color: '#00ff00', fontSize: '10px', 
@@ -397,24 +375,35 @@ const GlobeContent = () => {
           <div style={{ marginBottom: '10px', fontSize: '12px', color: isPlaying ? '#00ffcc' : '#888' }}>{isPlaying ? <><span className="pulse">●</span> ON AIR</> : <span>● READY</span>}</div>
           <div style={{ color: '#ffccaa', marginBottom: '10px' }}>{renderNameWithTags(displayData.name)}</div>
           <p style={{ margin: 0, fontSize: '0.85rem', color: '#ddd', maxHeight: '150px', overflowY: 'auto', textAlign: 'left', lineHeight: '1.6' }}>{displayData.description}</p>
+          
+          {/* ★翻訳ボタン: 翻訳が必要な時だけ出現 */}
+          {displayData.needsTranslation && (
+            <button 
+              onClick={() => translateAndFix(selectedLocation, currentLang)}
+              style={{
+                marginTop: '10px', background: '#00ffcc', color: 'black', border: 'none',
+                borderRadius: '4px', padding: '5px 15px', fontWeight: 'bold', cursor: 'pointer'
+              }}
+            >
+              🔄 日本語に翻訳する
+            </button>
+          )}
         </div>
       )}
 
-      {/* Mapコンポーネント */}
       <MemoizedMap 
         mapRef={mapRef}
         mapboxAccessToken={MAPBOX_TOKEN}
         initialViewState={initialViewState}
         onMoveEnd={handleMoveEnd}
         geoJsonData={geoJsonData}
-        addLog={addLog} // ログ関数を渡す
+        onError={(e) => addLog(`Map Error: ${e.error.message}`)}
       />
       <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } } .pulse { animation: pulse 1s infinite; } @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }`}</style>
     </div>
   );
 };
 
-// ErrorBoundaryでラップ
 export default function GlobeWrapper() {
   return (
     <ErrorBoundary>
