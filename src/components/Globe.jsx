@@ -18,7 +18,7 @@ const LANGUAGES = {
   fr: { code: 'fr', label: '🇫🇷 Français', placeholder: 'Ex: Châteaux du Japon...' },
 };
 
-// 地図コンポーネント (reuseMapsを削除して安定性重視)
+// 地図コンポーネント
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError }) => {
   return (
     <Map
@@ -31,8 +31,7 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       terrain={{ source: 'mapbox-dem', exaggeration: 1.5 }}
       onMoveEnd={onMoveEnd}
       style={{ width: '100%', height: '100%' }}
-      onError={onError} // エラーハンドリング
-      // reuseMaps={true} ← ★削除！これがブラックアウトの原因でした
+      onError={onError}
     >
       <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
       {geoJsonData && (
@@ -61,7 +60,7 @@ const GlobeContent = () => {
   const [inputTheme, setInputTheme] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
-  const [logs, setLogs] = useState([]); // デバッグログ
+  const [logs, setLogs] = useState([]);
 
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -70,7 +69,6 @@ const GlobeContent = () => {
   const [showFavList, setShowFavList] = useState(false);
   const [favorites, setFavorites] = useState(new Set());
 
-  // 音量設定
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [bgmVolume, setBgmVolume] = useState(0.5);
   const [voiceVolume, setVoiceVolume] = useState(1.0);
@@ -78,7 +76,6 @@ const GlobeContent = () => {
 
   const initialViewState = { longitude: 13.4, latitude: 41.9, zoom: 3 };
 
-  // ログ出力関数
   const addLog = (msg) => {
     console.log(msg);
     setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 5));
@@ -159,7 +156,6 @@ const GlobeContent = () => {
     mapRef.current?.flyTo({ center: [spot.lon, spot.lat], zoom: 6, speed: 1.2, curve: 1 });
   };
 
-  // 翻訳機能 (手動トリガーにも対応)
   const translateAndFix = async (spot, lang) => {
     if (statusMessage.includes("生成中")) return;
     setStatusMessage("翻訳中...");
@@ -201,7 +197,7 @@ const GlobeContent = () => {
     } catch (e) {
       addLog(`翻訳失敗: ${e.message}`);
       if (e.message.includes("429")) {
-        alert("現在、Google翻訳AIが混雑しています(429 Error)。\nしばらく待ってから『翻訳』ボタンを押してください。");
+        alert("API制限中(429)。しばらくお待ちください。");
       }
     } finally {
       setStatusMessage("");
@@ -223,18 +219,19 @@ const GlobeContent = () => {
     if (!displayName) displayName = selectedLocation.name;
     if (!displayDesc) displayDesc = selectedLocation.description;
 
-    // 翻訳判定
     const isJapaneseMode = currentLang === 'ja';
     const hasJapaneseChars = displayName && /[ぁ-んァ-ン一-龯]/.test(displayName);
     const isWeakDesc = !displayDesc || displayDesc.length < 10 || displayDesc.includes("World Heritage") || displayDesc === "世界遺産";
     
-    // 自動翻訳は「API制限」を考慮して、極力手動にするか、確実な時だけにする
-    // ここでは「表示データセット」のみ行い、翻訳が必要な場合はボタンを表示する
-    const newData = { ...selectedLocation, name: displayName, description: displayDesc, needsTranslation: isJapaneseMode && (!hasJapaneseChars || isWeakDesc) };
+    const newData = { 
+      ...selectedLocation, 
+      name: displayName, 
+      description: displayDesc, 
+      needsTranslation: isJapaneseMode && (!hasJapaneseChars || isWeakDesc) 
+    };
     
     setDisplayData(newData);
     
-    // 翻訳不要ならすぐ喋る
     if (!newData.needsTranslation) {
       window.speechSynthesis.cancel();
       speak(newData.description);
@@ -298,6 +295,9 @@ const GlobeContent = () => {
     
     if (features.length > 0) {
       const bestTarget = features[0].properties;
+      // ★安全対策: プロパティが空の場合は何もしない
+      if (!bestTarget) return;
+
       const fullLocation = locationsRef.current.find(l => l.id === bestTarget.id) || bestTarget;
       if (!selectedLocationRef.current || fullLocation.id !== selectedLocationRef.current.id) {
         setSelectedLocation(fullLocation);
@@ -331,14 +331,7 @@ const GlobeContent = () => {
     <div style={{ width: "100vw", height: "100dvh", background: "black", fontFamily: 'sans-serif', position: 'relative', overflow: 'hidden' }}>
       <audio ref={audioRef} src="/bgm.mp3" loop />
       
-      {/* デバッグログ */}
-      <div style={{ 
-        position: 'absolute', bottom: '10px', left: '10px', zIndex: 100, 
-        background: 'rgba(0,0,0,0.7)', color: '#00ff00', fontSize: '10px', 
-        padding: '5px', borderRadius: '5px', maxWidth: '300px', pointerEvents: 'none'
-      }}>
-        {logs.map((log, i) => <div key={i}>{log}</div>)}
-      </div>
+      <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 100, background: 'rgba(0,0,0,0.7)', color: '#00ff00', fontSize: '10px', padding: '5px', borderRadius: '5px', maxWidth: '300px', pointerEvents: 'none' }}>{logs.map((log, i) => <div key={i}>{log}</div>)}</div>
 
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={setupUser} />}
       {showFavList && user && <FavoritesModal userId={user.id} onClose={() => setShowFavList(false)} onSelect={handleSelectFromList} />}
@@ -369,24 +362,16 @@ const GlobeContent = () => {
 
       <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
 
-      {displayData && (
+      {/* ★修正: selectedLocation もチェックして、nullなら表示しない（これでクラッシュを防ぐ） */}
+      {selectedLocation && displayData && (
         <div style={{ position: 'absolute', bottom: '15%', left: '50%', transform: 'translateX(-50%)', background: 'rgba(10, 10, 10, 0.85)', padding: '20px', borderRadius: '20px', color: 'white', textAlign: 'center', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.2)', zIndex: 10, minWidth: '300px', maxWidth: '80%', boxShadow: '0 4px 30px rgba(0,0,0,0.5)', animation: 'fadeIn 0.5s' }}>
           <div style={{ position: 'absolute', top: '-20px', right: '20px' }}><button onClick={toggleFavorite} style={{ background: favorites.has(selectedLocation.id) ? '#ff3366' : '#333', color: 'white', border: '2px solid white', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', boxShadow: '0 4px 10px rgba(0,0,0,0.5)', transition: 'all 0.2s' }}>{favorites.has(selectedLocation.id) ? '♥' : '♡'}</button></div>
           <div style={{ marginBottom: '10px', fontSize: '12px', color: isPlaying ? '#00ffcc' : '#888' }}>{isPlaying ? <><span className="pulse">●</span> ON AIR</> : <span>● READY</span>}</div>
           <div style={{ color: '#ffccaa', marginBottom: '10px' }}>{renderNameWithTags(displayData.name)}</div>
           <p style={{ margin: 0, fontSize: '0.85rem', color: '#ddd', maxHeight: '150px', overflowY: 'auto', textAlign: 'left', lineHeight: '1.6' }}>{displayData.description}</p>
           
-          {/* ★翻訳ボタン: 翻訳が必要な時だけ出現 */}
           {displayData.needsTranslation && (
-            <button 
-              onClick={() => translateAndFix(selectedLocation, currentLang)}
-              style={{
-                marginTop: '10px', background: '#00ffcc', color: 'black', border: 'none',
-                borderRadius: '4px', padding: '5px 15px', fontWeight: 'bold', cursor: 'pointer'
-              }}
-            >
-              🔄 日本語に翻訳する
-            </button>
+            <button onClick={() => translateAndFix(selectedLocation, currentLang)} style={{ marginTop: '10px', background: '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 15px', fontWeight: 'bold', cursor: 'pointer' }}>🔄 日本語に翻訳する</button>
           )}
         </div>
       )}
