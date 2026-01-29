@@ -1,8 +1,6 @@
-// import-world-heritage.js
-
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
-import fetch from "node-fetch"; 
+import fetch from "node-fetch";
 
 dotenv.config();
 
@@ -16,71 +14,118 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// 言語設定
+const LANGS = ['en', 'zh', 'es', 'fr']; // 日本語(ja)はメイン処理で取得
+
+// Wikidataから世界遺産を取得するクエリ（多言語ラベル付き）
 const query = `
-SELECT ?item ?itemLabel ?coord ?desc WHERE {
+SELECT ?item ?coord 
+  ?itemLabel_ja ?itemLabel_en ?itemLabel_zh ?itemLabel_es ?itemLabel_fr 
+WHERE {
   ?item wdt:P1435 wd:Q9259;
         wdt:P625 ?coord.
-  OPTIONAL { 
-    ?item schema:description ?desc.
-    FILTER(LANG(?desc) = "ja")
+  
+  SERVICE wikibase:label { 
+    bd:serviceParam wikibase:language "ja,en,zh,es,fr". 
+    ?item rdfs:label ?itemLabel_ja.
+    ?item rdfs:label ?itemLabel_en.
+    ?item rdfs:label ?itemLabel_zh.
+    ?item rdfs:label ?itemLabel_es.
+    ?item rdfs:label ?itemLabel_fr.
   }
-  SERVICE wikibase:label { bd:serviceParam wikibase:language "ja,en". }
 }
 `;
 
+// Wikipediaの概要を取得する関数
+async function fetchWikiSummary(title, lang) {
+  if (!title) return null;
+  try {
+    // タイトルから余計なIDなどを除去
+    const cleanTitle = title.split('(')[0].trim();
+    const url = `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(cleanTitle)}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json.extract || null;
+  } catch (e) {
+    return null;
+  }
+}
+
 async function main() {
-  console.log("🌍 Wikidataから世界遺産データを取得中...");
+  console.log("🌍 Wikidataから世界遺産リストを取得中...");
 
   const url = `https://query.wikidata.org/sparql?query=${encodeURIComponent(query)}&format=json`;
   
   try {
     const res = await fetch(url, { headers: { 'User-Agent': 'GeoVoiceApp/1.0' } });
-    if (!res.ok) throw new Error(`API Error: ${res.statusText}`);
-
+    if (!res.ok) throw new Error("Wikidata Error");
     const json = await res.json();
     const bindings = json.results.bindings;
 
-    console.log(`📦 ${bindings.length} 件取得。変換中...`);
+    console.log(`📦 ${bindings.length} 件のデータが見つかりました。詳細情報の収集を開始します...`);
+    console.log("⚠️  時間がかかります（目安: 10〜20分）。PCを閉じないでください。");
 
-    const spots = bindings.map(b => {
+    let successCount = 0;
+
+    // 1件ずつ丁寧に処理（並列にしすぎるとAPI制限でBANされるため）
+    for (let i = 0; i < bindings.length; i++) {
+      const b = bindings[i];
+      
       try {
         const coordStr = b.coord.value.replace("Point(", "").replace(")", "");
         const [lon, lat] = coordStr.split(" ");
-        let name = b.itemLabel.value;
         
-        // ★ここが変更点: 名前にタグを埋め込む
-        if (!name.includes("#")) {
-            name = `${name} #世界遺産`;
+        // 日本語情報の取得
+        const name_ja = b.itemLabel_ja?.value;
+        if (!name_ja) continue; // 日本語名がないものはスキップ
+
+        const desc_ja = await fetchWikiSummary(name_ja, 'ja');
+        
+        // ベースデータ
+        const spot = {
+          name: name_ja + " #世界遺産",
+          description: desc_ja || "世界遺産",
+          lat: parseFloat(lat),
+          lon: parseFloat(lon),
+        };
+
+        // 他言語情報の取得（逐次処理）
+        for (const lang of LANGS) {
+            const nameKey = `itemLabel_${lang}`;
+            const rawName = b[nameKey]?.value;
+            
+            if (rawName) {
+                // 名前を保存
+                spot[`name_${lang}`] = rawName + (lang === 'en' ? " #WorldHeritage" : " #世界遺産");
+                // 説明文を取得して保存
+                const desc = await fetchWikiSummary(rawName, lang);
+                spot[`description_${lang}`] = desc || "World Heritage Site";
+            }
         }
 
-        return {
-          name: name,
-          description: "世界遺産", // ここは固定のままでOK（表示時にWikiから取るため）
-          lat: parseFloat(lat),
-          lon: parseFloat(lon)
-        };
-      } catch (e) { return null; }
-    }).filter(i => i);
+        // Supabaseに保存
+        const { error } = await supabase.from('spots').insert(spot);
+        
+        if (error) {
+          console.error(`❌ Save Error (${name_ja}):`, error.message);
+        } else {
+          successCount++;
+          process.stdout.write(`\r✅ 完了: ${successCount} / ${bindings.length} (${name_ja})          `);
+        }
 
-    console.log("🚀 Supabaseに保存中...");
+        // サーバーに優しく（0.5秒休憩）
+        await new Promise(r => setTimeout(r, 500));
 
-    const chunkSize = 50;
-    let successCount = 0;
-
-    for (let i = 0; i < spots.length; i += chunkSize) {
-      const chunk = spots.slice(i, i + chunkSize);
-      const { error } = await supabase.from('spots').insert(chunk);
-      if (error) console.error(`Chunk error:`, error.message);
-      else {
-        successCount += chunk.length;
-        process.stdout.write(`\r✅ 保存済み: ${successCount} / ${spots.length}`);
+      } catch (e) {
+        console.error(`Skipped index ${i}:`, e.message);
       }
-      await new Promise(r => setTimeout(r, 100));
     }
-    console.log("\n🎉 完了！");
+
+    console.log("\n\n🎉 完全インポート完了！これでアプリは爆速になります。");
 
   } catch (err) {
-    console.error(err);
+    console.error("\n❌ Fatal Error:", err);
   }
 }
 
