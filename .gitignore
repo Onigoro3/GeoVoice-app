@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# .env ファイルを除外（GitHubにアップしない）
+.env
+.env.local

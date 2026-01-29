@@ -1,6 +1,8 @@
+/* src/index.css の一番上に追加 */
+@import 'mapbox-gl/dist/mapbox-gl.css';
+
 body {
   margin: 0;
   padding: 0;
-  overflow: hidden; /* スクロールバーを消す */
-  background-color: #000;
+  background-color: #000; /* 背景黒 */
 }

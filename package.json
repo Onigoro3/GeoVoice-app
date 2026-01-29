@@ -10,13 +10,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "cesium": "^1.137.0",
     "dotenv": "^17.2.3",
     "firebase": "^12.8.0",
+    "mapbox-gl": "^3.18.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "resium": "^1.19.3",
-    "vite-plugin-cesium": "^1.2.23"
+    "react-map-gl": "^7.1.7"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
