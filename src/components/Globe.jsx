@@ -17,7 +17,6 @@ const LANGUAGES = {
 const Globe = () => {
   const mapRef = useRef(null);
   const audioRef = useRef(null);
-  // ★追加: キャッシュ用 (一度取得したWikiデータを保存)
   const wikiCache = useRef({}); 
   
   const [locations, setLocations] = useState([]);
@@ -46,7 +45,6 @@ const Globe = () => {
 
   useEffect(() => { fetchSpots(); }, []);
 
-  // BGM制御
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -59,20 +57,19 @@ const Globe = () => {
   }, [isBgmOn, isPlaying, bgmVolume]);
 
   const fetchWikiSummary = async (keyword, langCode) => {
-    // ★高速化: キャッシュにあればそれを使う
-    const cacheKey = `${langCode}_${keyword}`;
+    const cleanKeyword = keyword.split('#')[0].trim().split('（')[0].split('(')[0];
+    const cacheKey = `${langCode}_${cleanKeyword}`;
+    
     if (wikiCache.current[cacheKey]) {
       return wikiCache.current[cacheKey];
     }
 
     try {
-      const cleanKeyword = keyword.split('#')[0].trim().split('（')[0].split('(')[0];
       const url = `https://${langCode}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(cleanKeyword)}`;
       const res = await fetch(url);
       if (!res.ok) return null;
       const json = await res.json();
       
-      // 取得できたらキャッシュに保存
       if (json.extract) {
         wikiCache.current[cacheKey] = json.extract;
       }
@@ -80,7 +77,20 @@ const Globe = () => {
     } catch { return null; }
   };
 
-  // 選択時の処理 (超高速化)
+  // ★追加: 全言語を一括先読みする関数
+  const prefetchAllLanguages = (keyword) => {
+    const cleanKeyword = keyword.split('#')[0].trim().split('（')[0].split('(')[0];
+    // 現在の言語以外をすべて取得しに行く
+    Object.keys(LANGUAGES).forEach(langCode => {
+      const cacheKey = `${langCode}_${cleanKeyword}`;
+      if (!wikiCache.current[cacheKey]) {
+        // 非同期で裏で走らせる（awaitしない）
+        fetchWikiSummary(cleanKeyword, langCode);
+      }
+    });
+  };
+
+  // 選択時の処理
   useEffect(() => {
     if (!selectedLocation) {
       setDisplayData(null);
@@ -89,30 +99,33 @@ const Globe = () => {
       return;
     }
 
-    // まずは読み上げを即停止 (前の言語が被らないように)
+    // ★高速化の肝: ピンを選んだ瞬間に、全言語のデータを裏で取りに行く
+    prefetchAllLanguages(selectedLocation.name);
+
     window.speechSynthesis.cancel();
 
     // 翻訳が必要か判定
     const needsTranslation = currentLang !== 'ja' || selectedLocation.description === '世界遺産' || selectedLocation.description.length < 20;
 
     if (!needsTranslation) {
-      // 日本語でデータがあるなら即表示・即再生
       setDisplayData(selectedLocation);
       speak(selectedLocation.description);
     } else {
-      // 翻訳が必要な場合
-      // ★高速化: キャッシュを確認
-      const cacheKey = `${currentLang}_${selectedLocation.name}`;
+      // キャッシュ確認
+      const cleanKeyword = selectedLocation.name.split('#')[0].trim().split('（')[0].split('(')[0];
+      const cacheKey = `${currentLang}_${cleanKeyword}`;
       const cachedText = wikiCache.current[cacheKey];
 
       if (cachedText) {
-        // キャッシュがあれば 0秒で切り替え
         const newData = { ...selectedLocation, description: cachedText + " (Wiki)" };
         setDisplayData(newData);
         speak(newData.description);
       } else {
-        // キャッシュがない場合のみ取得
-        setDisplayData({ ...selectedLocation, description: "..." }); // ローディング表示
+        // キャッシュがない場合（最初の1回だけここを通る）
+        // 前の言語のテキストを表示したままにするか、"Loading..."にするか
+        // ユーザー体験的には「前の言語を一瞬残す」方がチカチカしないが、
+        // 「変わった感」を出すためにローディングを一瞬出す
+        setDisplayData({ ...selectedLocation, description: "Loading..." });
         
         fetchWikiSummary(selectedLocation.name, currentLang).then(wikiText => {
           if (wikiText) {
@@ -120,7 +133,6 @@ const Globe = () => {
             setDisplayData(newData);
             speak(newData.description);
           } else {
-            // 取れなかったら元のテキストを表示
             setDisplayData(selectedLocation);
             speak(selectedLocation.description);
           }
@@ -131,7 +143,7 @@ const Globe = () => {
 
   const speak = (text) => {
     window.speechSynthesis.cancel();
-    if (!text || text === "...") { setIsPlaying(false); return; }
+    if (!text || text === "Loading...") { setIsPlaying(false); return; }
     
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = LANGUAGES[currentLang].voice; 
@@ -169,7 +181,6 @@ const Globe = () => {
       
       const newSpots = JSON.parse(jsonMatch[0]);
 
-      // Wiki補完
       const updatedSpots = await Promise.all(newSpots.map(async (spot) => {
         const wikiText = await fetchWikiSummary(spot.name, currentLang);
         return wikiText ? { ...spot, description: wikiText + " (Wiki)" } : spot;
@@ -200,54 +211,36 @@ const Globe = () => {
     }))
   }), [locations]);
 
-  // ★修正: ズレ対策 (物理的な画面中心からの距離を計算)
   const handleMoveEnd = useCallback((evt) => {
     if (!evt.originalEvent || isGenerating) return;
     const map = mapRef.current?.getMap();
     if (!map) return;
     
-    // 画面の物理的な中心を取得 (Rectを使用)
     const rect = map.getContainer().getBoundingClientRect();
     const centerX = rect.width / 2;
     const centerY = rect.height / 2;
-    
-    // 吸着範囲 (px)
     const snapRadius = 40; 
     
     let bestTarget = null;
     let minDist = snapRadius;
 
-    // 現在見えている範囲のスポットだけ計算
-    // queryRenderedFeaturesを使うと、すでに画面座標に変換されたデータが取れるので計算が正確かつ爆速
     const features = map.queryRenderedFeatures(
-      [
-        [centerX - snapRadius, centerY - snapRadius], // 検索ボックス左上
-        [centerX + snapRadius, centerY + snapRadius]  // 検索ボックス右下
-      ],
-      { layers: ['point-core'] } // 対象レイヤー
+      [[centerX - snapRadius, centerY - snapRadius], [centerX + snapRadius, centerY + snapRadius]],
+      { layers: ['point-core'] }
     );
 
-    // 範囲内の候補から一番中心に近いものを探す
     features.forEach(f => {
       const geom = f.geometry;
-      // 画面上の座標に変換
       const p = map.project([geom.coordinates[0], geom.coordinates[1]]);
-      // 物理中心からの距離
       const dist = Math.sqrt((p.x - centerX)**2 + (p.y - centerY)**2);
-      
       if (dist < minDist) {
         minDist = dist;
-        bestTarget = f.properties; // propertiesの中にデータが入っている
+        bestTarget = f.properties;
       }
     });
 
     if (bestTarget) {
-      // データ型を合わせる (GeoJSONのpropertiesは全て文字列になる場合があるため注意が必要だが、今回はsupabase直なのでOK想定)
-      // 必要なら整形: bestTarget = locations.find(l => l.id === bestTarget.id)
-      
-      // 念のためlocationsから完全なオブジェクトを取得
       const fullLocation = locations.find(l => l.id === bestTarget.id) || bestTarget;
-
       if (!selectedLocation || fullLocation.id !== selectedLocation.id) {
         setSelectedLocation(fullLocation);
         map.flyTo({ center: [fullLocation.lon, fullLocation.lat], speed: 0.6, curve: 1 });
@@ -282,14 +275,11 @@ const Globe = () => {
   };
 
   return (
-    // ★修正: 100vh -> 100dvh (スマホのアドレスバー対策)
     <div style={{ width: "100vw", height: "100dvh", background: "black", fontFamily: 'sans-serif', position: 'relative', overflow: 'hidden' }}>
       
       <audio ref={audioRef} src="/bgm.mp3" loop />
 
-      {/* コントロールバー */}
       <div style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 20, display: 'flex', gap: '8px', background: 'rgba(0,0,0,0.6)', padding: '10px', borderRadius: '12px', backdropFilter: 'blur(5px)', border: '1px solid rgba(255,255,255,0.1)', alignItems: 'center' }}>
-        
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
           <select 
             value={currentLang}
@@ -302,9 +292,7 @@ const Globe = () => {
           </select>
           <span style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-40%)', fontSize: '0.6rem', color: '#ccc', pointerEvents: 'none' }}>▼</span>
         </div>
-
         <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.3)' }}></div>
-
         <input 
           type="text" 
           value={inputTheme} 
@@ -313,14 +301,8 @@ const Globe = () => {
           style={{ background: 'transparent', border: 'none', color: 'white', outline: 'none', padding: '5px', width: '120px', fontSize: '0.9rem' }} 
           onKeyDown={e => e.key === 'Enter' && handleGenerate()} 
         />
-        
-        <button onClick={handleGenerate} disabled={isGenerating} style={{ background: isGenerating ? '#555' : '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 12px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem' }}>
-          {isGenerating ? '...' : 'Go'}
-        </button>
-        
-        <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} style={{ background: 'transparent', color: 'white', border: 'none', cursor: 'pointer', fontSize: '1.2rem', padding: '0 5px' }}>
-          ⚙️
-        </button>
+        <button onClick={handleGenerate} disabled={isGenerating} style={{ background: isGenerating ? '#555' : '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 12px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem' }}>{isGenerating ? '...' : 'Go'}</button>
+        <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} style={{ background: 'transparent', color: 'white', border: 'none', cursor: 'pointer', fontSize: '1.2rem', padding: '0 5px' }}>⚙️</button>
       </div>
 
       {isSettingsOpen && (
