@@ -1,3 +1,5 @@
+// vite.config.js
+
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -6,7 +8,15 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'autoUpdate', // これだけだと弱い場合がある
+      
+      // ★追加: 積極的な更新設定
+      workbox: {
+        cleanupOutdatedCaches: true, // 古いキャッシュを削除
+        skipWaiting: true,           // 待機せずに新しいSWを適用
+        clientsClaim: true,          // 即座にページを制御
+      },
+
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       manifest: {
         name: 'GeoVoice',
@@ -14,7 +24,7 @@ export default defineConfig({
         description: 'AIと音声で巡る、地球儀の旅',
         theme_color: '#000000',
         background_color: '#000000',
-        display: 'standalone', // これが「アドレスバーを消す」魔法の設定です
+        display: 'standalone',
         scope: '/',
         start_url: '/',
         orientation: 'portrait',
