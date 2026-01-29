@@ -2,7 +2,8 @@ import React, { useRef, useState, useMemo, useEffect, useCallback } from 'react'
 import Map, { Source, Layer } from 'react-map-gl';
 import { supabase } from '../supabaseClient';
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import AuthModal from './AuthModal'; // ★追加
+import AuthModal from './AuthModal';
+import { isVipUser } from '../vipList'; // ★追加: VIP判定
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
@@ -24,7 +25,6 @@ const Globe = () => {
   const [displayData, setDisplayData] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   
-  // 設定・UI関連
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [bgmVolume, setBgmVolume] = useState(0.5);
   const [voiceVolume, setVoiceVolume] = useState(1.0);
@@ -34,14 +34,37 @@ const Globe = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
 
-  // ★追加: ユーザー・お気に入り関連
   const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null); // ★追加: 名前#タグなどの詳細情報
+  const [isPremium, setIsPremium] = useState(false); // ★追加: 課金判定結果
+  
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [favorites, setFavorites] = useState(new Set()); // IDのセットで管理
+  const [favorites, setFavorites] = useState(new Set());
 
   const initialViewState = { longitude: 13.4, latitude: 41.9, zoom: 3 };
 
-  // データ取得
+  // プロフィール取得関数
+  const fetchProfile = async (userId, email) => {
+    // 1. コード側でのVIP判定
+    const isVip = isVipUser(email);
+
+    // 2. DBからの情報取得
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (data) {
+      setProfile(data);
+      // VIPリストに入っている か DBで課金フラグが立っていればプレミアム
+      setIsPremium(isVip || data.is_premium);
+    } else {
+      // まだ作成されていない場合（タイミング問題など）
+      setIsPremium(isVip);
+    }
+  };
+
   useEffect(() => {
     const fetchSpots = async () => {
       const { data, error } = await supabase.from('spots').select('*');
@@ -49,18 +72,24 @@ const Globe = () => {
     };
     fetchSpots();
 
-    // ★追加: ログイン状態の確認
+    // セッション確認
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) fetchFavorites(session.user.id);
+      if (session?.user) {
+        setUser(session.user);
+        fetchFavorites(session.user.id);
+        fetchProfile(session.user.id, session.user.email);
+      }
     });
 
-    // ログイン状態の変化を監視
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
       if (session?.user) {
+        setUser(session.user);
         fetchFavorites(session.user.id);
+        fetchProfile(session.user.id, session.user.email);
       } else {
+        setUser(null);
+        setProfile(null);
+        setIsPremium(false);
         setFavorites(new Set());
       }
     });
@@ -68,7 +97,6 @@ const Globe = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // ★追加: お気に入り一覧を取得
   const fetchFavorites = async (userId) => {
     const { data, error } = await supabase
       .from('favorites')
@@ -81,40 +109,25 @@ const Globe = () => {
     }
   };
 
-  // ★追加: お気に入り登録/解除処理
   const toggleFavorite = async () => {
-    if (!user) {
-      setShowAuthModal(true); // 未ログインならログイン画面へ
-      return;
-    }
+    if (!user) { setShowAuthModal(true); return; }
     if (!selectedLocation) return;
+    
+    // ★ここで「無料版はお気に入り10件まで」などの制限をかけることも可能
+    // if (!isPremium && favorites.size >= 10) { alert("無料版の上限です"); return; }
 
     const spotId = selectedLocation.id;
     const isFav = favorites.has(spotId);
 
     if (isFav) {
-      // 削除
-      const { error } = await supabase
-        .from('favorites')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('spot_id', spotId);
-      
+      const { error } = await supabase.from('favorites').delete().eq('user_id', user.id).eq('spot_id', spotId);
       if (!error) {
-        const newFavs = new Set(favorites);
-        newFavs.delete(spotId);
-        setFavorites(newFavs);
+        const newFavs = new Set(favorites); newFavs.delete(spotId); setFavorites(newFavs);
       }
     } else {
-      // 追加
-      const { error } = await supabase
-        .from('favorites')
-        .insert({ user_id: user.id, spot_id: spotId });
-      
+      const { error } = await supabase.from('favorites').insert({ user_id: user.id, spot_id: spotId });
       if (!error) {
-        const newFavs = new Set(favorites);
-        newFavs.add(spotId);
-        setFavorites(newFavs);
+        const newFavs = new Set(favorites); newFavs.add(spotId); setFavorites(newFavs);
       }
     }
   };
@@ -131,7 +144,6 @@ const Globe = () => {
     }
   }, [isBgmOn, isPlaying, bgmVolume]);
 
-  // 言語切り替えロジック
   useEffect(() => {
     if (!selectedLocation) {
       setDisplayData(null);
@@ -143,15 +155,10 @@ const Globe = () => {
     const suffix = currentLang === 'ja' ? '' : `_${currentLang}`;
     const nameKey = `name${suffix}`;
     const descKey = `description${suffix}`;
-
     const displayName = selectedLocation[nameKey] || selectedLocation.name;
     const displayDesc = selectedLocation[descKey] || selectedLocation.description;
 
-    const newData = {
-      ...selectedLocation,
-      name: displayName,
-      description: displayDesc
-    };
+    const newData = { ...selectedLocation, name: displayName, description: displayDesc };
 
     window.speechSynthesis.cancel();
     setDisplayData(newData);
@@ -161,10 +168,7 @@ const Globe = () => {
   const speak = (text) => {
     if (!text) { setIsPlaying(false); return; }
     const utterance = new SpeechSynthesisUtterance(text);
-    const voiceLang = {
-      ja: 'ja-JP', en: 'en-US', zh: 'zh-CN', es: 'es-ES', fr: 'fr-FR'
-    }[currentLang];
-    
+    const voiceLang = { ja: 'ja-JP', en: 'en-US', zh: 'zh-CN', es: 'es-ES', fr: 'fr-FR' }[currentLang];
     utterance.lang = voiceLang;
     utterance.volume = voiceVolume;
     utterance.onstart = () => setIsPlaying(true);
@@ -173,13 +177,17 @@ const Globe = () => {
   };
 
   const handleGenerate = async () => {
+    // ★制限: 無料ユーザーは1日3回まで等の制限をここに入れる
+    // 今回は例としてVIP判定だけログに出す
+    console.log("User Status:", isPremium ? "Premium/VIP" : "Free");
+
     if (!inputTheme) return;
     setIsGenerating(true);
     setStatusMessage("AIが生成中...");
 
     try {
       const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // 安全なモデルを使用
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
       const prompt = `
         歴史ガイドとして「${inputTheme}」のスポットを3つ選んで。
@@ -189,17 +197,10 @@ const Globe = () => {
 
       const result = await model.generateContent(prompt);
       const text = result.response.text().replace(/```json/g, "").replace(/```/g, "").trim();
-      
-      let newSpots;
-      try {
-         newSpots = JSON.parse(text.match(/\[[\s\S]*\]/)[0]);
-      } catch (e) {
-         throw new Error("AI生成エラー(JSON解析失敗)");
-      }
+      let newSpots = JSON.parse(text.match(/\[[\s\S]*\]/)[0]);
 
       const insertData = newSpots.map(s => {
         const spot = { ...s };
-        // 生成時はとりあえず現在言語カラムへ
         if (currentLang !== 'ja') {
            spot[`name_${currentLang}`] = s.name;
            spot[`description_${currentLang}`] = s.description;
@@ -276,7 +277,6 @@ const Globe = () => {
     const parts = fullName.split('#');
     const name = parts[0].trim();
     const tags = parts.slice(1).map(t => t.trim());
-
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
         <span style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>{name}</span>
@@ -298,17 +298,11 @@ const Globe = () => {
     <div style={{ width: "100vw", height: "100dvh", background: "black", fontFamily: 'sans-serif', position: 'relative', overflow: 'hidden' }}>
       <audio ref={audioRef} src="/bgm.mp3" loop />
       
-      {/* ★追加: 認証モーダル */}
-      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={(u) => setUser(u)} />}
+      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={(u) => { setUser(u); fetchProfile(u.id, u.email); }} />}
 
-      {/* コントロールバー */}
       <div style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 20, display: 'flex', gap: '8px', background: 'rgba(0,0,0,0.6)', padding: '10px', borderRadius: '12px', backdropFilter: 'blur(5px)', border: '1px solid rgba(255,255,255,0.1)', alignItems: 'center' }}>
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-          <select 
-            value={currentLang}
-            onChange={(e) => setCurrentLang(e.target.value)}
-            style={{ appearance: 'none', background: 'transparent', color: 'white', border: 'none', fontSize: '1.2rem', fontWeight: 'bold', cursor: 'pointer', paddingRight: '15px', outline: 'none' }}
-          >
+          <select value={currentLang} onChange={(e) => setCurrentLang(e.target.value)} style={{ appearance: 'none', background: 'transparent', color: 'white', border: 'none', fontSize: '1.2rem', fontWeight: 'bold', cursor: 'pointer', paddingRight: '15px', outline: 'none' }}>
             {Object.keys(LANGUAGES).map(key => <option key={key} value={key} style={{ color: 'black' }}>{LANGUAGES[key].label}</option>)}
           </select>
           <span style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-40%)', fontSize: '0.6rem', color: '#ccc', pointerEvents: 'none' }}>▼</span>
@@ -319,14 +313,28 @@ const Globe = () => {
         <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} style={{ background: 'transparent', color: 'white', border: 'none', cursor: 'pointer', fontSize: '1.2rem', padding: '0 5px' }}>⚙️</button>
       </div>
 
-      {/* ★追加: ユーザーアイコン（右上） */}
-      <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 20 }}>
+      {/* ユーザー情報表示エリア */}
+      <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 20, display: 'flex', alignItems: 'center', gap: '10px' }}>
+        
+        {/* 名前とタグを表示 */}
+        {profile && (
+          <div style={{ 
+            color: 'white', fontSize: '0.9rem', 
+            background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '8px',
+            border: isPremium ? '1px solid #FFD700' : '1px solid #444' 
+          }}>
+            <span style={{ fontWeight: 'bold' }}>{profile.username}</span>
+            <span style={{ color: '#888', marginLeft: '5px' }}>#{profile.discriminator}</span>
+            {isPremium && <span style={{ marginLeft: '5px', color: '#FFD700' }}>★</span>}
+          </div>
+        )}
+
         <button 
           onClick={() => {
             if (user) {
               if (window.confirm('ログアウトしますか？')) {
                 supabase.auth.signOut();
-                setUser(null);
+                setUser(null); setProfile(null);
               }
             } else {
               setShowAuthModal(true);
@@ -362,22 +370,9 @@ const Globe = () => {
 
       {displayData && (
         <div style={{ position: 'absolute', bottom: '15%', left: '50%', transform: 'translateX(-50%)', background: 'rgba(10, 10, 10, 0.85)', padding: '20px', borderRadius: '20px', color: 'white', textAlign: 'center', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.2)', zIndex: 10, minWidth: '300px', maxWidth: '80%', boxShadow: '0 4px 30px rgba(0,0,0,0.5)', animation: 'fadeIn 0.5s' }}>
-          
-          {/* ★追加: お気に入りボタン (ハート) */}
           <div style={{ position: 'absolute', top: '-20px', right: '20px' }}>
-            <button 
-              onClick={toggleFavorite}
-              style={{
-                background: favorites.has(selectedLocation.id) ? '#ff3366' : '#333',
-                color: 'white', border: '2px solid white', borderRadius: '50%',
-                width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem',
-                boxShadow: '0 4px 10px rgba(0,0,0,0.5)', transition: 'all 0.2s'
-              }}
-            >
-              {favorites.has(selectedLocation.id) ? '♥' : '♡'}
-            </button>
+            <button onClick={toggleFavorite} style={{ background: favorites.has(selectedLocation.id) ? '#ff3366' : '#333', color: 'white', border: '2px solid white', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', boxShadow: '0 4px 10px rgba(0,0,0,0.5)', transition: 'all 0.2s' }}>{favorites.has(selectedLocation.id) ? '♥' : '♡'}</button>
           </div>
-
           <div style={{ marginBottom: '10px', fontSize: '12px', color: isPlaying ? '#00ffcc' : '#888' }}>{isPlaying ? <><span className="pulse">●</span> ON AIR</> : <span>● READY</span>}</div>
           <div style={{ color: '#ffccaa', marginBottom: '10px' }}>{renderNameWithTags(displayData.name)}</div>
           <p style={{ margin: 0, fontSize: '0.85rem', color: '#ddd', maxHeight: '150px', overflowY: 'auto', textAlign: 'left', lineHeight: '1.6' }}>{displayData.description}</p>
