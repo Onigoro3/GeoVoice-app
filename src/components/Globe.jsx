@@ -17,7 +17,7 @@ const LANGUAGES = {
   fr: { code: 'fr', label: '🇫🇷 Français', placeholder: 'Ex: Châteaux du Japon...' },
 };
 
-// ★地図のブラックアウト対策（メモ化）
+// ★修正: Mapコンポーネントの再レンダリングを徹底的に防ぐ
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData }) => {
   return (
     <Map
@@ -41,12 +41,20 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       )}
     </Map>
   );
-}, (prev, next) => prev.geoJsonData === next.geoJsonData);
+}, (prev, next) => {
+  // geoJsonData（場所データ）が変わった時以外は、絶対に再描画させない
+  return prev.geoJsonData === next.geoJsonData;
+});
 
 const Globe = () => {
   const mapRef = useRef(null);
   const audioRef = useRef(null);
   
+  // ★重要: ステートをRefで持つことで、handleMoveEndの再生成を防ぐ
+  const locationsRef = useRef([]);
+  const selectedLocationRef = useRef(null);
+  const isGeneratingRef = useRef(false);
+
   const [locations, setLocations] = useState([]);
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [displayData, setDisplayData] = useState(null);
@@ -64,12 +72,16 @@ const Globe = () => {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [isPremium, setIsPremium] = useState(false);
-  
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showFavList, setShowFavList] = useState(false);
   const [favorites, setFavorites] = useState(new Set());
 
   const initialViewState = { longitude: 13.4, latitude: 41.9, zoom: 3 };
+
+  // Refの同期
+  useEffect(() => { locationsRef.current = locations; }, [locations]);
+  useEffect(() => { selectedLocationRef.current = selectedLocation; }, [selectedLocation]);
+  useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
 
   // データ取得
   const fetchSpots = async () => {
@@ -147,63 +159,38 @@ const Globe = () => {
     }
   }, [isBgmOn, isPlaying, bgmVolume]);
 
-  // ★強力な自動翻訳・修復機能
   const translateAndFix = async (spot, lang) => {
-    // 既に生成中なら重複させない
     if (statusMessage === "翻訳データを生成中...") return;
-
-    // 一時的にステータス表示
     setStatusMessage(`翻訳中: ${spot.name}...`);
-    
     try {
       const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
       const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); 
+      const prompt = `You are a travel guide. Translate/Rewrite the location info into ${LANGUAGES[lang].name}. Target: "${spot.name}" (Description: "${spot.description}"). Rules: 1. If description is too short, generate a proper explanation. 2. Output JSON only: { "name": "Name #Tag", "description": "Explanation..." }`;
       
-      // プロンプト: 「世界遺産」みたいな手抜き説明文も、ちゃんと書き直させる
-      const prompt = `
-        You are a travel guide. 
-        Translate/Rewrite the location info into ${LANGUAGES[lang].name}.
-        Target: "${spot.name}" (Description: "${spot.description}")
-        
-        Rules:
-        1. If the description is too short or just "World Heritage", generate a proper 100-character explanation.
-        2. Output JSON only: { "name": "Name #Tag", "description": "Explanation..." }
-      `;
-
       const result = await model.generateContent(prompt);
       const text = result.response.text().replace(/```json/g, "").replace(/```/g, "").trim();
       const json = JSON.parse(text);
 
-      // 保存するカラム名
       const nameCol = lang === 'ja' ? 'name_ja' : `name_${lang}`;
       const descCol = lang === 'ja' ? 'description_ja' : `description_${lang}`;
-      
-      const updateData = {
-        [nameCol]: json.name,
-        [descCol]: json.description
-      };
+      const updateData = { [nameCol]: json.name, [descCol]: json.description };
 
-      // 1. DB更新 (全ユーザーのために保存)
       await supabase.from('spots').update(updateData).eq('id', spot.id);
       
-      // 2. ローカルデータ更新 (リロードなしで反映)
       setLocations(prev => prev.map(l => l.id === spot.id ? { ...l, ...updateData } : l));
       
-      // 3. 現在の表示を即座に更新して読み上げ
-      if (selectedLocation && selectedLocation.id === spot.id) {
+      if (selectedLocationRef.current && selectedLocationRef.current.id === spot.id) {
         const newData = { ...spot, ...updateData, name: json.name, description: json.description };
         setDisplayData(newData);
-        setStatusMessage(""); // メッセージ消去
+        setStatusMessage("");
         speak(json.description);
       }
-
     } catch (e) {
       console.error("Auto-translation failed:", e);
       setStatusMessage("");
     }
   };
 
-  // 選択時のロジック (ここを厳しくした)
   useEffect(() => {
     if (!selectedLocation) {
       setDisplayData(null);
@@ -212,42 +199,29 @@ const Globe = () => {
       return;
     }
 
-    // 1. まずは持っているデータを表示しようとする
     const suffix = currentLang === 'ja' ? '_ja' : `_${currentLang}`;
-    // 日本語の場合は name_ja を見る。無ければ name を見る
     let displayName = selectedLocation[`name${suffix}`];
     let displayDesc = selectedLocation[`description${suffix}`];
 
-    // フォールバック: もし専用カラムが空なら、デフォルト(英語など)を表示しておく
     if (!displayName) displayName = selectedLocation.name;
     if (!displayDesc) displayDesc = selectedLocation.description;
 
-    // 2. 「これ翻訳必要じゃね？」判定
-    // 条件: 
-    // - 日本語モードなのに、名前に日本語(ひらがな/カタカナ/漢字)が含まれていない
-    // - または、説明文が「世界遺産」だけ、もしくは極端に短い(15文字以下)
     const isJapaneseMode = currentLang === 'ja';
     const hasJapaneseChars = displayName && displayName.match(/[ぁ-んァ-ン一-龯]/);
     const isWeakDescription = !displayDesc || displayDesc.length < 15 || displayDesc.includes("世界遺産") || displayDesc.includes("World Heritage");
-
     const needsFix = isJapaneseMode && (!hasJapaneseChars || isWeakDescription);
 
     if (needsFix) {
-      // ★翻訳が必要な場合
-      // まずは今の状態(英語など)を表示
       const tempData = { ...selectedLocation, name: displayName, description: displayDesc };
       setDisplayData(tempData);
-      
-      // 裏で翻訳を実行！
       translateAndFix(selectedLocation, currentLang);
     } else {
-      // ★完璧なデータがある場合
       const newData = { ...selectedLocation, name: displayName, description: displayDesc };
       setDisplayData(newData);
       window.speechSynthesis.cancel();
       speak(newData.description);
     }
-  }, [selectedLocation, currentLang]); // selectedLocationが変わるたびにチェック
+  }, [selectedLocation, currentLang]);
 
   const speak = (text) => {
     if (!text) { setIsPlaying(false); return; }
@@ -273,7 +247,6 @@ const Globe = () => {
       
       const insertData = newSpots.map(s => {
         const spot = { ...s };
-        // 生成時はとりあえず name_ja 等にも入れておく
         const suffix = currentLang === 'ja' ? '_ja' : `_${currentLang}`;
         if (currentLang !== 'ja') {
            spot[`name${suffix}`] = s.name;
@@ -297,23 +270,39 @@ const Globe = () => {
     features: locations.map(loc => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [loc.lon, loc.lat] }, properties: { ...loc } }))
   }), [locations]);
 
-  // 地図移動時の処理（ブラックアウト対策済み）
+  // ★ここが最大の修正ポイント: 依存配列を空([])にして、関数自体を二度と再生成しない
+  // 中身は Ref を通じて最新の値にアクセスする
   const handleMoveEnd = useCallback((evt) => {
-    if (!evt.originalEvent || isGenerating) return;
+    if (!evt.originalEvent || isGeneratingRef.current) return;
+    
     const map = mapRef.current?.getMap();
     if (!map) return;
+
     const center = map.getCenter();
     const point = map.project(center);
-    const features = map.queryRenderedFeatures([[point.x - 20, point.y - 20], [point.x + 20, point.y + 20]], { layers: ['point-core'] });
+    
+    const features = map.queryRenderedFeatures(
+      [[point.x - 20, point.y - 20], [point.x + 20, point.y + 20]], 
+      { layers: ['point-core'] }
+    );
+
     if (features.length > 0) {
       const bestTarget = features[0].properties;
-      const fullLocation = locations.find(l => l.id === bestTarget.id) || bestTarget;
-      if (!selectedLocation || fullLocation.id !== selectedLocation.id) {
-        setSelectedLocation(fullLocation);
+      // Refから最新のlocationsを参照
+      const fullLocation = locationsRef.current.find(l => l.id === bestTarget.id) || bestTarget;
+      
+      // Refから最新の選択中スポットを参照して比較
+      if (!selectedLocationRef.current || fullLocation.id !== selectedLocationRef.current.id) {
+        setSelectedLocation(fullLocation); // ここでState更新 -> 読み上げトリガー
         map.flyTo({ center: [fullLocation.lon, fullLocation.lat], speed: 0.6, curve: 1 });
       }
-    } else { setSelectedLocation(null); }
-  }, [locations, isGenerating, selectedLocation]);
+    } else {
+      // 選択解除も、本当に変わる時だけ
+      if (selectedLocationRef.current !== null) {
+        setSelectedLocation(null);
+      }
+    }
+  }, []); // ← 依存配列は空！これでMapは再レンダリングされなくなります。
 
   const renderNameWithTags = (fullName) => {
     if (!fullName) return null;
@@ -370,7 +359,7 @@ const Globe = () => {
         mapRef={mapRef}
         mapboxAccessToken={MAPBOX_TOKEN}
         initialViewState={initialViewState}
-        onMoveEnd={handleMoveEnd}
+        onMoveEnd={handleMoveEnd} // ←固定化された関数を渡す
         geoJsonData={geoJsonData}
       />
       
