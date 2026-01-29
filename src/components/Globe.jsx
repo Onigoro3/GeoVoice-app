@@ -10,15 +10,15 @@ import { isVipUser } from '../vipList';
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
+// ★修正: AIへの指示用に 'name' (Japanese, English...) を復活
 const LANGUAGES = {
-  ja: { code: 'ja', label: '🇯🇵 日本語', placeholder: '例: 日本の城...' },
-  en: { code: 'en', label: '🇺🇸 English', placeholder: 'Ex: Castles in Japan...' },
-  zh: { code: 'zh', label: '🇨🇳 中文', placeholder: '例如：日本的城堡...' },
-  es: { code: 'es', label: '🇪🇸 Español', placeholder: 'Ej: Castillos de Japón...' },
-  fr: { code: 'fr', label: '🇫🇷 Français', placeholder: 'Ex: Châteaux du Japon...' },
+  ja: { code: 'ja', name: 'Japanese', label: '🇯🇵 日本語', placeholder: '例: 日本の城...' },
+  en: { code: 'en', name: 'English', label: '🇺🇸 English', placeholder: 'Ex: Castles in Japan...' },
+  zh: { code: 'zh', name: 'Chinese', label: '🇨🇳 中文', placeholder: '例如：日本的城堡...' },
+  es: { code: 'es', name: 'Spanish', label: '🇪🇸 Español', placeholder: 'Ej: Castillos de Japón...' },
+  fr: { code: 'fr', name: 'French', label: '🇫🇷 Français', placeholder: 'Ex: Châteaux du Japon...' },
 };
 
-// 地図コンポーネント
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError }) => {
   return (
     <Map
@@ -85,7 +85,6 @@ const GlobeContent = () => {
   useEffect(() => { selectedLocationRef.current = selectedLocation; }, [selectedLocation]);
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
 
-  // データ取得
   const fetchSpots = async () => {
     try {
       const { data, error } = await supabase.from('spots').select('*');
@@ -163,9 +162,9 @@ const GlobeContent = () => {
 
     try {
       const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-      // ★修正: 1.5-flash -> 2.0-flash に変更 (1.5は廃止されたため404エラーになる)
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" }); 
       
+      // nameプロパティが復活したので、正しく "Japanese" などが入る
       const prompt = `
         Translate/Rewrite into ${LANGUAGES[lang].name}.
         Target: "${spot.name}"
@@ -198,9 +197,9 @@ const GlobeContent = () => {
     } catch (e) {
       addLog(`翻訳失敗: ${e.message}`);
       if (e.message.includes("404")) {
-         alert("AIモデルが見つかりません。コード内のモデル名を確認してください。");
+         alert("AIモデルが見つかりません。");
       } else if (e.message.includes("429")) {
-        alert("API制限中です。少し待ってから再試行してください。");
+        alert("API制限中です。少し待機してください。");
       }
     } finally {
       setStatusMessage("");
@@ -258,7 +257,6 @@ const GlobeContent = () => {
     setStatusMessage("AI生成中...");
     try {
       const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-      // ★修正: こちらも 2.0-flash に変更
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
       const prompt = `歴史ガイドとして「${inputTheme}」のスポットを3つ選んで。言語: ${LANGUAGES[currentLang].label}。出力(JSON): [{"name":"名称 #タグ","lat":0,"lon":0,"description":"解説"}]`;
       const result = await model.generateContent(prompt);
