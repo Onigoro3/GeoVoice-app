@@ -8,12 +8,17 @@ const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 const Globe = () => {
   const mapRef = useRef(null);
-  const audioRef = useRef(null); // BGM用
+  const audioRef = useRef(null);
   const [locations, setLocations] = useState([]);
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [displayData, setDisplayData] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isBgmOn, setIsBgmOn] = useState(false); // BGMスイッチ
+  
+  // --- 音量設定用State ---
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false); // 設定パネル開閉
+  const [bgmVolume, setBgmVolume] = useState(0.5);   // BGM音量 (0.0 ~ 1.0)
+  const [voiceVolume, setVoiceVolume] = useState(1.0); // 音声音量 (0.0 ~ 1.0)
+  const [isBgmOn, setIsBgmOn] = useState(false);
   
   const initialViewState = {
     longitude: 13.4, latitude: 41.9, zoom: 3,
@@ -30,42 +35,31 @@ const Globe = () => {
 
   useEffect(() => { fetchSpots(); }, []);
 
-  // --- BGM制御 (ラジオDJ機能) ---
+  // --- BGM制御 (音量スライダー対応) ---
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
     if (isBgmOn) {
-      audio.play().catch(e => console.log("再生エラー(操作待ち):", e));
-      // 解説中なら音量を絞る(0.1)、そうでなければ通常(0.5)
-      // スーッと音量が変わるように transition を設定できればベストだが、まずは直接変更
-      if (isPlaying) {
-        // フェードアウトっぽく
-        let vol = audio.volume;
-        const fadeOut = setInterval(() => {
-            if (vol > 0.1) {
-                vol -= 0.05;
-                audio.volume = Math.max(0.1, vol);
-            } else {
-                clearInterval(fadeOut);
-            }
-        }, 50);
-      } else {
-        // フェードイン
-        let vol = audio.volume;
-        const fadeIn = setInterval(() => {
-            if (vol < 0.5) {
-                vol += 0.05;
-                audio.volume = Math.min(0.5, vol);
-            } else {
-                clearInterval(fadeIn);
-            }
-        }, 50);
+      // ユーザー操作が必要な場合のエラー対策
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => {
+          // 自動再生ブロック時は何もしない（ユーザーの次の操作を待つ）
+        });
       }
+
+      // ダッキング処理（解説中は音量を下げる）
+      // 基準音量は bgmVolume を使う
+      const targetVolume = isPlaying ? bgmVolume * 0.2 : bgmVolume;
+
+      // 音量を滑らかに変更 (簡易的)
+      audio.volume = targetVolume;
+      
     } else {
       audio.pause();
     }
-  }, [isBgmOn, isPlaying]);
+  }, [isBgmOn, isPlaying, bgmVolume]);
 
   const fetchWikiSummary = async (keyword) => {
     try {
@@ -78,6 +72,7 @@ const Globe = () => {
     } catch { return null; }
   };
 
+  // --- 選択時の処理 (高速化) ---
   useEffect(() => {
     if (!selectedLocation) {
       setDisplayData(null);
@@ -85,32 +80,45 @@ const Globe = () => {
       setIsPlaying(false);
       return;
     }
+
+    // ★修正: まずは即座に表示・再生（Wikiを待たない）
     setDisplayData(selectedLocation);
+    
+    // 短い説明や「世界遺産」だけの場合のみ、裏でWikiを取りに行く
     if (selectedLocation.description === '世界遺産' || selectedLocation.description.length < 15) {
+      // とりあえず今の短い文で喋り始める
+      speak(selectedLocation.description);
+
+      // 非同期でWiki取得
       fetchWikiSummary(selectedLocation.name).then(wikiText => {
         if (wikiText) {
+          // Wikiが取れたらデータを差し替え
           const newData = { ...selectedLocation, description: wikiText + " (出典: Wikipedia)" };
           setDisplayData(newData);
+          // 文章が変わったので、読み上げ直す
           speak(newData.description);
-        } else {
-          speak(selectedLocation.description);
         }
       });
     } else {
+      // 最初から長い説明があるならそれを即座に読む
       speak(selectedLocation.description);
     }
   }, [selectedLocation]);
 
+  // --- 音声合成 (高速化 & 音量対応) ---
   const speak = (text) => {
     window.speechSynthesis.cancel();
     if (!text) { setIsPlaying(false); return; }
-    setTimeout(() => {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'ja-JP';
-      utterance.onstart = () => setIsPlaying(true);
-      utterance.onend = () => setIsPlaying(false);
-      window.speechSynthesis.speak(utterance);
-    }, 500);
+    
+    // ★修正: setTimeoutを削除し、即時再生に変更
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'ja-JP';
+    utterance.volume = voiceVolume; // ★スライダーの値を反映
+    
+    utterance.onstart = () => setIsPlaying(true);
+    utterance.onend = () => setIsPlaying(false);
+    
+    window.speechSynthesis.speak(utterance);
   };
 
   const handleGenerate = async () => {
@@ -228,19 +236,47 @@ const Globe = () => {
   return (
     <div style={{ width: "100vw", height: "100vh", background: "black", fontFamily: 'sans-serif' }}>
       
-      {/* BGMプレイヤー (画面には表示しない) */}
       <audio ref={audioRef} src="/bgm.mp3" loop />
 
-      {/* コントロールバー (検索 + BGMボタン) */}
+      {/* --- コントロールバー --- */}
       <div style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 20, display: 'flex', gap: '10px', background: 'rgba(0,0,0,0.6)', padding: '10px', borderRadius: '12px', backdropFilter: 'blur(5px)', border: '1px solid rgba(255,255,255,0.1)' }}>
-        <input type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder="例: 日本の城..." style={{ background: 'transparent', border: 'none', borderBottom: '1px solid #666', color: 'white', outline: 'none', padding: '5px', width: '150px' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
+        <input type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder="例: 日本の城..." style={{ background: 'transparent', border: 'none', borderBottom: '1px solid #666', color: 'white', outline: 'none', padding: '5px', width: '140px' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
         <button onClick={handleGenerate} disabled={isGenerating} style={{ background: isGenerating ? '#555' : '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 10px', cursor: 'pointer', fontWeight: 'bold' }}>{isGenerating ? 'Wait...' : '生成'}</button>
         
-        {/* BGMスイッチ */}
-        <button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: isBgmOn ? '#ffaa00' : '#555', color: 'white', border: 'none', borderRadius: '4px', padding: '5px 10px', cursor: 'pointer', fontWeight: 'bold' }}>
-          {isBgmOn ? '♫ ON' : '♫ OFF'}
+        {/* 設定ボタン (歯車) */}
+        <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} style={{ background: '#333', color: 'white', border: 'none', borderRadius: '4px', padding: '5px 10px', cursor: 'pointer', fontSize: '1.2rem' }}>
+          ⚙️
         </button>
       </div>
+
+      {/* --- 設定パネル (音量スライダー) --- */}
+      {isSettingsOpen && (
+        <div style={{
+          position: 'absolute', top: '70px', left: '20px', zIndex: 20,
+          background: 'rgba(20,20,20,0.9)', padding: '15px', borderRadius: '12px',
+          border: '1px solid rgba(255,255,255,0.2)', color: 'white', minWidth: '200px',
+          boxShadow: '0 4px 15px rgba(0,0,0,0.5)', backdropFilter: 'blur(10px)'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+            <span>BGM</span>
+            <button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: isBgmOn ? '#ffaa00' : '#555', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 8px', fontSize: '0.8rem', cursor: 'pointer' }}>
+              {isBgmOn ? 'ON' : 'OFF'}
+            </button>
+          </div>
+          <input 
+            type="range" min="0" max="1" step="0.1" 
+            value={bgmVolume} onChange={e => setBgmVolume(parseFloat(e.target.value))}
+            style={{ width: '100%', marginBottom: '15px', cursor: 'pointer' }} 
+          />
+          
+          <div style={{ marginBottom: '5px' }}>Voice Vol</div>
+          <input 
+            type="range" min="0" max="1" step="0.1" 
+            value={voiceVolume} onChange={e => setVoiceVolume(parseFloat(e.target.value))}
+            style={{ width: '100%', cursor: 'pointer' }} 
+          />
+        </div>
+      )}
 
       {statusMessage && <div style={{ position: 'absolute', top: '80px', left: '20px', zIndex: 20, color: '#00ffcc', textShadow: '0 0 5px black' }}>{statusMessage}</div>}
 
