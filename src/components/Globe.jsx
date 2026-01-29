@@ -1,3 +1,5 @@
+// src/components/Globe.jsx
+
 import React, { useRef, useState, useMemo, useEffect, useCallback } from 'react';
 import Map, { Source, Layer } from 'react-map-gl';
 import { supabase } from '../supabaseClient';
@@ -132,34 +134,55 @@ const Globe = () => {
     }))
   }), [locations]);
 
+  // ★修正箇所: スマホでのズレを解消するためのロジック変更
   const handleMoveEnd = useCallback((evt) => {
     if (!evt.originalEvent || isGenerating) return;
     const map = mapRef.current?.getMap();
     if (!map) return;
     
-    const center = map.project(map.getCenter());
+    // --- 修正ポイント: 中心の取得方法を変更 ---
+    // 地図が表示されているコンテナのサイズを直接測る
+    const rect = map.getContainer().getBoundingClientRect();
+    // その中心座標を計算（これが最も確実な「見た目の真ん中」）
+    const center = {
+        x: rect.width / 2,
+        y: rect.height / 2
+    };
+    
+    // 現在の表示範囲（地理座標）
     const bounds = map.getBounds();
 
-    // ★修正: 吸着範囲を狭くしました (60 -> 40)
-    // 枠を小さくしたので、吸着範囲も小さくしないと違和感が出るため
-    const snapRadius = 40;
+    // 吸着範囲（ピクセル）。少しだけ広げて捉えやすくする (40 -> 50)
+    const snapRadius = 50;
     
     let bestTarget = null;
     let minDist = snapRadius;
 
     locations.forEach(loc => {
+      // 画面外ならスキップ
       if (!bounds.contains([loc.lon, loc.lat])) return;
+
+      // ピンの座標を画面座標に変換
       const p = map.project([loc.lon, loc.lat]);
+      
+      // 距離計算
       const dist = Math.sqrt((p.x - center.x)**2 + (p.y - center.y)**2);
-      if (dist < minDist) { minDist = dist; bestTarget = loc; }
+      
+      if (dist < minDist) {
+        minDist = dist;
+        bestTarget = loc;
+      }
     });
 
     if (bestTarget) {
+      // 違う場所なら更新して移動
       if (!selectedLocation || bestTarget.id !== selectedLocation.id) {
         setSelectedLocation(bestTarget);
-        map.flyTo({ center: [bestTarget.lon, bestTarget.lat], speed: 0.6, curve: 1 });
+        // 移動速度を少しゆっくりにして、吸着感を強調
+        map.flyTo({ center: [bestTarget.lon, bestTarget.lat], speed: 0.5, curve: 1 });
       }
     } else {
+      // 範囲外なら解除
       setSelectedLocation(null);
     }
   }, [locations, isGenerating, selectedLocation]);
@@ -198,9 +221,10 @@ const Globe = () => {
 
       {statusMessage && <div style={{ position: 'absolute', top: '80px', left: '20px', zIndex: 20, color: '#00ffcc', textShadow: '0 0 5px black' }}>{statusMessage}</div>}
 
-      {/* ★修正: 照準枠のサイズを小さくしました (80px -> 50px) */}
+      {/* 照準枠 */}
       <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
 
+      {/* ポップアップ */}
       {displayData && (
         <div style={{ position: 'absolute', bottom: '15%', left: '50%', transform: 'translateX(-50%)', background: 'rgba(10, 10, 10, 0.85)', padding: '20px', borderRadius: '20px', color: 'white', textAlign: 'center', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.2)', zIndex: 10, minWidth: '300px', maxWidth: '80%', boxShadow: '0 4px 30px rgba(0,0,0,0.5)', animation: 'fadeIn 0.5s' }}>
           <div style={{ marginBottom: '10px', fontSize: '12px', color: isPlaying ? '#00ffcc' : '#888' }}>{isPlaying ? <><span className="pulse">●</span> ON AIR</> : <span>● READY</span>}</div>
@@ -213,7 +237,6 @@ const Globe = () => {
         <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
         {geoJsonData && (
           <Source id="my-locations" type="geojson" data={geoJsonData}>
-            {/* ★修正: 点のサイズを小さくしました (15->8, 6->3) */}
             <Layer id="point-glow" type="circle" paint={{ 'circle-radius': 8, 'circle-color': '#ffaa88', 'circle-opacity': 0.4, 'circle-blur': 0.8 }} />
             <Layer id="point-core" type="circle" paint={{ 'circle-radius': 3, 'circle-color': '#fff', 'circle-opacity': 1 }} />
           </Source>
