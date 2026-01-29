@@ -17,6 +17,9 @@ const LANGUAGES = {
 const Globe = () => {
   const mapRef = useRef(null);
   const audioRef = useRef(null);
+  // ★追加: キャッシュ用 (一度取得したWikiデータを保存)
+  const wikiCache = useRef({}); 
+  
   const [locations, setLocations] = useState([]);
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [displayData, setDisplayData] = useState(null);
@@ -28,14 +31,13 @@ const Globe = () => {
   const [isBgmOn, setIsBgmOn] = useState(false);
   
   const [currentLang, setCurrentLang] = useState('ja');
+  const [inputTheme, setInputTheme] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("");
 
   const initialViewState = {
     longitude: 13.4, latitude: 41.9, zoom: 3,
   };
-  
-  const [inputTheme, setInputTheme] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [statusMessage, setStatusMessage] = useState("");
 
   const fetchSpots = async () => {
     const { data, error } = await supabase.from('spots').select('*');
@@ -49,27 +51,36 @@ const Globe = () => {
     const audio = audioRef.current;
     if (!audio) return;
     if (isBgmOn) {
-      const playPromise = audio.play();
-      if (playPromise !== undefined) { playPromise.catch(() => {}); }
-      const targetVolume = isPlaying ? bgmVolume * 0.2 : bgmVolume;
-      audio.volume = targetVolume;
+      audio.play().catch(() => {});
+      audio.volume = isPlaying ? bgmVolume * 0.2 : bgmVolume;
     } else {
       audio.pause();
     }
   }, [isBgmOn, isPlaying, bgmVolume]);
 
   const fetchWikiSummary = async (keyword, langCode) => {
+    // ★高速化: キャッシュにあればそれを使う
+    const cacheKey = `${langCode}_${keyword}`;
+    if (wikiCache.current[cacheKey]) {
+      return wikiCache.current[cacheKey];
+    }
+
     try {
       const cleanKeyword = keyword.split('#')[0].trim().split('（')[0].split('(')[0];
       const url = `https://${langCode}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(cleanKeyword)}`;
       const res = await fetch(url);
       if (!res.ok) return null;
       const json = await res.json();
+      
+      // 取得できたらキャッシュに保存
+      if (json.extract) {
+        wikiCache.current[cacheKey] = json.extract;
+      }
       return json.extract;
     } catch { return null; }
   };
 
-  // 選択時の処理 (高速化 & 言語対応)
+  // 選択時の処理 (超高速化)
   useEffect(() => {
     if (!selectedLocation) {
       setDisplayData(null);
@@ -78,35 +89,43 @@ const Globe = () => {
       return;
     }
 
-    // 表示データ準備
-    const baseData = { ...selectedLocation };
-    
-    // ★即座に「翻訳中...」などを出すのではなく、Wiki取得を最優先
-    // 言語が日本語以外、または説明が短い場合は、強制的にWikiを取りに行く
-    const needsTranslation = currentLang !== 'ja' || baseData.description === '世界遺産' || baseData.description.length < 20;
+    // まずは読み上げを即停止 (前の言語が被らないように)
+    window.speechSynthesis.cancel();
 
-    if (needsTranslation) {
-      // 読み上げをキャンセルして待機
-      window.speechSynthesis.cancel();
-      
-      // 画面上はとりあえず名前だけ表示しておく（説明文はWiki待ち）
-      setDisplayData({ ...baseData, description: "..." });
+    // 翻訳が必要か判定
+    const needsTranslation = currentLang !== 'ja' || selectedLocation.description === '世界遺産' || selectedLocation.description.length < 20;
 
-      fetchWikiSummary(baseData.name, currentLang).then(wikiText => {
-        if (wikiText) {
-          const newData = { ...baseData, description: wikiText + " (Wiki)" };
-          setDisplayData(newData);
-          speak(newData.description);
-        } else {
-          // Wikiが取れなかったら元のデータを表示して喋る
-          setDisplayData(baseData);
-          speak(baseData.description);
-        }
-      });
+    if (!needsTranslation) {
+      // 日本語でデータがあるなら即表示・即再生
+      setDisplayData(selectedLocation);
+      speak(selectedLocation.description);
     } else {
-      // 日本語モードで、十分な説明がある場合は即座に表示＆再生
-      setDisplayData(baseData);
-      speak(baseData.description);
+      // 翻訳が必要な場合
+      // ★高速化: キャッシュを確認
+      const cacheKey = `${currentLang}_${selectedLocation.name}`;
+      const cachedText = wikiCache.current[cacheKey];
+
+      if (cachedText) {
+        // キャッシュがあれば 0秒で切り替え
+        const newData = { ...selectedLocation, description: cachedText + " (Wiki)" };
+        setDisplayData(newData);
+        speak(newData.description);
+      } else {
+        // キャッシュがない場合のみ取得
+        setDisplayData({ ...selectedLocation, description: "..." }); // ローディング表示
+        
+        fetchWikiSummary(selectedLocation.name, currentLang).then(wikiText => {
+          if (wikiText) {
+            const newData = { ...selectedLocation, description: wikiText + " (Wiki)" };
+            setDisplayData(newData);
+            speak(newData.description);
+          } else {
+            // 取れなかったら元のテキストを表示
+            setDisplayData(selectedLocation);
+            speak(selectedLocation.description);
+          }
+        });
+      }
     }
   }, [selectedLocation, currentLang]);
 
@@ -117,10 +136,8 @@ const Globe = () => {
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = LANGUAGES[currentLang].voice; 
     utterance.volume = voiceVolume;
-    
     utterance.onstart = () => setIsPlaying(true);
     utterance.onend = () => setIsPlaying(false);
-    
     window.speechSynthesis.speak(utterance);
   };
 
@@ -136,15 +153,13 @@ const Globe = () => {
 
       const prompt = `
         You are a historical tour guide.
-        Please select 3 interesting historical spots about "${inputTheme}".
-        
-        [Constraints]
-        1. Language: Write Name and Description in **${langConfig.name}**.
-        2. Name: Use the official Wikipedia title in ${langConfig.name}.
-        3. Tags: Add 1 or 2 tags with '#' at the end (e.g. "Name #History").
-        4. Format: Output ONLY JSON.
-        
-        Output JSON: [{"name": "Name #Tag", "lat": 12.34, "lon": 56.78, "description": "Description..."}]
+        Select 3 interesting spots about "${inputTheme}".
+        Output ONLY JSON.
+        Constraints:
+        1. Language: ${langConfig.name}.
+        2. Name: Official Wikipedia title in ${langConfig.name}.
+        3. Tags: Add 1-2 tags with '#' (e.g. "Name #History").
+        Output: [{"name": "Name #Tag", "lat": 12.34, "lon": 56.78, "description": "Desc..."}]
       `;
 
       const result = await model.generateContent(prompt);
@@ -154,6 +169,7 @@ const Globe = () => {
       
       const newSpots = JSON.parse(jsonMatch[0]);
 
+      // Wiki補完
       const updatedSpots = await Promise.all(newSpots.map(async (spot) => {
         const wikiText = await fetchWikiSummary(spot.name, currentLang);
         return wikiText ? { ...spot, description: wikiText + " (Wiki)" } : spot;
@@ -165,10 +181,8 @@ const Globe = () => {
       if (updatedSpots.length > 0) {
         mapRef.current?.flyTo({ center: [updatedSpots[0].lon, updatedSpots[0].lat], zoom: 4, speed: 0.8 });
       }
-      
       setInputTheme("");
       alert(`${updatedSpots.length} added!`);
-
     } catch (e) {
       alert(`Error: ${e.message}`);
     } finally {
@@ -186,34 +200,57 @@ const Globe = () => {
     }))
   }), [locations]);
 
-  // ★修正: ズレ対策
-  // Mapboxのカメラ中心(project)と、CSSの照準(50%,50%)を完全に同期させる
+  // ★修正: ズレ対策 (物理的な画面中心からの距離を計算)
   const handleMoveEnd = useCallback((evt) => {
     if (!evt.originalEvent || isGenerating) return;
     const map = mapRef.current?.getMap();
     if (!map) return;
     
-    // ★重要変更: 画面サイズから計算するのではなく、Mapboxの投影座標を使う
-    // これにより、flyTo()の目的地と計算上の中心が100%一致します
-    const center = map.project(map.getCenter());
+    // 画面の物理的な中心を取得 (Rectを使用)
+    const rect = map.getContainer().getBoundingClientRect();
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
     
-    const bounds = map.getBounds();
-    const snapRadius = 50; 
+    // 吸着範囲 (px)
+    const snapRadius = 40; 
     
     let bestTarget = null;
     let minDist = snapRadius;
 
-    locations.forEach(loc => {
-      if (!bounds.contains([loc.lon, loc.lat])) return;
-      const p = map.project([loc.lon, loc.lat]);
-      const dist = Math.sqrt((p.x - center.x)**2 + (p.y - center.y)**2);
-      if (dist < minDist) { minDist = dist; bestTarget = loc; }
+    // 現在見えている範囲のスポットだけ計算
+    // queryRenderedFeaturesを使うと、すでに画面座標に変換されたデータが取れるので計算が正確かつ爆速
+    const features = map.queryRenderedFeatures(
+      [
+        [centerX - snapRadius, centerY - snapRadius], // 検索ボックス左上
+        [centerX + snapRadius, centerY + snapRadius]  // 検索ボックス右下
+      ],
+      { layers: ['point-core'] } // 対象レイヤー
+    );
+
+    // 範囲内の候補から一番中心に近いものを探す
+    features.forEach(f => {
+      const geom = f.geometry;
+      // 画面上の座標に変換
+      const p = map.project([geom.coordinates[0], geom.coordinates[1]]);
+      // 物理中心からの距離
+      const dist = Math.sqrt((p.x - centerX)**2 + (p.y - centerY)**2);
+      
+      if (dist < minDist) {
+        minDist = dist;
+        bestTarget = f.properties; // propertiesの中にデータが入っている
+      }
     });
 
     if (bestTarget) {
-      if (!selectedLocation || bestTarget.id !== selectedLocation.id) {
-        setSelectedLocation(bestTarget);
-        map.flyTo({ center: [bestTarget.lon, bestTarget.lat], speed: 0.5, curve: 1 });
+      // データ型を合わせる (GeoJSONのpropertiesは全て文字列になる場合があるため注意が必要だが、今回はsupabase直なのでOK想定)
+      // 必要なら整形: bestTarget = locations.find(l => l.id === bestTarget.id)
+      
+      // 念のためlocationsから完全なオブジェクトを取得
+      const fullLocation = locations.find(l => l.id === bestTarget.id) || bestTarget;
+
+      if (!selectedLocation || fullLocation.id !== selectedLocation.id) {
+        setSelectedLocation(fullLocation);
+        map.flyTo({ center: [fullLocation.lon, fullLocation.lat], speed: 0.6, curve: 1 });
       }
     } else {
       setSelectedLocation(null);
@@ -245,41 +282,27 @@ const Globe = () => {
   };
 
   return (
-    <div style={{ width: "100vw", height: "100vh", background: "black", fontFamily: 'sans-serif' }}>
+    // ★修正: 100vh -> 100dvh (スマホのアドレスバー対策)
+    <div style={{ width: "100vw", height: "100dvh", background: "black", fontFamily: 'sans-serif', position: 'relative', overflow: 'hidden' }}>
       
       <audio ref={audioRef} src="/bgm.mp3" loop />
 
       {/* コントロールバー */}
       <div style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 20, display: 'flex', gap: '8px', background: 'rgba(0,0,0,0.6)', padding: '10px', borderRadius: '12px', backdropFilter: 'blur(5px)', border: '1px solid rgba(255,255,255,0.1)', alignItems: 'center' }}>
         
-        {/* ★変更: ドロップダウン式言語選択 */}
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
           <select 
             value={currentLang}
             onChange={(e) => setCurrentLang(e.target.value)}
-            style={{
-              appearance: 'none', // デフォルトの矢印を消す
-              background: 'transparent',
-              color: 'white',
-              border: 'none',
-              fontSize: '1.2rem',
-              fontWeight: 'bold',
-              cursor: 'pointer',
-              paddingRight: '15px',
-              outline: 'none'
-            }}
+            style={{ appearance: 'none', background: 'transparent', color: 'white', border: 'none', fontSize: '1.2rem', fontWeight: 'bold', cursor: 'pointer', paddingRight: '15px', outline: 'none' }}
           >
             {Object.keys(LANGUAGES).map(key => (
-              <option key={key} value={key} style={{ color: 'black' }}>
-                {LANGUAGES[key].label}
-              </option>
+              <option key={key} value={key} style={{ color: 'black' }}>{LANGUAGES[key].label}</option>
             ))}
           </select>
-          {/* 自作の矢印アイコン */}
           <span style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-40%)', fontSize: '0.6rem', color: '#ccc', pointerEvents: 'none' }}>▼</span>
         </div>
 
-        {/* 仕切り線 */}
         <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.3)' }}></div>
 
         <input 
@@ -300,17 +323,14 @@ const Globe = () => {
         </button>
       </div>
 
-      {/* 設定パネル */}
       {isSettingsOpen && (
         <div style={{ position: 'absolute', top: '70px', left: '20px', zIndex: 20, background: 'rgba(20,20,20,0.9)', padding: '15px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)', color: 'white', minWidth: '200px', boxShadow: '0 4px 15px rgba(0,0,0,0.5)', backdropFilter: 'blur(10px)' }}>
           <div style={{ marginBottom: '10px', fontWeight: 'bold', color: '#00ffcc' }}>Audio Settings</div>
-          
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
             <span>BGM</span>
             <button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: isBgmOn ? '#ffaa00' : '#555', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 8px', fontSize: '0.8rem', cursor: 'pointer' }}>{isBgmOn ? 'ON' : 'OFF'}</button>
           </div>
           <input type="range" min="0" max="1" step="0.1" value={bgmVolume} onChange={e => setBgmVolume(parseFloat(e.target.value))} style={{ width: '100%', marginBottom: '15px', cursor: 'pointer' }} />
-          
           <div style={{ marginBottom: '5px' }}>Voice Vol</div>
           <input type="range" min="0" max="1" step="0.1" value={voiceVolume} onChange={e => setVoiceVolume(parseFloat(e.target.value))} style={{ width: '100%', cursor: 'pointer' }} />
         </div>
@@ -318,7 +338,6 @@ const Globe = () => {
 
       {statusMessage && <div style={{ position: 'absolute', top: '80px', left: '20px', zIndex: 20, color: '#00ffcc', textShadow: '0 0 5px black' }}>{statusMessage}</div>}
 
-      {/* 照準枠: CSSで完全に中央配置 */}
       <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
 
       {displayData && (
