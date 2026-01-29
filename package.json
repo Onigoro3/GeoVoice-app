@@ -10,9 +10,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@supabase/supabase-js": "^2.93.2",
     "dotenv": "^17.2.3",
     "firebase": "^12.8.0",
     "mapbox-gl": "^3.18.1",
+    "node-fetch": "^3.3.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-map-gl": "^7.1.7"
