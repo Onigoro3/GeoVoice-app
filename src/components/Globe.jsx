@@ -5,6 +5,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import AuthModal from './AuthModal';
 import FavoritesModal from './FavoritesModal';
 import { isVipUser } from '../vipList';
+import ErrorBoundary from './ErrorBoundary'; // ★追加
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
@@ -17,8 +18,8 @@ const LANGUAGES = {
   fr: { code: 'fr', label: '🇫🇷 Français', placeholder: 'Ex: Châteaux du Japon...' },
 };
 
-// ★修正: Mapコンポーネントの再レンダリングを徹底的に防ぐ
-const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData }) => {
+// ★地図コンポーネント (メモ化して再レンダリングを防止)
+const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, addLog }) => {
   return (
     <Map
       ref={mapRef}
@@ -30,7 +31,8 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       terrain={{ source: 'mapbox-dem', exaggeration: 1.5 }}
       onMoveEnd={onMoveEnd}
       style={{ width: '100%', height: '100%' }}
-      reuseMaps={true}
+      // reuseMaps={true} // ★ブラックアウトの原因になりやすいので一旦無効化
+      onError={(e) => addLog(`Map Error: ${e.error.message}`)} // マップのエラーをキャッチ
     >
       <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
       {geoJsonData && (
@@ -41,16 +43,13 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       )}
     </Map>
   );
-}, (prev, next) => {
-  // geoJsonData（場所データ）が変わった時以外は、絶対に再描画させない
-  return prev.geoJsonData === next.geoJsonData;
-});
+}, (prev, next) => prev.geoJsonData === next.geoJsonData);
 
-const Globe = () => {
+const GlobeContent = () => {
   const mapRef = useRef(null);
   const audioRef = useRef(null);
   
-  // ★重要: ステートをRefで持つことで、handleMoveEndの再生成を防ぐ
+  // Refで状態を保持（レンダリング回避）
   const locationsRef = useRef([]);
   const selectedLocationRef = useRef(null);
   const isGeneratingRef = useRef(false);
@@ -60,10 +59,6 @@ const Globe = () => {
   const [displayData, setDisplayData] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [bgmVolume, setBgmVolume] = useState(0.5);
-  const [voiceVolume, setVoiceVolume] = useState(1.0);
-  const [isBgmOn, setIsBgmOn] = useState(false);
   const [currentLang, setCurrentLang] = useState('ja');
   const [inputTheme, setInputTheme] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -75,40 +70,63 @@ const Globe = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showFavList, setShowFavList] = useState(false);
   const [favorites, setFavorites] = useState(new Set());
+  
+  // ★デバッグ用ログ
+  const [logs, setLogs] = useState([]);
+  const addLog = (msg) => {
+    console.log(msg);
+    setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 5));
+  };
+
+  // UI状態
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [bgmVolume, setBgmVolume] = useState(0.5);
+  const [voiceVolume, setVoiceVolume] = useState(1.0);
+  const [isBgmOn, setIsBgmOn] = useState(false);
 
   const initialViewState = { longitude: 13.4, latitude: 41.9, zoom: 3 };
 
-  // Refの同期
+  // Ref同期
   useEffect(() => { locationsRef.current = locations; }, [locations]);
   useEffect(() => { selectedLocationRef.current = selectedLocation; }, [selectedLocation]);
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
 
   // データ取得
   const fetchSpots = async () => {
-    const { data, error } = await supabase.from('spots').select('*');
-    if (!error && data) setLocations(data);
+    try {
+      const { data, error } = await supabase.from('spots').select('*');
+      if (error) throw error;
+      if (data) {
+        setLocations(data);
+        addLog(`Loaded ${data.length} spots.`);
+      }
+    } catch (e) {
+      addLog(`Fetch Error: ${e.message}`);
+    }
   };
 
   useEffect(() => {
     fetchSpots();
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setUser(session.user);
-        fetchFavorites(session.user.id);
-        fetchProfile(session.user.id, session.user.email);
-      }
+      if (session?.user) setupUser(session.user);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        setUser(session.user);
-        fetchFavorites(session.user.id);
-        fetchProfile(session.user.id, session.user.email);
-      } else {
-        setUser(null); setProfile(null); setIsPremium(false); setFavorites(new Set());
-      }
+      if (session?.user) setupUser(session.user);
+      else clearUser();
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  const setupUser = (u) => {
+    setUser(u);
+    fetchFavorites(u.id);
+    fetchProfile(u.id, u.email);
+    addLog(`User: ${u.email}`);
+  };
+
+  const clearUser = () => {
+    setUser(null); setProfile(null); setIsPremium(false); setFavorites(new Set());
+  };
 
   const fetchProfile = async (userId, email) => {
     const isVip = isVipUser(email);
@@ -123,9 +141,7 @@ const Globe = () => {
 
   const fetchFavorites = async (userId) => {
     const { data } = await supabase.from('favorites').select('spot_id').eq('user_id', userId);
-    if (data) {
-      setFavorites(new Set(data.map(f => f.spot_id)));
-    }
+    if (data) setFavorites(new Set(data.map(f => f.spot_id)));
   };
 
   const toggleFavorite = async () => {
@@ -133,13 +149,17 @@ const Globe = () => {
     if (!selectedLocation) return;
     const spotId = selectedLocation.id;
     const isFav = favorites.has(spotId);
-    if (isFav) {
-      const { error } = await supabase.from('favorites').delete().eq('user_id', user.id).eq('spot_id', spotId);
-      if (!error) { const newFavs = new Set(favorites); newFavs.delete(spotId); setFavorites(newFavs); }
-    } else {
-      const { error } = await supabase.from('favorites').insert({ user_id: user.id, spot_id: spotId });
-      if (!error) { const newFavs = new Set(favorites); newFavs.add(spotId); setFavorites(newFavs); }
-    }
+    try {
+      if (isFav) {
+        await supabase.from('favorites').delete().eq('user_id', user.id).eq('spot_id', spotId);
+        const newFavs = new Set(favorites); newFavs.delete(spotId); setFavorites(newFavs);
+        addLog("Removed from favorites");
+      } else {
+        await supabase.from('favorites').insert({ user_id: user.id, spot_id: spotId });
+        const newFavs = new Set(favorites); newFavs.add(spotId); setFavorites(newFavs);
+        addLog("Added to favorites");
+      }
+    } catch(e) { addLog(`Fav Error: ${e.message}`); }
   };
 
   const handleSelectFromList = (spot) => {
@@ -148,49 +168,56 @@ const Globe = () => {
     mapRef.current?.flyTo({ center: [spot.lon, spot.lat], zoom: 6, speed: 1.2, curve: 1 });
   };
 
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (isBgmOn) {
-      audio.play().catch(() => {});
-      audio.volume = isPlaying ? bgmVolume * 0.2 : bgmVolume;
-    } else {
-      audio.pause();
-    }
-  }, [isBgmOn, isPlaying, bgmVolume]);
-
+  // 翻訳機能
   const translateAndFix = async (spot, lang) => {
     if (statusMessage === "翻訳データを生成中...") return;
-    setStatusMessage(`翻訳中: ${spot.name}...`);
+    setStatusMessage("翻訳データを生成中...");
+    addLog(`翻訳開始: ${spot.name}`);
+
     try {
       const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
       const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); 
-      const prompt = `You are a travel guide. Translate/Rewrite the location info into ${LANGUAGES[lang].name}. Target: "${spot.name}" (Description: "${spot.description}"). Rules: 1. If description is too short, generate a proper explanation. 2. Output JSON only: { "name": "Name #Tag", "description": "Explanation..." }`;
       
+      const prompt = `
+        Translate/Rewrite into ${LANGUAGES[lang].name}.
+        Target: "${spot.name}"
+        Desc: "${spot.description}"
+        Output JSON: { "name": "Name", "description": "Desc (max 150 chars)" }
+      `;
+
       const result = await model.generateContent(prompt);
       const text = result.response.text().replace(/```json/g, "").replace(/```/g, "").trim();
       const json = JSON.parse(text);
 
+      // 保存処理
       const nameCol = lang === 'ja' ? 'name_ja' : `name_${lang}`;
       const descCol = lang === 'ja' ? 'description_ja' : `description_${lang}`;
       const updateData = { [nameCol]: json.name, [descCol]: json.description };
 
-      await supabase.from('spots').update(updateData).eq('id', spot.id);
+      const { error } = await supabase.from('spots').update(updateData).eq('id', spot.id);
+      if (error) throw error;
       
-      setLocations(prev => prev.map(l => l.id === spot.id ? { ...l, ...updateData } : l));
-      
+      addLog("翻訳完了・保存成功");
+
+      // ローカル更新
+      const updatedLocations = locations.map(l => l.id === spot.id ? { ...l, ...updateData } : l);
+      setLocations(updatedLocations);
+      locationsRef.current = updatedLocations; // Refも更新
+
+      // 表示更新
       if (selectedLocationRef.current && selectedLocationRef.current.id === spot.id) {
         const newData = { ...spot, ...updateData, name: json.name, description: json.description };
         setDisplayData(newData);
-        setStatusMessage("");
         speak(json.description);
       }
     } catch (e) {
-      console.error("Auto-translation failed:", e);
+      addLog(`翻訳エラー: ${e.message}`);
+    } finally {
       setStatusMessage("");
     }
   };
 
+  // 表示・翻訳判定ロジック
   useEffect(() => {
     if (!selectedLocation) {
       setDisplayData(null);
@@ -203,16 +230,25 @@ const Globe = () => {
     let displayName = selectedLocation[`name${suffix}`];
     let displayDesc = selectedLocation[`description${suffix}`];
 
+    // フォールバック
     if (!displayName) displayName = selectedLocation.name;
     if (!displayDesc) displayDesc = selectedLocation.description;
 
+    // ★修正: 翻訳判定ロジック (より厳密に)
     const isJapaneseMode = currentLang === 'ja';
-    const hasJapaneseChars = displayName && displayName.match(/[ぁ-んァ-ン一-龯]/);
-    const isWeakDescription = !displayDesc || displayDesc.length < 15 || displayDesc.includes("世界遺産") || displayDesc.includes("World Heritage");
-    const needsFix = isJapaneseMode && (!hasJapaneseChars || isWeakDescription);
+    
+    // 日本語が含まれているかチェック (ひらがなカタカナ漢字)
+    const hasJapaneseChars = displayName && /[ぁ-んァ-ン一-龯]/.test(displayName);
+    
+    // 説明文が手抜き、または英語のままかチェック
+    const isWeakDesc = !displayDesc || displayDesc.length < 10 || displayDesc.includes("World Heritage") || displayDesc === "世界遺産";
+    
+    // 日本語モードなのに「日本語文字がない」または「説明が弱い」なら翻訳
+    const needsTranslation = isJapaneseMode && (!hasJapaneseChars || isWeakDesc);
 
-    if (needsFix) {
-      const tempData = { ...selectedLocation, name: displayName, description: displayDesc };
+    if (needsTranslation) {
+      addLog(`翻訳が必要と判定: ${displayName}`);
+      const tempData = { ...selectedLocation, name: displayName, description: "翻訳中..." };
       setDisplayData(tempData);
       translateAndFix(selectedLocation, currentLang);
     } else {
@@ -224,7 +260,7 @@ const Globe = () => {
   }, [selectedLocation, currentLang]);
 
   const speak = (text) => {
-    if (!text) { setIsPlaying(false); return; }
+    if (!text || text === "翻訳中...") { setIsPlaying(false); return; }
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = { ja: 'ja-JP', en: 'en-US', zh: 'zh-CN', es: 'es-ES', fr: 'fr-FR' }[currentLang];
     utterance.volume = voiceVolume;
@@ -247,14 +283,9 @@ const Globe = () => {
       
       const insertData = newSpots.map(s => {
         const spot = { ...s };
-        const suffix = currentLang === 'ja' ? '_ja' : `_${currentLang}`;
-        if (currentLang !== 'ja') {
-           spot[`name${suffix}`] = s.name;
-           spot[`description${suffix}`] = s.description;
-        } else {
-           spot['name_ja'] = s.name;
-           spot['description_ja'] = s.description;
-        }
+        // 生成時はとりあえず name_ja にも入れておく
+        spot['name_ja'] = s.name;
+        spot['description_ja'] = s.description;
         return spot;
       });
 
@@ -262,7 +293,12 @@ const Globe = () => {
       fetchSpots();
       if (newSpots.length > 0) mapRef.current?.flyTo({ center: [newSpots[0].lon, newSpots[0].lat], zoom: 4 });
       setInputTheme(""); alert(`${newSpots.length}件追加！`);
-    } catch (e) { alert(`Error: ${e.message}`); } finally { setIsGenerating(false); setStatusMessage(""); }
+    } catch (e) { 
+      addLog(`生成エラー: ${e.message}`); 
+      alert(e.message); 
+    } finally { 
+      setIsGenerating(false); setStatusMessage(""); 
+    }
   };
 
   const geoJsonData = useMemo(() => ({
@@ -270,39 +306,28 @@ const Globe = () => {
     features: locations.map(loc => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [loc.lon, loc.lat] }, properties: { ...loc } }))
   }), [locations]);
 
-  // ★ここが最大の修正ポイント: 依存配列を空([])にして、関数自体を二度と再生成しない
-  // 中身は Ref を通じて最新の値にアクセスする
+  // マップ移動終了時
   const handleMoveEnd = useCallback((evt) => {
     if (!evt.originalEvent || isGeneratingRef.current) return;
-    
     const map = mapRef.current?.getMap();
     if (!map) return;
-
     const center = map.getCenter();
     const point = map.project(center);
+    const features = map.queryRenderedFeatures([[point.x - 20, point.y - 20], [point.x + 20, point.y + 20]], { layers: ['point-core'] });
     
-    const features = map.queryRenderedFeatures(
-      [[point.x - 20, point.y - 20], [point.x + 20, point.y + 20]], 
-      { layers: ['point-core'] }
-    );
-
     if (features.length > 0) {
       const bestTarget = features[0].properties;
-      // Refから最新のlocationsを参照
       const fullLocation = locationsRef.current.find(l => l.id === bestTarget.id) || bestTarget;
       
-      // Refから最新の選択中スポットを参照して比較
+      // Refを使って比較（再レンダリング防止）
       if (!selectedLocationRef.current || fullLocation.id !== selectedLocationRef.current.id) {
-        setSelectedLocation(fullLocation); // ここでState更新 -> 読み上げトリガー
+        setSelectedLocation(fullLocation);
         map.flyTo({ center: [fullLocation.lon, fullLocation.lat], speed: 0.6, curve: 1 });
       }
     } else {
-      // 選択解除も、本当に変わる時だけ
-      if (selectedLocationRef.current !== null) {
-        setSelectedLocation(null);
-      }
+       if (selectedLocationRef.current) setSelectedLocation(null);
     }
-  }, []); // ← 依存配列は空！これでMapは再レンダリングされなくなります。
+  }, []);
 
   const renderNameWithTags = (fullName) => {
     if (!fullName) return null;
@@ -312,11 +337,32 @@ const Globe = () => {
     return (<div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}><span style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>{name}</span><div style={{ display: 'flex', gap: '5px' }}>{tags.map((tag, i) => (<span key={i} style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '10px', backgroundColor: '#00ffcc', color: '#000', fontWeight: 'bold' }}>#{tag}</span>))}</div></div>);
   };
 
+  // BGM制御
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (isBgmOn) {
+      audio.play().catch(() => {});
+      audio.volume = isPlaying ? bgmVolume * 0.2 : bgmVolume;
+    } else {
+      audio.pause();
+    }
+  }, [isBgmOn, isPlaying, bgmVolume]);
+
   return (
     <div style={{ width: "100vw", height: "100dvh", background: "black", fontFamily: 'sans-serif', position: 'relative', overflow: 'hidden' }}>
       <audio ref={audioRef} src="/bgm.mp3" loop />
       
-      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={(u) => { setUser(u); fetchProfile(u.id, u.email); }} />}
+      {/* デバッグコンソール（画面左下） */}
+      <div style={{ 
+        position: 'absolute', bottom: '10px', left: '10px', zIndex: 100, 
+        background: 'rgba(0,0,0,0.7)', color: '#00ff00', fontSize: '10px', 
+        padding: '5px', borderRadius: '5px', maxWidth: '300px', pointerEvents: 'none'
+      }}>
+        {logs.map((log, i) => <div key={i}>{log}</div>)}
+      </div>
+
+      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={setupUser} />}
       {showFavList && user && <FavoritesModal userId={user.id} onClose={() => setShowFavList(false)} onSelect={handleSelectFromList} />}
 
       <div style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 20, display: 'flex', gap: '8px', background: 'rgba(0,0,0,0.6)', padding: '10px', borderRadius: '12px', backdropFilter: 'blur(5px)', border: '1px solid rgba(255,255,255,0.1)', alignItems: 'center' }}>
@@ -330,7 +376,7 @@ const Globe = () => {
       <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 20, display: 'flex', alignItems: 'center', gap: '10px' }}>
         {profile && (<div style={{ color: 'white', fontSize: '0.9rem', background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '8px', border: isPremium ? '1px solid #FFD700' : '1px solid #444' }}><span style={{ fontWeight: 'bold' }}>{profile.username}</span><span style={{ color: '#888', marginLeft: '5px' }}>#{profile.discriminator}</span>{isPremium && <span style={{ marginLeft: '5px', color: '#FFD700' }}>★</span>}</div>)}
         {user && (<button onClick={() => setShowFavList(true)} style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid #ff3366', color: '#ff3366', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>♥</button>)}
-        <button onClick={() => { if (user) { if (window.confirm('ログアウトしますか？')) { supabase.auth.signOut(); setUser(null); setProfile(null); } } else { setShowAuthModal(true); } }} style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', color: user ? '#00ffcc' : 'white', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{user ? '👤' : '🔑'}</button>
+        <button onClick={() => { if (user) { if (window.confirm('ログアウトしますか？')) { supabase.auth.signOut(); clearUser(); } } else { setShowAuthModal(true); } }} style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', color: user ? '#00ffcc' : 'white', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{user ? '👤' : '🔑'}</button>
       </div>
 
       {isSettingsOpen && (
@@ -354,18 +400,25 @@ const Globe = () => {
         </div>
       )}
 
-      {/* ★メモ化されたMapコンポーネント */}
+      {/* Mapコンポーネント */}
       <MemoizedMap 
         mapRef={mapRef}
         mapboxAccessToken={MAPBOX_TOKEN}
         initialViewState={initialViewState}
-        onMoveEnd={handleMoveEnd} // ←固定化された関数を渡す
+        onMoveEnd={handleMoveEnd}
         geoJsonData={geoJsonData}
+        addLog={addLog} // ログ関数を渡す
       />
-      
       <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } } .pulse { animation: pulse 1s infinite; } @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }`}</style>
     </div>
   );
 };
 
-export default Globe;
+// ErrorBoundaryでラップ
+export default function GlobeWrapper() {
+  return (
+    <ErrorBoundary>
+      <GlobeContent />
+    </ErrorBoundary>
+  );
+}
