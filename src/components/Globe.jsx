@@ -163,7 +163,8 @@ const GlobeContent = () => {
 
     try {
       const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); 
+      // ★修正: 1.5-flash -> 2.0-flash に変更 (1.5は廃止されたため404エラーになる)
+      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" }); 
       
       const prompt = `
         Translate/Rewrite into ${LANGUAGES[lang].name}.
@@ -196,8 +197,10 @@ const GlobeContent = () => {
       }
     } catch (e) {
       addLog(`翻訳失敗: ${e.message}`);
-      if (e.message.includes("429")) {
-        alert("API制限中(429)。しばらくお待ちください。");
+      if (e.message.includes("404")) {
+         alert("AIモデルが見つかりません。コード内のモデル名を確認してください。");
+      } else if (e.message.includes("429")) {
+        alert("API制限中です。少し待ってから再試行してください。");
       }
     } finally {
       setStatusMessage("");
@@ -255,7 +258,8 @@ const GlobeContent = () => {
     setStatusMessage("AI生成中...");
     try {
       const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      // ★修正: こちらも 2.0-flash に変更
+      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
       const prompt = `歴史ガイドとして「${inputTheme}」のスポットを3つ選んで。言語: ${LANGUAGES[currentLang].label}。出力(JSON): [{"name":"名称 #タグ","lat":0,"lon":0,"description":"解説"}]`;
       const result = await model.generateContent(prompt);
       const text = result.response.text().replace(/```json/g, "").replace(/```/g, "").trim();
@@ -295,7 +299,6 @@ const GlobeContent = () => {
     
     if (features.length > 0) {
       const bestTarget = features[0].properties;
-      // ★安全対策: プロパティが空の場合は何もしない
       if (!bestTarget) return;
 
       const fullLocation = locationsRef.current.find(l => l.id === bestTarget.id) || bestTarget;
@@ -362,7 +365,6 @@ const GlobeContent = () => {
 
       <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
 
-      {/* ★修正: selectedLocation もチェックして、nullなら表示しない（これでクラッシュを防ぐ） */}
       {selectedLocation && displayData && (
         <div style={{ position: 'absolute', bottom: '15%', left: '50%', transform: 'translateX(-50%)', background: 'rgba(10, 10, 10, 0.85)', padding: '20px', borderRadius: '20px', color: 'white', textAlign: 'center', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.2)', zIndex: 10, minWidth: '300px', maxWidth: '80%', boxShadow: '0 4px 30px rgba(0,0,0,0.5)', animation: 'fadeIn 0.5s' }}>
           <div style={{ position: 'absolute', top: '-20px', right: '20px' }}><button onClick={toggleFavorite} style={{ background: favorites.has(selectedLocation.id) ? '#ff3366' : '#333', color: 'white', border: '2px solid white', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', boxShadow: '0 4px 10px rgba(0,0,0,0.5)', transition: 'all 0.2s' }}>{favorites.has(selectedLocation.id) ? '♥' : '♡'}</button></div>
