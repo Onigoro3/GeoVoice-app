@@ -6,7 +6,6 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
-// ★追加: 対応言語の定義
 const LANGUAGES = {
   ja: { code: 'ja', name: 'Japanese', voice: 'ja-JP', label: '🇯🇵 日本語', placeholder: '例: 日本の城...' },
   en: { code: 'en', name: 'English', voice: 'en-US', label: '🇺🇸 English', placeholder: 'Ex: Castles in Japan...' },
@@ -23,13 +22,11 @@ const Globe = () => {
   const [displayData, setDisplayData] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   
-  // 設定用State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [bgmVolume, setBgmVolume] = useState(0.5);
   const [voiceVolume, setVoiceVolume] = useState(1.0);
   const [isBgmOn, setIsBgmOn] = useState(false);
   
-  // ★追加: 言語設定 (初期値は日本語)
   const [currentLang, setCurrentLang] = useState('ja');
 
   const initialViewState = {
@@ -61,11 +58,9 @@ const Globe = () => {
     }
   }, [isBgmOn, isPlaying, bgmVolume]);
 
-  // ★修正: 言語コードを受け取って、その国のWikipediaから取得する
   const fetchWikiSummary = async (keyword, langCode) => {
     try {
       const cleanKeyword = keyword.split('#')[0].trim().split('（')[0].split('(')[0];
-      // 言語ごとのAPIエンドポイント
       const url = `https://${langCode}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(cleanKeyword)}`;
       const res = await fetch(url);
       if (!res.ok) return null;
@@ -74,7 +69,7 @@ const Globe = () => {
     } catch { return null; }
   };
 
-  // 選択時の処理
+  // 選択時の処理 (高速化 & 言語対応)
   useEffect(() => {
     if (!selectedLocation) {
       setDisplayData(null);
@@ -83,33 +78,43 @@ const Globe = () => {
       return;
     }
 
-    setDisplayData(selectedLocation);
+    // 表示データ準備
+    const baseData = { ...selectedLocation };
     
-    // 短い説明などの場合、Wikiを取りに行く
-    // ★ここ重要: ピンが保存された時の言語はわからないため、とりあえず「現在の設定言語」でWikiを探しに行く
-    // もしヒットしなければ、AIが生成した元のテキスト(description)で喋る
-    if (selectedLocation.description === '世界遺産' || selectedLocation.description.length < 20) {
-      speak(selectedLocation.description); // まずは即時再生
+    // ★即座に「翻訳中...」などを出すのではなく、Wiki取得を最優先
+    // 言語が日本語以外、または説明が短い場合は、強制的にWikiを取りに行く
+    const needsTranslation = currentLang !== 'ja' || baseData.description === '世界遺産' || baseData.description.length < 20;
 
-      fetchWikiSummary(selectedLocation.name, currentLang).then(wikiText => {
+    if (needsTranslation) {
+      // 読み上げをキャンセルして待機
+      window.speechSynthesis.cancel();
+      
+      // 画面上はとりあえず名前だけ表示しておく（説明文はWiki待ち）
+      setDisplayData({ ...baseData, description: "..." });
+
+      fetchWikiSummary(baseData.name, currentLang).then(wikiText => {
         if (wikiText) {
-          const newData = { ...selectedLocation, description: wikiText + " (Wiki)" };
+          const newData = { ...baseData, description: wikiText + " (Wiki)" };
           setDisplayData(newData);
           speak(newData.description);
+        } else {
+          // Wikiが取れなかったら元のデータを表示して喋る
+          setDisplayData(baseData);
+          speak(baseData.description);
         }
       });
     } else {
-      speak(selectedLocation.description);
+      // 日本語モードで、十分な説明がある場合は即座に表示＆再生
+      setDisplayData(baseData);
+      speak(baseData.description);
     }
-  }, [selectedLocation, currentLang]); // 言語が変わったら再取得するかも考慮
+  }, [selectedLocation, currentLang]);
 
-  // 音声合成
   const speak = (text) => {
     window.speechSynthesis.cancel();
-    if (!text) { setIsPlaying(false); return; }
+    if (!text || text === "...") { setIsPlaying(false); return; }
     
     const utterance = new SpeechSynthesisUtterance(text);
-    // ★修正: 現在の言語設定に合わせて声を変更
     utterance.lang = LANGUAGES[currentLang].voice; 
     utterance.volume = voiceVolume;
     
@@ -123,26 +128,23 @@ const Globe = () => {
     if (!inputTheme) return;
     setIsGenerating(true);
     const langConfig = LANGUAGES[currentLang];
-    
-    // ステータス表示も言語によって変えるとベストだが、今回は簡易的に英語/日本語
     setStatusMessage(currentLang === 'ja' ? "AIが選定中..." : "AI is thinking...");
 
     try {
       const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-      // ★修正: プロンプトを国際化
       const prompt = `
         You are a historical tour guide.
         Please select 3 interesting historical spots about "${inputTheme}".
         
         [Constraints]
         1. Language: Write Name and Description in **${langConfig.name}**.
-        2. Name: Use the official Wikipedia title in ${langConfig.name} so I can search it later.
-        3. Tags: Add 1 or 2 tags with '#' at the end of the name (e.g. "Name #History").
+        2. Name: Use the official Wikipedia title in ${langConfig.name}.
+        3. Tags: Add 1 or 2 tags with '#' at the end (e.g. "Name #History").
         4. Format: Output ONLY JSON.
         
-        Output JSON: [{"name": "Name #Tag", "lat": 12.34, "lon": 56.78, "description": "Description in ${langConfig.name}..."}]
+        Output JSON: [{"name": "Name #Tag", "lat": 12.34, "lon": 56.78, "description": "Description..."}]
       `;
 
       const result = await model.generateContent(prompt);
@@ -152,7 +154,6 @@ const Globe = () => {
       
       const newSpots = JSON.parse(jsonMatch[0]);
 
-      // Wiki補完
       const updatedSpots = await Promise.all(newSpots.map(async (spot) => {
         const wikiText = await fetchWikiSummary(spot.name, currentLang);
         return wikiText ? { ...spot, description: wikiText + " (Wiki)" } : spot;
@@ -185,15 +186,19 @@ const Globe = () => {
     }))
   }), [locations]);
 
+  // ★修正: ズレ対策
+  // Mapboxのカメラ中心(project)と、CSSの照準(50%,50%)を完全に同期させる
   const handleMoveEnd = useCallback((evt) => {
     if (!evt.originalEvent || isGenerating) return;
     const map = mapRef.current?.getMap();
     if (!map) return;
     
-    const rect = map.getContainer().getBoundingClientRect();
-    const center = { x: rect.width / 2, y: rect.height / 2 };
+    // ★重要変更: 画面サイズから計算するのではなく、Mapboxの投影座標を使う
+    // これにより、flyTo()の目的地と計算上の中心が100%一致します
+    const center = map.project(map.getCenter());
+    
     const bounds = map.getBounds();
-    const snapRadius = 50;
+    const snapRadius = 50; 
     
     let bestTarget = null;
     let minDist = snapRadius;
@@ -245,42 +250,52 @@ const Globe = () => {
       <audio ref={audioRef} src="/bgm.mp3" loop />
 
       {/* コントロールバー */}
-      <div style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 20, display: 'flex', gap: '10px', background: 'rgba(0,0,0,0.6)', padding: '10px', borderRadius: '12px', backdropFilter: 'blur(5px)', border: '1px solid rgba(255,255,255,0.1)' }}>
+      <div style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 20, display: 'flex', gap: '8px', background: 'rgba(0,0,0,0.6)', padding: '10px', borderRadius: '12px', backdropFilter: 'blur(5px)', border: '1px solid rgba(255,255,255,0.1)', alignItems: 'center' }}>
         
-        {/* 言語切り替えボタン (🌐) */}
-        <div style={{ position: 'relative' }}>
-          <button 
-            onClick={() => {
-              // 言語を順番に切り替える
-              const keys = Object.keys(LANGUAGES);
-              const nextIndex = (keys.indexOf(currentLang) + 1) % keys.length;
-              setCurrentLang(keys[nextIndex]);
-            }} 
-            style={{ background: 'transparent', border: 'none', fontSize: '1.5rem', cursor: 'pointer', padding: '0 5px' }}
-            title="Change Language"
+        {/* ★変更: ドロップダウン式言語選択 */}
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <select 
+            value={currentLang}
+            onChange={(e) => setCurrentLang(e.target.value)}
+            style={{
+              appearance: 'none', // デフォルトの矢印を消す
+              background: 'transparent',
+              color: 'white',
+              border: 'none',
+              fontSize: '1.2rem',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              paddingRight: '15px',
+              outline: 'none'
+            }}
           >
-            🌐
-          </button>
-          {/* 現在の言語ラベルを小さく表示 */}
-          <div style={{ position: 'absolute', bottom: '-15px', left: '50%', transform: 'translateX(-50%)', fontSize: '10px', color: '#fff', whiteSpace: 'nowrap' }}>
-            {LANGUAGES[currentLang].code.toUpperCase()}
-          </div>
+            {Object.keys(LANGUAGES).map(key => (
+              <option key={key} value={key} style={{ color: 'black' }}>
+                {LANGUAGES[key].label}
+              </option>
+            ))}
+          </select>
+          {/* 自作の矢印アイコン */}
+          <span style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-40%)', fontSize: '0.6rem', color: '#ccc', pointerEvents: 'none' }}>▼</span>
         </div>
+
+        {/* 仕切り線 */}
+        <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.3)' }}></div>
 
         <input 
           type="text" 
           value={inputTheme} 
           onChange={e => setInputTheme(e.target.value)} 
-          placeholder={LANGUAGES[currentLang].placeholder} // プレースホルダーも切り替え
-          style={{ background: 'transparent', border: 'none', borderBottom: '1px solid #666', color: 'white', outline: 'none', padding: '5px', width: '140px' }} 
+          placeholder={LANGUAGES[currentLang].placeholder}
+          style={{ background: 'transparent', border: 'none', color: 'white', outline: 'none', padding: '5px', width: '120px', fontSize: '0.9rem' }} 
           onKeyDown={e => e.key === 'Enter' && handleGenerate()} 
         />
         
-        <button onClick={handleGenerate} disabled={isGenerating} style={{ background: isGenerating ? '#555' : '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 10px', cursor: 'pointer', fontWeight: 'bold' }}>
+        <button onClick={handleGenerate} disabled={isGenerating} style={{ background: isGenerating ? '#555' : '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 12px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem' }}>
           {isGenerating ? '...' : 'Go'}
         </button>
         
-        <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} style={{ background: '#333', color: 'white', border: 'none', borderRadius: '4px', padding: '5px 10px', cursor: 'pointer', fontSize: '1.2rem' }}>
+        <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} style={{ background: 'transparent', color: 'white', border: 'none', cursor: 'pointer', fontSize: '1.2rem', padding: '0 5px' }}>
           ⚙️
         </button>
       </div>
@@ -288,12 +303,7 @@ const Globe = () => {
       {/* 設定パネル */}
       {isSettingsOpen && (
         <div style={{ position: 'absolute', top: '70px', left: '20px', zIndex: 20, background: 'rgba(20,20,20,0.9)', padding: '15px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)', color: 'white', minWidth: '200px', boxShadow: '0 4px 15px rgba(0,0,0,0.5)', backdropFilter: 'blur(10px)' }}>
-          <div style={{ marginBottom: '10px', fontWeight: 'bold', color: '#00ffcc' }}>Settings</div>
-          
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-            <span>Language</span>
-            <span style={{ fontSize: '0.8rem' }}>{LANGUAGES[currentLang].label}</span>
-          </div>
+          <div style={{ marginBottom: '10px', fontWeight: 'bold', color: '#00ffcc' }}>Audio Settings</div>
           
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
             <span>BGM</span>
@@ -308,6 +318,7 @@ const Globe = () => {
 
       {statusMessage && <div style={{ position: 'absolute', top: '80px', left: '20px', zIndex: 20, color: '#00ffcc', textShadow: '0 0 5px black' }}>{statusMessage}</div>}
 
+      {/* 照準枠: CSSで完全に中央配置 */}
       <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
 
       {displayData && (
