@@ -72,10 +72,9 @@ const GlobeContent = () => {
   const selectedLocationRef = useRef(null);
   const isGeneratingRef = useRef(false);
   
-  // ★ライド機能用のRef (非同期処理でも最新の値を参照するため)
   const isRideModeRef = useRef(false);
   const rideTimeoutRef = useRef(null);
-  const visibleCategoriesRef = useRef(null); // フィルター設定もRefで持つ
+  const visibleCategoriesRef = useRef(null);
 
   const [locations, setLocations] = useState([]);
   const [selectedLocation, setSelectedLocation] = useState(null);
@@ -153,23 +152,18 @@ const GlobeContent = () => {
     setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 5));
   };
 
-  // Ref同期
   useEffect(() => { locationsRef.current = locations; }, [locations]);
   useEffect(() => { selectedLocationRef.current = selectedLocation; }, [selectedLocation]);
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
   useEffect(() => { visibleCategoriesRef.current = visibleCategories; }, [visibleCategories]);
 
-  // ★ライドモードの管理 (修正版)
   useEffect(() => {
     isRideModeRef.current = isRideMode;
-    
     if (isRideMode) {
       addLog("✈️ フライトライド開始");
-      // 状態がONになったら即座に次のスポットへ
       nextRideStep();
     } else {
       addLog("🛑 フライトライド停止");
-      // 停止処理
       window.speechSynthesis.cancel();
       setIsPlaying(false);
       if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current);
@@ -325,7 +319,6 @@ const GlobeContent = () => {
     }
   }, [selectedLocation, currentLang]);
 
-  // ★自動再生・次へ進む処理
   const speak = (text) => {
     if (!text) { setIsPlaying(false); return; }
     const utterance = new SpeechSynthesisUtterance(text);
@@ -335,12 +328,11 @@ const GlobeContent = () => {
     
     utterance.onend = () => {
       setIsPlaying(false);
-      // ライドモードなら読み終わり後に次へ
       if (isRideModeRef.current) {
         addLog("次のスポットへ...");
         rideTimeoutRef.current = setTimeout(() => {
           nextRideStep();
-        }, 3000); // 3秒後に移動
+        }, 3000); 
       }
     };
     
@@ -379,26 +371,28 @@ const GlobeContent = () => {
     }
   };
 
-  // ★ボタンを押した時の処理
   const toggleRideMode = () => {
-    // 状態を反転させるだけにする（実際の処理はuseEffectで行う）
     setIsRideMode(prev => !prev);
   };
 
-  // ★次のスポットへ飛ぶ関数 (フィルター対応版)
+  // ★次へボタンの処理 (手動スキップ)
+  const handleNextRide = () => {
+    if (!isRideMode) return;
+    addLog("⏭️ スキップ");
+    // 現在の読み上げと待機をキャンセル
+    window.speechSynthesis.cancel();
+    if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current);
+    // 即移動
+    nextRideStep();
+  };
+
   const nextRideStep = () => {
     if (!isRideModeRef.current) return;
 
-    // 現在のフィルター設定を使って候補を絞り込む
     const currentFilters = visibleCategoriesRef.current || { history: true, nature: true, modern: true, science: true, art: true };
-    
     const candidates = locationsRef.current.filter(loc => {
       const cat = loc.category || 'history';
-      
-      // 課金制限
       if (!profile?.is_premium && !isVipUser(user?.email) && PREMIUM_CATEGORIES.includes(cat)) return false;
-      
-      // フィルター設定 (チェックが入っているものだけ対象)
       return currentFilters[cat];
     });
 
@@ -408,10 +402,7 @@ const GlobeContent = () => {
       return;
     }
 
-    // ランダムに1つ選ぶ
     const nextSpot = candidates[Math.floor(Math.random() * candidates.length)];
-    
-    // 選択して移動
     setSelectedLocation(nextSpot);
     
     mapRef.current?.flyTo({
@@ -420,7 +411,7 @@ const GlobeContent = () => {
       speed: 0.8,
       curve: 1.5,
       pitch: 45,
-      bearing: Math.random() * 360, // 角度もランダムに
+      bearing: Math.random() * 360,
       essential: true
     });
   };
@@ -438,7 +429,6 @@ const GlobeContent = () => {
   }, [locations, visibleCategories, isPremium]);
 
   const handleMoveEnd = useCallback((evt) => {
-    // ライドモード中は自動制御するので、手動判定はスキップ
     if (!evt.originalEvent && isRideModeRef.current) return;
     if (isGeneratingRef.current) return;
 
@@ -502,7 +492,7 @@ const GlobeContent = () => {
         <button onClick={handleGenerate} disabled={isGenerating} style={{ background: isGenerating ? '#555' : '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem' }}>Go</button>
         <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} style={{ background: 'transparent', color: 'white', border: 'none', cursor: 'pointer', fontSize: '1.2rem', padding: '0 5px' }}>⚙️</button>
         
-        {/* ★Rideボタン */}
+        {/* Rideボタン & Nextボタン */}
         <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.3)', margin: '0 5px' }}></div>
         <button 
           onClick={toggleRideMode} 
@@ -516,6 +506,21 @@ const GlobeContent = () => {
         >
           {isRideMode ? '🛑 Stop' : '✈️ Ride'}
         </button>
+        
+        {/* ★Nextボタン（ライド中のみ表示） */}
+        {isRideMode && (
+          <button 
+            onClick={handleNextRide} 
+            style={{ 
+              background: 'rgba(255, 255, 255, 0.2)', 
+              color: 'white', border: '1px solid white', borderRadius: '20px', 
+              padding: '5px 12px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem',
+              marginLeft: '5px'
+            }}
+          >
+            ⏩ Next
+          </button>
+        )}
       </div>
 
       <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 20, display: 'flex', alignItems: 'center', gap: '5px' }}>
@@ -590,7 +595,16 @@ const GlobeContent = () => {
             {displayData.name.split('#')[0].trim()}
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginBottom: '10px', flexShrink: 0 }}>
+          {/* ★タグエリア: 国名タグ + カテゴリータグ */}
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginBottom: '10px', flexShrink: 0, flexWrap: 'wrap' }}>
+            
+            {/* ★国名タグの表示 (country_jaがある場合のみ) */}
+            {(displayData.country_ja || displayData.country) && (
+              <span style={{ fontSize: '0.8rem', padding: '2px 10px', borderRadius: '12px', backgroundColor: '#333', border: '1px solid #888', color: '#eee', fontWeight: 'bold' }}>
+                {displayData.country_ja || displayData.country}
+              </span>
+            )}
+
             {(() => {
               const { tag, color } = getCategoryDetails(displayData.category);
               return (
