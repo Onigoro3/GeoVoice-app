@@ -20,7 +20,7 @@ const LANGUAGES = {
 
 const PREMIUM_CATEGORIES = ['modern', 'science', 'art'];
 
-// 地図コンポーネント (再レンダリング抑制でヌルヌル動作を実現)
+// 地図コンポーネント (軽量化設定を追加)
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError, padding }) => {
   return (
     <Map
@@ -44,7 +44,7 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       touchZoomRotate={true}
       padding={padding}
       reuseMaps={true} // ★地図インスタンスを再利用して軽量化
-      optimizeForTerrain={true}
+      optimizeForTerrain={true} // ★地形描画の最適化
     >
       <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
       {geoJsonData && (
@@ -550,7 +550,7 @@ const GlobeContent = () => {
           display: 'flex', justifyContent: 'space-around', alignItems: 'center', 
           zIndex: 100, paddingBottom: 'env(safe-area-inset-bottom)'
         }}>
-          {/* ★スマホ版 現在地ボタン */}
+          {/* ★スマホ版 現在地ボタン (左下に固定) */}
           <button onClick={handleCurrentLocation} style={{ position: 'absolute', top: '-60px', left: '20px', width: '45px', height: '45px', background: '#222', border: '1px solid #444', borderRadius: '50%', color: '#00ffcc', fontSize: '1.2rem', boxShadow: '0 4px 10px black', zIndex: 110, cursor: 'pointer' }}>📍</button>
           
           <NavButton icon="🌍" label="探索" active={activeTab === 'map'} onClick={() => handleTabChange('map')} />
@@ -561,9 +561,9 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ★スマホ用 ライドコントロール: ボトムバー(80px)の上(bottom:90px)に固定 */}
+      {/* ★スマホ用 ライドコントロール: ボトムバー(80px)の上、マージン確保して配置 (bottom: 120px) */}
       {!isPc && isRideMode && activeTab !== 'browse' && (
-        <div style={{ position: 'absolute', bottom: '90px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '10px', zIndex: 50 }}>
+        <div style={{ position: 'absolute', bottom: '120px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '10px', zIndex: 50 }}>
           <button onClick={toggleRideMode} style={{ background: '#ff3366', color: 'white', border: 'none', borderRadius: '30px', padding: '10px 25px', fontWeight: 'bold', boxShadow: '0 4px 15px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', gap: '5px' }}>🛑 STOP</button>
           <button onClick={handleNextRide} style={{ background: 'white', color: 'black', border: 'none', borderRadius: '30px', padding: '10px 25px', fontWeight: 'bold', boxShadow: '0 4px 15px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', gap: '5px' }}>⏩ NEXT</button>
         </div>
@@ -596,8 +596,8 @@ const GlobeContent = () => {
               left: isPc ? popupPos.x : '10px', 
               right: isPc ? 'auto' : '10px',
               top: isPc ? popupPos.y : 'auto', 
-              // ★スポットカード(テキスト)の位置: ライド中はさらに上げて被り回避
-              bottom: isPc ? 'auto' : (isRideMode ? '160px' : '90px'), 
+              // ★説明文カードの位置調整: ライド中はさらに上げて被り回避 (190px / 120px)
+              bottom: isPc ? 'auto' : (isRideMode ? '190px' : '120px'), 
               transform: isPc ? 'none' : 'none', 
               background: 'rgba(10, 10, 10, 0.95)', 
               padding: '20px', 
@@ -646,7 +646,6 @@ const GlobeContent = () => {
         </>
       )}
 
-      {/* Map Padding: 上30%に中心を合わせる (1 - 2*0.3 = 0.4) */}
       <MemoizedMap mapRef={mapRef} mapboxAccessToken={MAPBOX_TOKEN} initialViewState={initialViewState} onMoveEnd={handleMoveEnd} geoJsonData={filteredGeoJsonData} onError={(e) => addLog(`Map Error: ${e.error.message}`)} padding={isPc ? {} : { bottom: window.innerHeight * 0.4 }} />
       <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(20px) translateX(-50%); } to { opacity: 1; transform: translateY(0) translateX(-50%); } } .pulse { animation: pulse 1s infinite; } @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }`}</style>
     </div>
