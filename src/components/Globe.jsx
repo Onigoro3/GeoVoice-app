@@ -18,7 +18,7 @@ const LANGUAGES = {
   fr: { code: 'fr', name: 'French', label: '🇫🇷 Français' },
 };
 
-// ★軽量化: マップ設定を定数化
+// マップ設定
 const MAP_CONFIG = {
   style: "mapbox://styles/mapbox/satellite-v9",
   fog: { range: [0.5, 10], color: 'rgba(255, 255, 255, 0)', 'high-color': '#000', 'space-color': '#000', 'star-intensity': 0.6 },
@@ -433,7 +433,6 @@ const GlobeContent = () => {
     const map = mapRef.current?.getMap(); if (!map) return;
     const center = map.getCenter(); 
     
-    // ★探索タブの時のみ周辺検索 (軽量化)
     if (activeTab === 'explore') {
       const bounds = map.getBounds();
       const ne = bounds.getNorthEast();
@@ -491,14 +490,14 @@ const GlobeContent = () => {
     if (tab === 'fav') { if (user) setShowFavList(true); else setShowAuthModal(true); }
   };
 
-  // ★PCパネル開閉判定 (リストと検索はモーダル/ミニマルなので除外)
+  // PCパネル開閉判定
   const isPanelOpen = isPc && (activeTab === 'explore' || activeTab === 'browse' || activeTab === 'settings');
 
-  // ★共通パネルコンテンツ描画
+  // パネルコンテンツ (PC/スマホ共通)
   const renderPanelContent = () => {
     if (activeTab === 'explore') {
       return (
-        <div className="pc-panel-content">
+        <div style={{padding:'20px 20px 0 20px'}}>
           <h2 style={{color:'#fff', marginTop:0, marginBottom:'5px', fontSize:'1.2rem'}}>探索</h2>
           <div style={{color:'#888', fontSize:'0.8rem', marginBottom:'15px', borderBottom:'1px solid #333', paddingBottom:'10px'}}>
             この地域のピックアップ
@@ -529,7 +528,7 @@ const GlobeContent = () => {
     }
     if (activeTab === 'browse') {
       return (
-        <div className="pc-panel-content">
+        <div style={{padding:'20px 20px 0 20px'}}>
           <h2 style={{color:'#fff', marginTop:0, fontSize:'1.5rem'}}>ブラウズ</h2>
           <div style={{ background: '#222', borderRadius: '12px', padding: '15px', marginBottom: '20px', border: '1px solid #444' }}>
             <h4 style={{ margin: '0 0 10px 0', color: '#ffcc00' }}>⏳ ヒストリーライド</h4>
@@ -556,9 +555,20 @@ const GlobeContent = () => {
         </div>
       );
     }
+    if (activeTab === 'search') {
+        return (
+            <div style={{padding:'20px 20px 0 20px'}}>
+                <h2 style={{color:'#fff', marginTop:0, marginBottom:'20px'}}>検索</h2>
+                <div style={{ display: 'flex', gap: '5px' }}>
+                    <input autoFocus type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder={LANGUAGES[currentLang].placeholder} style={{ flex: 1, background: '#222', border: '1px solid #444', color: 'white', padding: '12px', borderRadius: '8px', fontSize:'1rem' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
+                    <button onClick={handleGenerate} style={{ background: '#00ffcc', color: 'black', border: 'none', borderRadius: '8px', padding: '0 15px', fontWeight: 'bold' }}>Go</button>
+                </div>
+            </div>
+        )
+    }
     if (activeTab === 'settings') {
       return (
-        <div className="pc-panel-content">
+        <div style={{padding:'20px 20px 0 20px'}}>
           <h2 style={{ color: 'white', marginTop: 0, fontSize:'1.5rem', marginBottom:'20px' }}>設定</h2>
           <div style={{ color: '#888', marginBottom: '8px', fontSize: '0.85rem' }}>情報</div>
           <div style={{ background: '#222', borderRadius: '12px', overflow: 'hidden', marginBottom: '30px' }}>
@@ -606,7 +616,7 @@ const GlobeContent = () => {
       {/* ★PC用UIコンテナ */}
       {isPc && (
         <div className="pc-ui-container" style={{ position: 'absolute', bottom: '20px', left: '20px', width: '360px', zIndex: 100, display: 'flex', flexDirection: 'column' }}>
-          {/* 上部パネル (開いてない時はDOMごと非表示にして黒い枠を消す) */}
+          {/* 上部パネル */}
           <div style={{
              background: isPanelOpen ? '#111' : 'transparent', 
              borderTopLeftRadius: '15px', borderTopRightRadius: '15px',
@@ -620,7 +630,6 @@ const GlobeContent = () => {
              borderLeft: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : 'none',
              borderRight: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : 'none',
              borderTop: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : 'none',
-             padding: isPanelOpen ? '20px' : '0 20px',
              boxSizing: 'border-box'
           }}>
              {renderPanelContent()}
@@ -645,7 +654,7 @@ const GlobeContent = () => {
               </div>
             </div>
             
-            {/* 検索窓はここに配置 (PCのみ) */}
+            {/* PC版 検索窓: 検索タブの時だけここに表示 */}
             {activeTab === 'search' && (
                <div style={{ padding: '15px', borderBottom:'1px solid #222' }}>
                   <div style={{ display: 'flex', gap: '5px' }}>
@@ -680,12 +689,13 @@ const GlobeContent = () => {
       {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== 'fav' && (
         <div style={{ 
           position: 'fixed', top: 0, left: 0, width: '100%', height: 'calc(100% - 80px)', 
-          background: '#111', zIndex: 200, overflowY: 'auto', padding: '20px', boxSizing: 'border-box'
+          background: '#111', zIndex: 200, overflowY: 'auto', boxSizing: 'border-box'
         }}>
-          <button onClick={() => setActiveTab('map')} style={{ position:'absolute', top:'15px', right:'15px', background:'transparent', border:'none', color:'#888', fontSize:'1.5rem' }}>✕</button>
+          <button onClick={() => setActiveTab('map')} style={{ position:'absolute', top:'15px', right:'15px', background:'transparent', border:'none', color:'#888', fontSize:'1.5rem', zIndex:201 }}>✕</button>
           {renderPanelContent()}
+          {/* スマホ版 検索はパネル内表示 */}
           {activeTab === 'search' && (
-             <div style={{marginTop:'40px'}}>
+             <div style={{padding:'20px'}}>
                <h2 style={{color:'#fff', marginTop:0, marginBottom:'20px'}}>検索</h2>
                <div style={{ display: 'flex', gap: '5px' }}>
                   <input autoFocus type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder={LANGUAGES[currentLang].placeholder} style={{ flex: 1, background: '#222', border: '1px solid #444', color: 'white', padding: '12px', borderRadius: '8px', fontSize:'1rem' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
@@ -712,9 +722,9 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ★スマホ版 操作ボタン (中層: 100px) */}
+      {/* ★スマホ版 操作ボタン (中層: 160px - ボタン50px = 下部110pxあたりから配置) */}
       {!isPc && activeTab === 'map' && (
-        <div style={{ position: 'absolute', bottom: '100px', left: '20px', right:'20px', display:'flex', justifyContent:'space-between', zIndex:110 }}>
+        <div style={{ position: 'absolute', bottom: '160px', left: '20px', right:'20px', display:'flex', justifyContent:'space-between', zIndex:110 }}>
             {/* 左: 現在地 */}
             <button onClick={handleCurrentLocation} style={{ width: '50px', height: '50px', background: '#222', border: '1px solid #444', borderRadius: '50%', color: '#00ffcc', fontSize: '1.5rem', boxShadow: '0 4px 10px black', cursor: 'pointer' }}>📍</button>
             
@@ -758,8 +768,8 @@ const GlobeContent = () => {
               left: isPc ? popupPos.x : '10px', 
               right: isPc ? 'auto' : '10px',
               top: isPc ? popupPos.y : 'auto', 
-              // ★スマホ版固定配置: 下から220px (ボタン群100px-150pxと被らない位置)
-              bottom: isPc ? 'auto' : '220px', 
+              // ★スマホ版固定配置: 下から230px (ボタン群よりさらに上)
+              bottom: isPc ? 'auto' : '230px', 
               transform: isPc ? 'none' : 'none', 
               background: 'rgba(10, 10, 10, 0.95)', 
               padding: '20px', borderRadius: '20px', color: 'white', textAlign: 'center', 
