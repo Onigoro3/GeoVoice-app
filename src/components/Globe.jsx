@@ -312,6 +312,18 @@ const GlobeContent = () => {
   const toggleRideMode = () => setIsRideMode(prev => !prev);
   const handleNextRide = () => { if (!isRideMode) return; window.speechSynthesis.cancel(); if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current); nextRideStep(); };
 
+  // ★現在地へ移動
+  const handleCurrentLocation = () => {
+    if (!navigator.geolocation) { alert("現在地機能が使えません"); return; }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { longitude, latitude } = pos.coords;
+        mapRef.current?.flyTo({ center: [longitude, latitude], zoom: 10, speed: 1.5, curve: 1 });
+      },
+      () => { alert("位置情報の取得に失敗しました"); }
+    );
+  };
+
   const jumpToRandomSpot = (targetCategory = null) => {
     const candidates = locationsRef.current.filter(loc => {
       const cat = loc.category || 'history';
@@ -404,27 +416,68 @@ const GlobeContent = () => {
     <div style={{ width: "100vw", height: "100dvh", background: "black", fontFamily: 'sans-serif', position: 'fixed', top: 0, left: 0, overflow: 'hidden', touchAction: 'none', overscrollBehavior: 'none' }}>
       <audio ref={audioRef} src="/bgm.mp3" loop />
       
-      {isPc && <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 100, background: 'rgba(0,0,0,0.7)', color: '#00ff00', fontSize: '10px', padding: '5px', borderRadius: '5px', maxWidth: '300px', pointerEvents: 'none' }}>{logs.map((log, i) => <div key={i}>{log}</div>)}</div>}
-      
+      {/* ★PC用UI: 左下コントロールパネル (Radio Garden風) */}
       {isPc && (
-        <div style={{ position: 'absolute', top: '10px', left: '10px', zIndex: 20, display: 'flex', gap: '5px', background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '12px', backdropFilter: 'blur(5px)', border: '1px solid rgba(255,255,255,0.1)', alignItems: 'center' }}>
-          <select value={currentLang} onChange={(e) => setCurrentLang(e.target.value)} style={{ background: 'transparent', color: 'white', border: 'none', fontSize: '1rem', fontWeight: 'bold' }}>{Object.keys(LANGUAGES).map(key => <option key={key} value={key} style={{ color: 'black' }}>{LANGUAGES[key].label}</option>)}</select>
-          <input type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder={LANGUAGES[currentLang].placeholder} style={{ background: 'transparent', border: 'none', color: 'white', padding: '5px', width: '120px' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
-          <button onClick={handleGenerate} style={{ background: '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 8px', fontWeight: 'bold' }}>Go</button>
-          <button onClick={toggleRideMode} style={{ background: isRideMode ? '#ff3366' : '#00aaff', color: 'white', border: 'none', borderRadius: '20px', padding: '5px 12px', fontWeight: 'bold', marginLeft: '5px' }}>{isRideMode ? '🛑 Stop' : '✈️ Ride'}</button>
-          {isRideMode && <button onClick={handleNextRide} style={{ background: 'rgba(255, 255, 255, 0.2)', color: 'white', border: '1px solid white', borderRadius: '20px', padding: '5px 12px', fontWeight: 'bold', marginLeft: '5px' }}>⏩ Next</button>}
+        <div style={{ 
+          position: 'absolute', bottom: '20px', left: '20px', zIndex: 100, 
+          width: '320px', background: '#111', borderRadius: '15px', 
+          border: '1px solid rgba(255,255,255,0.1)', overflow: 'hidden',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.8)'
+        }}>
+          {/* 上部: 現在地/ライド情報 */}
+          <div style={{ padding: '15px', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ color: 'white', fontWeight: 'bold', fontSize: '1.1rem' }}>
+              {isRideMode ? '✈️ Auto Ride' : '🌍 GeoVoice'}
+            </div>
+            {/* PC版 現在地ボタン */}
+            <button onClick={handleCurrentLocation} style={{ background: '#333', border: 'none', color: '#00ffcc', borderRadius: '50%', width: '30px', height: '30px', cursor: 'pointer' }}>📍</button>
+          </div>
+
+          {/* 中部: コントロール & 検索 */}
+          <div style={{ padding: '15px' }}>
+            {activeTab === 'search' ? (
+              <div style={{ display: 'flex', gap: '5px' }}>
+                <input autoFocus type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder={LANGUAGES[currentLang].placeholder} style={{ flex: 1, background: '#222', border: '1px solid #444', color: 'white', padding: '8px', borderRadius: '5px' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
+                <button onClick={handleGenerate} style={{ background: '#00ffcc', color: 'black', border: 'none', borderRadius: '5px', padding: '0 10px', fontWeight: 'bold' }}>Go</button>
+                <button onClick={() => setActiveTab('map')} style={{ background: 'transparent', color: '#888', border: 'none', cursor: 'pointer' }}>✕</button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                {isRideMode ? (
+                  <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
+                    <button onClick={toggleRideMode} style={{ flex: 1, background: '#ff3366', color: 'white', border: 'none', borderRadius: '5px', padding: '10px', fontWeight: 'bold' }}>🛑 STOP</button>
+                    <button onClick={handleNextRide} style={{ flex: 1, background: '#333', color: 'white', border: 'none', borderRadius: '5px', padding: '10px', fontWeight: 'bold' }}>⏩ NEXT</button>
+                  </div>
+                ) : (
+                  <div style={{ color: '#666', fontSize: '0.85rem' }}>Select a spot or start a ride.</div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 下部: ナビゲーションタブ */}
+          <div style={{ display: 'flex', borderTop: '1px solid #222' }}>
+            <NavButton icon="🔍" label="Search" active={activeTab === 'search'} onClick={() => setActiveTab(activeTab === 'search' ? 'map' : 'search')} />
+            <NavButton icon="✈️" label="Ride" active={isRideMode} onClick={toggleRideMode} />
+            <NavButton icon="🎲" label="Browse" active={activeTab === 'browse'} onClick={() => handleTabChange('browse')} />
+            <NavButton icon="♥" label="Favs" active={activeTab === 'fav'} onClick={() => handleTabChange('fav')} />
+            <NavButton icon="⚙️" label="Set" active={activeTab === 'settings'} onClick={() => handleTabChange('settings')} />
+          </div>
         </div>
       )}
 
+      {/* PC版 ログアウト等 (右上) */}
+      {isPc && user && (
+        <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 50 }}>
+          {profile && <div style={{ color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '8px', marginBottom: '5px', textAlign: 'right' }}>{profile.username}</div>}
+        </div>
+      )}
+
+      {/* 共通モーダル */}
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={setupUser} />}
       {showFavList && user && <FavoritesModal userId={user.id} onClose={() => setShowFavList(false)} onSelect={handleSelectFromList} />}
 
-      <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 20, display: 'flex', alignItems: 'center', gap: '5px' }}>
-        {profile && isPc && (<div style={{ color: 'white', fontSize: '0.9rem', background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '8px', border: isPremium ? '1px solid #FFD700' : '1px solid #444' }}><span style={{ fontWeight: 'bold' }}>{profile.username}</span>{isPremium && <span style={{ marginLeft: '5px', color: '#FFD700' }}>★</span>}</div>)}
-        {isPc && user && (<button onClick={() => setShowFavList(true)} style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid #ff3366', color: '#ff3366', borderRadius: '50%', width: '36px', height: '36px', fontSize: '1rem' }}>♥</button>)}
-        {isPc && <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid white', color: 'white', borderRadius: '50%', width: '36px', height: '36px' }}>⚙️</button>}
-      </div>
-
+      {/* 設定画面 (共通) */}
       {isSettingsOpen && (
         <div style={{ 
           position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', 
@@ -444,7 +497,6 @@ const GlobeContent = () => {
                   {Object.keys(LANGUAGES).map(key => <option key={key} value={key}>{LANGUAGES[key].label}</option>)}
                 </select>
               </div>
-
               <div style={{ marginBottom: '15px', color: '#ccc', fontSize: '0.9rem' }}>表示フィルター</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '20px' }}>
                 <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'white' }}><span>🏛️ 世界遺産</span><input type="checkbox" checked={visibleCategories.history} onChange={e => setVisibleCategories(prev => ({...prev, history: e.target.checked}))} style={{ transform: 'scale(1.3)' }} /></label>
@@ -453,7 +505,6 @@ const GlobeContent = () => {
                 <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'white' }}><span>🚀 宇宙・科学</span><input type="checkbox" checked={visibleCategories.science} onChange={e => setVisibleCategories(prev => ({...prev, science: e.target.checked}))} style={{ transform: 'scale(1.3)' }} /></label>
                 <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'white' }}><span>🎨 美術館</span><input type="checkbox" checked={visibleCategories.art} onChange={e => setVisibleCategories(prev => ({...prev, art: e.target.checked}))} style={{ transform: 'scale(1.3)' }} /></label>
               </div>
-
               <div style={{ borderTop: '1px solid #333', paddingTop: '15px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', color: 'white' }}><span>BGM</span><button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: isBgmOn ? '#ffaa00' : '#555', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 10px', fontSize: '0.8rem' }}>{isBgmOn ? 'ON' : 'OFF'}</button></div>
                 <input type="range" min="0" max="1" step="0.1" value={bgmVolume} onChange={e => setBgmVolume(parseFloat(e.target.value))} style={{ width: '100%', marginBottom: '15px' }} />
@@ -462,40 +513,33 @@ const GlobeContent = () => {
               </div>
             </div>
           </div>
-
-          <div style={{ marginBottom: '30px' }}>
-            <div style={{ color: '#888', marginBottom: '10px', fontSize: '0.9rem' }}>情報</div>
-            <div style={{ background: '#222', borderRadius: '10px', overflow: 'hidden' }}>
-              <div style={{ padding: '15px', borderBottom: '1px solid #333', color: 'white', display: 'flex', justifyContent: 'space-between' }}>GeoVoice App <span>&gt;</span></div>
-              <div style={{ padding: '15px', color: 'white', display: 'flex', justifyContent: 'space-between' }}>Privacy Policy <span>&gt;</span></div>
-            </div>
-          </div>
-
-          {user && <button onClick={() => { if(confirm('ログアウトしますか？')) { supabase.auth.signOut(); clearUser(); setIsSettingsOpen(false); }}} style={{ width: '100%', padding: '15px', background: '#333', color: '#ff3366', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 'bold' }}>ログアウト</button>}
-          
+          {user && <button onClick={() => { if(confirm('Logout?')) { supabase.auth.signOut(); clearUser(); setIsSettingsOpen(false); }}} style={{ width: '100%', padding: '15px', background: '#333', color: '#ff3366', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 'bold' }}>ログアウト</button>}
           <div style={{ height: '50px' }}></div>
         </div>
       )}
 
-      {!isPc && showBrowseOverlay && (
+      {/* ブラウズ画面 (共通) */}
+      {showBrowseOverlay && (
         <div style={{
-          position: 'fixed', top: 0, left: 0, width: '100%', height: 'calc(100% - 80px)', 
-          background: 'rgba(15, 15, 15, 0.98)', zIndex: 50, overflowY: 'auto',
+          position: 'fixed', top: 0, left: 0, width: '100%', height: isPc ? '100%' : 'calc(100% - 80px)', 
+          background: 'rgba(15, 15, 15, 0.98)', zIndex: 150, overflowY: 'auto',
           padding: '20px', boxSizing: 'border-box', backdropFilter: 'blur(15px)'
         }}>
+          {isPc && <button onClick={() => setShowBrowseOverlay(false)} style={{ position: 'absolute', top: '20px', right: '20px', background: 'transparent', border: '1px solid #555', color: 'white', borderRadius: '50%', width: '40px', height: '40px' }}>✕</button>}
           <h2 style={{ color: 'white', marginTop: '40px', fontSize: '2rem' }}>ブラウズ</h2>
           <p style={{ color: '#aaa', marginBottom: '30px' }}>どこか知らない地点へ行って、<br/>その土地の空気を吸ってみよう。</p>
           <button onClick={() => jumpToRandomSpot()} style={{ width: '100%', padding: '15px', borderRadius: '30px', background: 'transparent', border: '2px solid #00ffcc', color: '#00ffcc', fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '40px', cursor: 'pointer' }}>気球の旅に出かけよう 🎈</button>
           <h3 style={{ color: 'white', marginBottom: '15px', borderLeft: '4px solid #00ff7f', paddingLeft: '10px' }}>カテゴリー</h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-            <div onClick={() => jumpToRandomSpot('nature')} style={{ background: '#222', padding: '20px', borderRadius: '15px', border: '1px solid #333' }}><div style={{ fontSize: '2rem' }}>🌲</div><div style={{ color: '#00ff7f', fontWeight: 'bold' }}>大自然</div></div>
-            <div onClick={() => jumpToRandomSpot('history')} style={{ background: '#222', padding: '20px', borderRadius: '15px', border: '1px solid #333' }}><div style={{ fontSize: '2rem' }}>🏛️</div><div style={{ color: '#ffcc00', fontWeight: 'bold' }}>歴史遺産</div></div>
-            <div onClick={() => jumpToRandomSpot('modern')} style={{ background: '#222', padding: '20px', borderRadius: '15px', border: '1px solid #333' }}><div style={{ fontSize: '2rem' }}>🏙️</div><div style={{ color: '#00ffff', fontWeight: 'bold' }}>現代建築</div></div>
-            <div onClick={() => jumpToRandomSpot('art')} style={{ background: '#222', padding: '20px', borderRadius: '15px', border: '1px solid #333' }}><div style={{ fontSize: '2rem' }}>🎨</div><div style={{ color: '#ff0055', fontWeight: 'bold' }}>アート</div></div>
+            <div onClick={() => jumpToRandomSpot('nature')} style={{ background: '#222', padding: '20px', borderRadius: '15px', border: '1px solid #333', cursor: 'pointer' }}><div style={{ fontSize: '2rem' }}>🌲</div><div style={{ color: '#00ff7f', fontWeight: 'bold' }}>大自然</div></div>
+            <div onClick={() => jumpToRandomSpot('history')} style={{ background: '#222', padding: '20px', borderRadius: '15px', border: '1px solid #333', cursor: 'pointer' }}><div style={{ fontSize: '2rem' }}>🏛️</div><div style={{ color: '#ffcc00', fontWeight: 'bold' }}>歴史遺産</div></div>
+            <div onClick={() => jumpToRandomSpot('modern')} style={{ background: '#222', padding: '20px', borderRadius: '15px', border: '1px solid #333', cursor: 'pointer' }}><div style={{ fontSize: '2rem' }}>🏙️</div><div style={{ color: '#00ffff', fontWeight: 'bold' }}>現代建築</div></div>
+            <div onClick={() => jumpToRandomSpot('art')} style={{ background: '#222', padding: '20px', borderRadius: '15px', border: '1px solid #333', cursor: 'pointer' }}><div style={{ fontSize: '2rem' }}>🎨</div><div style={{ color: '#ff0055', fontWeight: 'bold' }}>アート</div></div>
           </div>
         </div>
       )}
 
+      {/* スマホ用ボトムナビゲーション */}
       {!isPc && (
         <div style={{ 
           position: 'fixed', bottom: 0, left: 0, width: '100%', height: '80px', 
@@ -503,6 +547,9 @@ const GlobeContent = () => {
           display: 'flex', justifyContent: 'space-around', alignItems: 'center', 
           zIndex: 100, paddingBottom: 'env(safe-area-inset-bottom)'
         }}>
+          {/* ★スマホ版 現在地ボタン (フロート) */}
+          <button onClick={handleCurrentLocation} style={{ position: 'absolute', top: '-60px', left: '20px', width: '45px', height: '45px', background: '#222', border: '1px solid #444', borderRadius: '50%', color: '#00ffcc', fontSize: '1.2rem', boxShadow: '0 4px 10px black', zIndex: 110, cursor: 'pointer' }}>📍</button>
+          
           <NavButton icon="🌍" label="探索" active={activeTab === 'map'} onClick={() => handleTabChange('map')} />
           <NavButton icon="✈️" label="ライド" active={activeTab === 'ride' || isRideMode} onClick={() => handleTabChange('ride')} />
           <NavButton icon="🎲" label="ブラウズ" active={activeTab === 'browse'} onClick={() => handleTabChange('browse')} />
@@ -511,6 +558,7 @@ const GlobeContent = () => {
         </div>
       )}
 
+      {/* スマホ用 ライドコントロール */}
       {!isPc && isRideMode && activeTab !== 'browse' && (
         <div style={{ position: 'absolute', bottom: '100px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '10px', zIndex: 50 }}>
           <button onClick={toggleRideMode} style={{ background: '#ff3366', color: 'white', border: 'none', borderRadius: '30px', padding: '10px 25px', fontWeight: 'bold', boxShadow: '0 4px 15px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', gap: '5px' }}>🛑 STOP</button>
@@ -522,8 +570,10 @@ const GlobeContent = () => {
 
       <div style={{ position: 'absolute', top: isPc ? '50%' : '30%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
 
+      {/* スポット情報カード (PCはドラッグ可) */}
       {selectedLocation && displayData && !showBrowseOverlay && (
         <>
+          {/* スマホ版 上部画像 */}
           {!isPc && displayData.image_url && (
             <div style={{
               position: 'absolute', top: '40px', left: '10px', right: '10px',
@@ -543,7 +593,6 @@ const GlobeContent = () => {
               left: isPc ? popupPos.x : '10px', 
               right: isPc ? 'auto' : '10px',
               top: isPc ? popupPos.y : 'auto', 
-              // ★説明文カードの位置調整: ライド中はさらに上に逃がす
               bottom: isPc ? 'auto' : (isRideMode ? '170px' : '110px'), 
               transform: isPc ? 'none' : 'none', 
               background: 'rgba(10, 10, 10, 0.95)', 
@@ -593,7 +642,7 @@ const GlobeContent = () => {
         </>
       )}
 
-      <MemoizedMap mapRef={mapRef} mapboxAccessToken={MAPBOX_TOKEN} initialViewState={initialViewState} onMoveEnd={handleMoveEnd} geoJsonData={filteredGeoJsonData} onError={(e) => addLog(`Map Error: ${e.error.message}`)} padding={isPc ? {} : { bottom: window.innerHeight * 0.4 }} />
+      <MemoizedMap mapRef={mapRef} mapboxAccessToken={MAPBOX_TOKEN} initialViewState={initialViewState} onMoveEnd={handleMoveEnd} geoJsonData={filteredGeoJsonData} onError={(e) => addLog(`Map Error: ${e.error.message}`)} padding={isPc ? {} : { bottom: window.innerHeight * 0.3 }} />
       <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(20px) translateX(-50%); } to { opacity: 1; transform: translateY(0) translateX(-50%); } } .pulse { animation: pulse 1s infinite; } @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }`}</style>
     </div>
   );
