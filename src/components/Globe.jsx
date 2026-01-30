@@ -18,7 +18,7 @@ const LANGUAGES = {
   fr: { code: 'fr', name: 'French', label: '🇫🇷 Français' },
 };
 
-// プライバシーポリシー本文
+// ★プライバシーポリシー本文 (追加)
 const PRIVACY_POLICY_TEXT = `
 ## プライバシーポリシー
 
@@ -45,6 +45,7 @@ GeoVoice（以下「本アプリ」）は、ユーザーの個人情報の保護
 アカウント削除により、保存されたデータは消去されます。
 `;
 
+// マップ設定 (軽量化)
 const MAP_CONFIG = {
   style: "mapbox://styles/mapbox/satellite-v9",
   fog: { range: [0.5, 10], color: 'rgba(255, 255, 255, 0)', 'high-color': '#000', 'space-color': '#000', 'star-intensity': 0.6 },
@@ -161,6 +162,7 @@ const GlobeContent = () => {
 
   const initialViewState = { longitude: 135.0, latitude: 35.0, zoom: 3.5 };
 
+  // PC版初期位置
   useEffect(() => {
     if (isPc) {
       setPopupPos({ x: window.innerWidth - 420, y: 20 });
@@ -193,10 +195,14 @@ const GlobeContent = () => {
   };
   
   const handleMouseMove = useCallback((e) => {
-    if (isDragging) { e.preventDefault(); setPopupPos({ x: e.clientX - dragOffset.x, y: e.clientY - dragOffset.y }); }
+    if (isDragging) { 
+        e.preventDefault(); 
+        setPopupPos({ x: e.clientX - dragOffset.x, y: e.clientY - dragOffset.y }); 
+    }
   }, [isDragging, dragOffset]);
   
   const handleMouseUp = () => setIsDragging(false);
+  
   useEffect(() => {
     if (isDragging) { window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', handleMouseUp); }
     else { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); }
@@ -210,6 +216,7 @@ const GlobeContent = () => {
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
   useEffect(() => { visibleCategoriesRef.current = visibleCategories; }, [visibleCategories]);
 
+  // ライドモード制御
   useEffect(() => {
     isRideModeRef.current = isRideMode;
     isHistoryModeRef.current = isHistoryMode;
@@ -394,9 +401,12 @@ const GlobeContent = () => {
       return true;
     });
     if (candidates.length === 0) { alert("スポットが見つかりません"); return; }
+    
     setIsHistoryMode(false);
     if (isRideMode) setIsRideMode(false);
+    
     setActiveTab('map'); 
+    
     const nextSpot = candidates[Math.floor(Math.random() * candidates.length)];
     setSelectedLocation(nextSpot);
     mapRef.current?.flyTo({ center: [nextSpot.lon, nextSpot.lat], zoom: 6, speed: 1.2, curve: 1.5, pitch: 40, essential: true });
@@ -498,22 +508,38 @@ const GlobeContent = () => {
     if (tab === 'fav') { if (user) setShowFavList(true); else setShowAuthModal(true); }
   };
 
-  // PCパネル開閉判定 (リストと検索は除く)
+  // ★PCパネル開閉判定 (プライバシーポリシー追加)
   const isPanelOpen = isPc && (activeTab === 'explore' || activeTab === 'browse' || activeTab === 'settings' || activeTab === 'privacy');
 
-  // ★PCパネルコンテンツ
+  // ★PCパネルコンテンツ: 各要素に共通のスタイルクラスを適用して黒い空白を回避
   const renderPanelContent = () => {
+    const commonStyle = {
+        background: '#111', 
+        borderRadius: '15px', 
+        padding: '20px', 
+        border: '1px solid rgba(255,255,255,0.1)',
+        minHeight: '200px'
+    };
+
     if (activeTab === 'explore') {
       return (
-        <div>
+        <div style={commonStyle}>
           <h2 style={{color:'#fff', marginTop:0, marginBottom:'5px', fontSize:'1.2rem'}}>探索</h2>
-          <div style={{color:'#888', fontSize:'0.8rem', marginBottom:'15px', borderBottom:'1px solid #333', paddingBottom:'10px'}}>この地域のピックアップ</div>
+          <div style={{color:'#888', fontSize:'0.8rem', marginBottom:'15px', borderBottom:'1px solid #333', paddingBottom:'10px'}}>
+            この地域のピックアップ
+          </div>
           {nearbySpots.length === 0 ? (
-            <div style={{color:'#666', textAlign:'center', marginTop:'30px'}}>地図を動かして<br/>スポットを探そう 🌍</div>
+            <div style={{color:'#666', textAlign:'center', marginTop:'30px'}}>
+              地図を動かして<br/>スポットを探そう 🌍
+            </div>
           ) : (
             <div style={{ display:'flex', flexDirection:'column' }}>
               {nearbySpots.map(spot => (
-                <div key={spot.id} onClick={() => handleSelectFromList(spot)} style={{ padding:'12px 5px', borderBottom:'1px solid #222', cursor:'pointer', background: selectedLocation?.id === spot.id ? 'rgba(0,255,204,0.1)' : 'transparent', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <div key={spot.id} onClick={() => handleSelectFromList(spot)} style={{ 
+                  padding:'12px 5px', borderBottom:'1px solid #222', cursor:'pointer',
+                  background: selectedLocation?.id === spot.id ? 'rgba(0,255,204,0.1)' : 'transparent',
+                  display:'flex', justifyContent:'space-between', alignItems:'center'
+                }}>
                   <div>
                     <div style={{color:'white', fontWeight:'bold', fontSize:'0.9rem'}}>{spot.name_ja || spot.name}</div>
                     <div style={{color:'#888', fontSize:'0.75rem', marginTop:'2px'}}>{getCategoryDetails(spot.category).tag}</div>
@@ -528,7 +554,7 @@ const GlobeContent = () => {
     }
     if (activeTab === 'browse') {
       return (
-        <div>
+        <div style={commonStyle}>
           <h2 style={{color:'#fff', marginTop:0, fontSize:'1.5rem'}}>ブラウズ</h2>
           <div style={{ background: '#222', borderRadius: '12px', padding: '15px', marginBottom: '20px', border: '1px solid #444' }}>
             <h4 style={{ margin: '0 0 10px 0', color: '#ffcc00' }}>⏳ ヒストリーライド</h4>
@@ -554,7 +580,7 @@ const GlobeContent = () => {
     }
     if (activeTab === 'settings') {
       return (
-        <div>
+        <div style={commonStyle}>
           <h2 style={{ color: 'white', marginTop: 0, fontSize:'1.5rem', marginBottom:'20px' }}>設定</h2>
           <div style={{ color: '#888', marginBottom: '8px', fontSize: '0.85rem' }}>情報</div>
           <div style={{ background: '#222', borderRadius: '12px', overflow: 'hidden', marginBottom: '30px' }}>
@@ -586,13 +612,14 @@ const GlobeContent = () => {
             </div>
           </div>
           {user && <button onClick={() => { if(confirm('Logout?')) { supabase.auth.signOut(); clearUser(); handleTabChange('map'); }}} style={{ width: '100%', padding: '15px', background: '#222', color: '#ff3366', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 'bold', marginTop:'30px' }}>ログアウト</button>}
-          <div style={{ height: '100px' }}></div> 
+          <div style={{ height: '50px' }}></div> 
         </div>
       );
     }
+    // ★プライバシーポリシー追加 (Settings内から遷移)
     if (activeTab === 'privacy') {
         return (
-            <div>
+            <div style={commonStyle}>
                 <div style={{display:'flex', alignItems:'center', marginBottom:'20px'}}>
                     <button onClick={() => setActiveTab('settings')} style={{background:'transparent', border:'none', color:'#00ffcc', fontSize:'1.2rem', cursor:'pointer', marginRight:'10px'}}>‹</button>
                     <h2 style={{color:'white', margin:0, fontSize:'1.5rem'}}>Privacy Policy</h2>
@@ -617,21 +644,23 @@ const GlobeContent = () => {
         <div className="pc-ui-container" style={{ position: 'absolute', bottom: '20px', left: '20px', width: '360px', zIndex: 100, display: 'flex', flexDirection: 'column' }}>
           {/* 上部パネル */}
           <div style={{
-             background: '#111', 
+             background: 'transparent',
              borderTopLeftRadius: '15px', borderTopRightRadius: '15px',
              borderBottom: 'none',
              maxHeight: isPanelOpen ? '60vh' : '0px',
+             height: 'auto',
+             overflowY: 'auto',
+             transition: 'max-height 0.3s ease-in-out, opacity 0.3s',
+             opacity: isPanelOpen ? 1 : 0,
+             visibility: isPanelOpen ? 'visible' : 'hidden',
              // ★黒い空白対策: 閉じている時はボーダーもパディングも0
              borderLeft: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
              borderRight: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
              borderTop: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
-             // padding: isPanelOpen ? '20px' : '0px', // ここではpaddingを0にして中身で管理
-             boxSizing: 'border-box',
-             overflowY: 'auto',
-             transition: 'max-height 0.3s ease-in-out',
-             opacity: isPanelOpen ? 1 : 0
+             padding: isPanelOpen ? '0' : '0px',
+             boxSizing: 'border-box'
           }}>
-             {isPanelOpen && <div style={{ padding:'20px' }}>{renderPanelContent()}</div>}
+             {renderPanelContent()}
           </div>
 
           {/* 下部コントロールバー */}
@@ -708,7 +737,9 @@ const GlobeContent = () => {
       {/* ★スマホ版 操作ボタン (中層: 210px) */}
       {!isPc && activeTab === 'map' && (
         <div style={{ position: 'absolute', bottom: '210px', left: '20px', right:'20px', display:'flex', justifyContent:'space-between', zIndex:110 }}>
+            {/* 左: 現在地 */}
             <button onClick={handleCurrentLocation} style={{ width: '50px', height: '50px', background: '#222', border: '1px solid #444', borderRadius: '50%', color: '#00ffcc', fontSize: '1.5rem', boxShadow: '0 4px 10px black', cursor: 'pointer' }}>📍</button>
+            {/* 右: ライド/NEXT */}
             <div style={{display:'flex', gap:'10px'}}>
                 {isRideMode ? (
                     <>
@@ -745,7 +776,7 @@ const GlobeContent = () => {
               left: isPc ? (popupPos?.x || (window.innerWidth - 420)) : '10px', 
               top: isPc ? (popupPos?.y || 20) : 'auto', 
               right: isPc ? 'auto' : '10px',
-              // ★スマホ版余白調整: 常に下から290px
+              // ★スマホ版余白調整: 常に下から290px (ボタン群210px+50px+余裕)
               bottom: isPc ? 'auto' : '290px', 
               transform: isPc ? 'none' : 'none', 
               background: 'rgba(10, 10, 10, 0.95)', padding: '20px', borderRadius: '20px', color: 'white', textAlign: 'center', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.2)', zIndex: 10, width: isPc ? '400px' : 'auto', maxWidth: isPc ? '360px' : 'none', maxHeight: isPc ? 'none' : '40vh', boxShadow: '0 4px 30px rgba(0,0,0,0.6)', resize: isPc ? 'both' : 'none', overflow: isPc ? 'auto' : 'hidden', display: 'flex', flexDirection: 'column', cursor: isPc ? (isDragging ? 'grabbing' : 'grab') : 'default', animation: isDragging ? 'none' : 'fadeIn 0.3s'
