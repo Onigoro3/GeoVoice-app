@@ -20,7 +20,6 @@ const LANGUAGES = {
 
 const PREMIUM_CATEGORIES = ['modern', 'science', 'art'];
 
-// Mapコンポーネント: paddingプロパティを削除して中心ズレを解消
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError }) => {
   return (
     <Map
@@ -362,7 +361,6 @@ const GlobeContent = () => {
     const center = map.getCenter();
     const point = map.project(center);
     
-    // ★判定エリアを拡大（20px -> 60px）して反応を良くする
     const boxSize = 60; 
     const features = map.queryRenderedFeatures(
       [[point.x - boxSize/2, point.y - boxSize/2], [point.x + boxSize/2, point.y + boxSize/2]], 
@@ -370,13 +368,10 @@ const GlobeContent = () => {
     );
     
     if (features.length > 0) {
-      // 一番中心に近いものを探す
       let bestTarget = features[0].properties;
-      
       const fullLocation = locationsRef.current.find(l => l.id === bestTarget.id) || bestTarget;
       if (!selectedLocationRef.current || fullLocation.id !== selectedLocationRef.current.id) {
         setSelectedLocation(fullLocation);
-        // ★選択時は確実に中心（〇枠の真ん中）に移動させる
         map.flyTo({ center: [fullLocation.lon, fullLocation.lat], speed: 1.5, curve: 1 });
       }
     } else {
@@ -384,28 +379,15 @@ const GlobeContent = () => {
     }
   }, []);
 
-  const renderNameWithTags = (fullName, category) => {
-    if (!fullName) return null;
-    const parts = fullName.split('#');
-    const name = parts[0].trim();
-    
+  // ★カテゴリーのタグと色を取得するヘルパー関数
+  const getCategoryDetails = (category) => {
     let tag = '世界遺産';
     let color = '#ffcc00';
     if (category === 'nature') { tag = '自然遺産'; color = '#00ff7f'; }
     if (category === 'modern') { tag = '現代建築'; color = '#00ffff'; }
     if (category === 'science') { tag = '宇宙・科学'; color = '#d800ff'; }
     if (category === 'art') { tag = '美術館'; color = '#ff0055'; }
-
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
-        <span style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>{name}</span>
-        <div style={{ display: 'flex', gap: '5px' }}>
-          <span style={{ fontSize: '0.8rem', padding: '2px 10px', borderRadius: '12px', backgroundColor: color, color: '#000', fontWeight: 'bold', boxShadow: '0 0 5px '+color }}>
-            #{tag}
-          </span>
-        </div>
-      </div>
-    );
+    return { tag, color };
   };
 
   useEffect(() => {
@@ -471,8 +453,8 @@ const GlobeContent = () => {
             position: 'absolute', 
             left: isPc ? popupPos.x : '50%', 
             top: isPc ? popupPos.y : 'auto', 
-            // ★スマホUI位置調整: 底上げしてマージン確保
-            bottom: isPc ? 'auto' : '50px', 
+            // ★スマホUI調整: 余白を60pxに拡大
+            bottom: isPc ? 'auto' : '60px', 
             transform: isPc ? 'none' : 'translateX(-50%)', 
             
             background: 'rgba(10, 10, 10, 0.9)', 
@@ -495,7 +477,6 @@ const GlobeContent = () => {
             
             cursor: isPc ? (isDragging ? 'grabbing' : 'grab') : 'default',
             animation: isDragging ? 'none' : 'fadeIn 0.3s',
-            // ★iPhoneなどのホームバー対策
             paddingBottom: 'env(safe-area-inset-bottom)'
           }}
         >
@@ -510,17 +491,41 @@ const GlobeContent = () => {
             <button onMouseDown={e => e.stopPropagation()} onClick={toggleFavorite} style={{ background: favorites.has(selectedLocation.id) ? '#ff3366' : '#333', color: 'white', border: '2px solid white', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', boxShadow: '0 4px 10px rgba(0,0,0,0.5)', transition: 'all 0.2s' }}>{favorites.has(selectedLocation.id) ? '♥' : '♡'}</button>
           </div>
           
-          <div style={{ color: '#ffccaa', marginBottom: '10px', flexShrink: 0 }}>{renderNameWithTags(displayData.name, displayData.category)}</div>
+          {/* ★名前表示 */}
+          <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#ffccaa', marginBottom: '5px', flexShrink: 0 }}>
+            {displayData.name.split('#')[0].trim()}
+          </div>
+
+          {/* ★タグと翻訳ボタンを横並びにするコンテナ */}
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginBottom: '10px', flexShrink: 0 }}>
+            {(() => {
+              const { tag, color } = getCategoryDetails(displayData.category);
+              return (
+                <span style={{ fontSize: '0.8rem', padding: '2px 10px', borderRadius: '12px', backgroundColor: color, color: '#000', fontWeight: 'bold', boxShadow: '0 0 5px '+color }}>
+                  #{tag}
+                </span>
+              );
+            })()}
+
+            {displayData.needsTranslation && (
+              <button 
+                onMouseDown={e => e.stopPropagation()} 
+                onClick={() => translateAndFix(selectedLocation, currentLang)} 
+                style={{ 
+                  background: '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', 
+                  padding: '2px 10px', fontSize: '0.8rem', fontWeight: 'bold', cursor: 'pointer' 
+                }}
+              >
+                🔄 翻訳
+              </button>
+            )}
+          </div>
           
           <div style={{ overflowY: 'auto', flex: 1, touchAction: 'pan-y', paddingBottom: '10px' }} onMouseDown={e => e.stopPropagation()}>
             <p style={{ margin: 0, fontSize: '0.85rem', color: '#ddd', lineHeight: '1.6', textAlign: 'left' }}>
               {displayData.description}
             </p>
           </div>
-          
-          {displayData.needsTranslation && (
-            <button onMouseDown={e => e.stopPropagation()} onClick={() => translateAndFix(selectedLocation, currentLang)} style={{ marginTop: '5px', background: '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 15px', fontWeight: 'bold', cursor: 'pointer', flexShrink: 0 }}>🔄 日本語に翻訳する</button>
-          )}
         </div>
       )}
 
