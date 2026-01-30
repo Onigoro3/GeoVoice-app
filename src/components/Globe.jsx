@@ -10,7 +10,6 @@ import { isVipUser } from '../vipList';
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
-// ★修正: AIへの指示用に 'name' (Japanese, English...) を復活
 const LANGUAGES = {
   ja: { code: 'ja', name: 'Japanese', label: '🇯🇵 日本語', placeholder: '例: 日本の城...' },
   en: { code: 'en', name: 'English', label: '🇺🇸 English', placeholder: 'Ex: Castles in Japan...' },
@@ -155,6 +154,42 @@ const GlobeContent = () => {
     mapRef.current?.flyTo({ center: [spot.lon, spot.lat], zoom: 6, speed: 1.2, curve: 1 });
   };
 
+  // ★画像取得ロジック
+  const fetchAndSaveImage = async (spot) => {
+    // 英語名優先で検索（ヒット率高いため）
+    const searchName = (spot.name_en || spot.name).split('#')[0].trim();
+    try {
+      const url = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(searchName)}&prop=pageimages&format=json&pithumbsize=600&origin=*`;
+      const res = await fetch(url);
+      const json = await res.json();
+      const pages = json.query?.pages;
+      
+      let imageUrl = null;
+      if (pages) {
+        const pageId = Object.keys(pages)[0];
+        if (pageId !== "-1" && pages[pageId].thumbnail) {
+          imageUrl = pages[pageId].thumbnail.source;
+        }
+      }
+
+      if (imageUrl) {
+        await supabase.from('spots').update({ image_url: imageUrl }).eq('id', spot.id);
+        
+        // ローカル更新
+        const updated = locationsRef.current.map(l => l.id === spot.id ? { ...l, image_url: imageUrl } : l);
+        setLocations(updated);
+        locationsRef.current = updated;
+
+        // 表示更新
+        if (selectedLocationRef.current?.id === spot.id) {
+          setDisplayData(prev => ({ ...prev, image_url: imageUrl }));
+        }
+      }
+    } catch (e) {
+      console.error("Image fetch failed", e);
+    }
+  };
+
   const translateAndFix = async (spot, lang) => {
     if (statusMessage.includes("生成中")) return;
     setStatusMessage("翻訳中...");
@@ -164,7 +199,6 @@ const GlobeContent = () => {
       const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" }); 
       
-      // nameプロパティが復活したので、正しく "Japanese" などが入る
       const prompt = `
         Translate/Rewrite into ${LANGUAGES[lang].name}.
         Target: "${spot.name}"
@@ -196,9 +230,7 @@ const GlobeContent = () => {
       }
     } catch (e) {
       addLog(`翻訳失敗: ${e.message}`);
-      if (e.message.includes("404")) {
-         alert("AIモデルが見つかりません。");
-      } else if (e.message.includes("429")) {
+      if (e.message.includes("429")) {
         alert("API制限中です。少し待機してください。");
       }
     } finally {
@@ -225,6 +257,11 @@ const GlobeContent = () => {
     const hasJapaneseChars = displayName && /[ぁ-んァ-ン一-龯]/.test(displayName);
     const isWeakDesc = !displayDesc || displayDesc.length < 10 || displayDesc.includes("World Heritage") || displayDesc === "世界遺産";
     
+    // ★画像がないなら取得しに行く
+    if (!selectedLocation.image_url) {
+      fetchAndSaveImage(selectedLocation);
+    }
+
     const newData = { 
       ...selectedLocation, 
       name: displayName, 
@@ -364,7 +401,20 @@ const GlobeContent = () => {
       <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
 
       {selectedLocation && displayData && (
-        <div style={{ position: 'absolute', bottom: '15%', left: '50%', transform: 'translateX(-50%)', background: 'rgba(10, 10, 10, 0.85)', padding: '20px', borderRadius: '20px', color: 'white', textAlign: 'center', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.2)', zIndex: 10, minWidth: '300px', maxWidth: '80%', boxShadow: '0 4px 30px rgba(0,0,0,0.5)', animation: 'fadeIn 0.5s' }}>
+        <div style={{ position: 'absolute', bottom: '15%', left: '50%', transform: 'translateX(-50%)', background: 'rgba(10, 10, 10, 0.85)', padding: '20px', borderRadius: '20px', color: 'white', textAlign: 'center', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.2)', zIndex: 10, minWidth: '320px', maxWidth: '85%', boxShadow: '0 4px 30px rgba(0,0,0,0.5)', animation: 'fadeIn 0.5s' }}>
+          
+          {/* ★画像表示エリア */}
+          {displayData.image_url && (
+            <div style={{ width: '100%', height: '150px', marginBottom: '15px', borderRadius: '12px', overflow: 'hidden', position: 'relative' }}>
+              <img 
+                src={displayData.image_url} 
+                alt={displayData.name} 
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+              />
+              <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)', height: '50px' }} />
+            </div>
+          )}
+
           <div style={{ position: 'absolute', top: '-20px', right: '20px' }}><button onClick={toggleFavorite} style={{ background: favorites.has(selectedLocation.id) ? '#ff3366' : '#333', color: 'white', border: '2px solid white', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', boxShadow: '0 4px 10px rgba(0,0,0,0.5)', transition: 'all 0.2s' }}>{favorites.has(selectedLocation.id) ? '♥' : '♡'}</button></div>
           <div style={{ marginBottom: '10px', fontSize: '12px', color: isPlaying ? '#00ffcc' : '#888' }}>{isPlaying ? <><span className="pulse">●</span> ON AIR</> : <span>● READY</span>}</div>
           <div style={{ color: '#ffccaa', marginBottom: '10px' }}>{renderNameWithTags(displayData.name)}</div>
