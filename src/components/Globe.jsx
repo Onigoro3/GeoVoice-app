@@ -11,11 +11,11 @@ const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 const LANGUAGES = {
-  ja: { code: 'ja', name: 'Japanese', label: '🇯🇵', placeholder: '場所を検索...' },
-  en: { code: 'en', name: 'English', label: '🇺🇸', placeholder: 'Search...' },
-  zh: { code: 'zh', name: 'Chinese', label: '🇨🇳', placeholder: '搜索...' },
-  es: { code: 'es', name: 'Spanish', label: '🇪🇸', placeholder: 'Buscar...' },
-  fr: { code: 'fr', name: 'French', label: '🇫🇷', placeholder: 'Rechercher...' },
+  ja: { code: 'ja', name: 'Japanese', label: '🇯🇵 日本語', placeholder: '場所を検索...' },
+  en: { code: 'en', name: 'English', label: '🇺🇸 English', placeholder: 'Search...' },
+  zh: { code: 'zh', name: 'Chinese', label: '🇨🇳 中文', placeholder: '搜索...' },
+  es: { code: 'es', name: 'Spanish', label: '🇪🇸 Español', placeholder: 'Buscar...' },
+  fr: { code: 'fr', name: 'French', label: '🇫🇷 Français', placeholder: 'Rechercher...' },
 };
 
 const PREMIUM_CATEGORIES = ['modern', 'science', 'art'];
@@ -383,12 +383,27 @@ const GlobeContent = () => {
     if (isBgmOn) { audio.play().catch(() => {}); audio.volume = isPlaying ? bgmVolume * 0.2 : bgmVolume; } else { audio.pause(); }
   }, [isBgmOn, isPlaying, bgmVolume]);
 
+  // ★タブ切り替えロジックの改善 (トグル対応)
   const handleTabChange = (tab) => {
+    if (activeTab === tab) {
+      // 既にアクティブなタブを押した場合 -> 閉じる（マップに戻る）
+      // ただし 'map' 自体を押した場合は何もしない
+      if (tab !== 'map') {
+        setActiveTab('map');
+        setShowBrowseOverlay(false);
+        setIsSettingsOpen(false);
+        if (tab === 'fav') setShowFavList(false);
+      }
+      return;
+    }
+
+    // 通常の切り替え
     setActiveTab(tab);
     setShowBrowseOverlay(tab === 'browse');
+    setIsSettingsOpen(tab === 'settings');
+    
     if (tab === 'ride') { if (!isRideMode) toggleRideMode(); }
     if (tab === 'fav') { if (user) setShowFavList(true); else setShowAuthModal(true); }
-    if (tab === 'settings') setIsSettingsOpen(true); else setIsSettingsOpen(false);
   };
 
   return (
@@ -416,7 +431,6 @@ const GlobeContent = () => {
         {isPc && <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid white', color: 'white', borderRadius: '50%', width: '36px', height: '36px' }}>⚙️</button>}
       </div>
 
-      {/* 設定メニュー (全画面オーバーレイ) */}
       {isSettingsOpen && (
         <div style={{ 
           position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', 
@@ -428,17 +442,17 @@ const GlobeContent = () => {
           </div>
 
           <div style={{ marginBottom: '30px' }}>
-            <div style={{ color: '#888', marginBottom: '10px', fontSize: '0.9rem' }}>情報</div>
-            <div style={{ background: '#222', borderRadius: '10px', overflow: 'hidden' }}>
-              <div style={{ padding: '15px', borderBottom: '1px solid #333', color: 'white', display: 'flex', justifyContent: 'space-between' }}>GeoVoice App <span>&gt;</span></div>
-              <div style={{ padding: '15px', borderBottom: '1px solid #333', color: 'white', display: 'flex', justifyContent: 'space-between' }}>プライバシーポリシー <span>&gt;</span></div>
-              <div style={{ padding: '15px', color: 'white', display: 'flex', justifyContent: 'space-between' }}>お問い合わせ <span>&gt;</span></div>
-            </div>
-          </div>
-
-          <div style={{ marginBottom: '30px' }}>
             <div style={{ color: '#888', marginBottom: '10px', fontSize: '0.9rem' }}>カスタマイズ</div>
             <div style={{ background: '#222', borderRadius: '10px', overflow: 'hidden', padding: '15px' }}>
+              
+              {/* ★言語設定の追加 */}
+              <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'white' }}>
+                <span>🌐 言語設定</span>
+                <select value={currentLang} onChange={(e) => setCurrentLang(e.target.value)} style={{ background: '#333', color: 'white', border: '1px solid #555', padding: '5px 10px', borderRadius: '5px', fontSize: '1rem' }}>
+                  {Object.keys(LANGUAGES).map(key => <option key={key} value={key}>{LANGUAGES[key].label}</option>)}
+                </select>
+              </div>
+
               <div style={{ marginBottom: '15px', color: '#ccc', fontSize: '0.9rem' }}>表示フィルター</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '20px' }}>
                 <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'white' }}><span>🏛️ 世界遺産</span><input type="checkbox" checked={visibleCategories.history} onChange={e => setVisibleCategories(prev => ({...prev, history: e.target.checked}))} style={{ transform: 'scale(1.3)' }} /></label>
@@ -457,13 +471,20 @@ const GlobeContent = () => {
             </div>
           </div>
 
+          <div style={{ marginBottom: '30px' }}>
+            <div style={{ color: '#888', marginBottom: '10px', fontSize: '0.9rem' }}>情報</div>
+            <div style={{ background: '#222', borderRadius: '10px', overflow: 'hidden' }}>
+              <div style={{ padding: '15px', borderBottom: '1px solid #333', color: 'white', display: 'flex', justifyContent: 'space-between' }}>GeoVoice App <span>&gt;</span></div>
+              <div style={{ padding: '15px', color: 'white', display: 'flex', justifyContent: 'space-between' }}>Privacy Policy <span>&gt;</span></div>
+            </div>
+          </div>
+
           {user && <button onClick={() => { if(confirm('ログアウトしますか？')) { supabase.auth.signOut(); clearUser(); setIsSettingsOpen(false); }}} style={{ width: '100%', padding: '15px', background: '#333', color: '#ff3366', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 'bold' }}>ログアウト</button>}
           
           <div style={{ height: '50px' }}></div>
         </div>
       )}
 
-      {/* ブラウズ画面 */}
       {!isPc && showBrowseOverlay && (
         <div style={{
           position: 'fixed', top: 0, left: 0, width: '100%', height: 'calc(100% - 80px)', 
@@ -499,14 +520,9 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ライド中のコントロール (スマホのみ) */}
+      {/* ★ライドコントロール: 位置を底上げ (bottom: 100px) */}
       {!isPc && isRideMode && activeTab !== 'browse' && (
-        <div style={{ 
-          position: 'absolute', 
-          // ★ライドボタンの位置調整: 説明文の下、ボトムバーの上に配置
-          bottom: '90px', 
-          left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '10px', zIndex: 50 
-        }}>
+        <div style={{ position: 'absolute', bottom: '100px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '10px', zIndex: 50 }}>
           <button onClick={toggleRideMode} style={{ background: '#ff3366', color: 'white', border: 'none', borderRadius: '30px', padding: '10px 25px', fontWeight: 'bold', boxShadow: '0 4px 15px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', gap: '5px' }}>🛑 STOP</button>
           <button onClick={handleNextRide} style={{ background: 'white', color: 'black', border: 'none', borderRadius: '30px', padding: '10px 25px', fontWeight: 'bold', boxShadow: '0 4px 15px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', gap: '5px' }}>⏩ NEXT</button>
         </div>
@@ -515,7 +531,7 @@ const GlobeContent = () => {
       {statusMessage && <div style={{ position: 'absolute', top: '80px', left: '20px', zIndex: 20, color: '#00ffcc', textShadow: '0 0 5px black' }}>{statusMessage}</div>}
 
       {/* 〇枠 */}
-      <div style={{ position: 'absolute', top: isPc ? '50%' : '35%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
+      <div style={{ position: 'absolute', top: isPc ? '50%' : '30%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
 
       {/* UI分割表示 */}
       {selectedLocation && displayData && !showBrowseOverlay && (
@@ -539,8 +555,8 @@ const GlobeContent = () => {
               left: isPc ? popupPos.x : '10px', 
               right: isPc ? 'auto' : '10px',
               top: isPc ? popupPos.y : 'auto', 
-              // ★説明文の位置調整: 〇枠の下付近まで上げる。ライドボタンのスペースを空ける。
-              bottom: isPc ? 'auto' : '180px', 
+              // ★余白調整: ライド中(170px) / 通常時(110px) で出し分け
+              bottom: isPc ? 'auto' : (isRideMode ? '170px' : '110px'),
               transform: isPc ? 'none' : 'none', 
               background: 'rgba(10, 10, 10, 0.95)', 
               padding: '20px', 
