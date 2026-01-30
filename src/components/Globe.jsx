@@ -20,7 +20,7 @@ const LANGUAGES = {
 
 const PREMIUM_CATEGORIES = ['modern', 'science', 'art'];
 
-// 地図コンポーネント (軽量化設定を追加)
+// 地図コンポーネント
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError, padding }) => {
   return (
     <Map
@@ -29,13 +29,7 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       initialViewState={initialViewState}
       projection="globe"
       mapStyle="mapbox://styles/mapbox/satellite-v9"
-      fog={{ 
-        range: [0.5, 10], 
-        color: 'rgba(255, 255, 255, 0)', 
-        'high-color': '#000', 
-        'space-color': '#000', 
-        'star-intensity': 0.6 
-      }}
+      fog={{ range: [0.5, 10], color: 'rgba(255, 255, 255, 0)', 'high-color': '#000', 'space-color': '#000', 'star-intensity': 0.6 }}
       terrain={{ source: 'mapbox-dem', exaggeration: 1.5 }}
       onMoveEnd={onMoveEnd}
       style={{ width: '100%', height: '100%' }}
@@ -43,8 +37,8 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       dragRotate={true}
       touchZoomRotate={true}
       padding={padding}
-      reuseMaps={true} // ★地図インスタンスを再利用して軽量化
-      optimizeForTerrain={true} // ★地形描画の最適化
+      reuseMaps={true}
+      optimizeForTerrain={true}
     >
       <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
       {geoJsonData && (
@@ -56,6 +50,7 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
               'circle-radius': 18,
               'circle-color': [
                 'match', ['get', 'category'],
+                'landmark', '#ff8800', // ★観光名所はオレンジ
                 'nature', '#00ff7f',
                 'history', '#ffcc00',
                 'modern', '#00ffff',
@@ -103,8 +98,9 @@ const GlobeContent = () => {
   const [showFavList, setShowFavList] = useState(false);
   const [favorites, setFavorites] = useState(new Set());
 
+  // ★landmarkを追加
   const [visibleCategories, setVisibleCategories] = useState({
-    history: true, nature: true, modern: true, science: true, art: true
+    landmark: true, history: true, nature: true, modern: true, science: true, art: true
   });
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -120,7 +116,7 @@ const GlobeContent = () => {
   const [activeTab, setActiveTab] = useState('map');
   const [showBrowseOverlay, setShowBrowseOverlay] = useState(false);
 
-  const initialViewState = { longitude: 13.4, latitude: 41.9, zoom: 3 };
+  const initialViewState = { longitude: 135.5, latitude: 34.7, zoom: 4 }; // 大阪付近を初期位置に
 
   useEffect(() => {
     const handleResize = () => setIsPc(window.innerWidth > 768);
@@ -170,6 +166,7 @@ const GlobeContent = () => {
       const { data, error } = await supabase.from('spots').select('*');
       if (error) throw error;
       if (data) {
+        // ★データがない場合のデフォルトカテゴリをhistoryにする
         const formattedData = data.map(d => ({ ...d, category: d.category || 'history' }));
         setLocations(formattedData);
         addLog(`Loaded ${data.length} spots`);
@@ -321,7 +318,6 @@ const GlobeContent = () => {
   const toggleRideMode = () => setIsRideMode(prev => !prev);
   const handleNextRide = () => { if (!isRideMode) return; window.speechSynthesis.cancel(); if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current); nextRideStep(); };
 
-  // ★現在地へ移動
   const handleCurrentLocation = () => {
     if (!navigator.geolocation) { alert("現在地機能が使えません"); return; }
     navigator.geolocation.getCurrentPosition(
@@ -391,6 +387,7 @@ const GlobeContent = () => {
 
   const getCategoryDetails = (category) => {
     let tag = '世界遺産'; let color = '#ffcc00';
+    if (category === 'landmark') { tag = '観光名所'; color = '#ff8800'; } // ★新カテゴリ
     if (category === 'nature') { tag = '自然遺産'; color = '#00ff7f'; }
     if (category === 'modern') { tag = '現代建築'; color = '#00ffff'; }
     if (category === 'science') { tag = '宇宙・科学'; color = '#d800ff'; }
@@ -495,6 +492,7 @@ const GlobeContent = () => {
               </div>
               <div style={{ marginBottom: '15px', color: '#ccc', fontSize: '0.9rem' }}>表示フィルター</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '20px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'white' }}><span>🏯 観光名所</span><input type="checkbox" checked={visibleCategories.landmark} onChange={e => setVisibleCategories(prev => ({...prev, landmark: e.target.checked}))} style={{ transform: 'scale(1.3)' }} /></label>
                 <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'white' }}><span>🏛️ 世界遺産</span><input type="checkbox" checked={visibleCategories.history} onChange={e => setVisibleCategories(prev => ({...prev, history: e.target.checked}))} style={{ transform: 'scale(1.3)' }} /></label>
                 <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'white' }}><span>🌲 自然遺産</span><input type="checkbox" checked={visibleCategories.nature} onChange={e => setVisibleCategories(prev => ({...prev, nature: e.target.checked}))} style={{ transform: 'scale(1.3)' }} /></label>
                 <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'white' }}><span>🏙️ 現代建築</span><input type="checkbox" checked={visibleCategories.modern} onChange={e => setVisibleCategories(prev => ({...prev, modern: e.target.checked}))} style={{ transform: 'scale(1.3)' }} /></label>
@@ -534,6 +532,7 @@ const GlobeContent = () => {
           <button onClick={() => jumpToRandomSpot()} style={{ width: '100%', padding: '15px', borderRadius: '30px', background: 'transparent', border: '2px solid #00ffcc', color: '#00ffcc', fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '40px', cursor: 'pointer' }}>気球の旅に出かけよう 🎈</button>
           <h3 style={{ color: 'white', marginBottom: '15px', borderLeft: '4px solid #00ff7f', paddingLeft: '10px' }}>カテゴリー</h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
+            <div onClick={() => jumpToRandomSpot('landmark')} style={{ background: '#222', padding: '20px', borderRadius: '15px', border: '1px solid #333', cursor: 'pointer' }}><div style={{ fontSize: '2rem' }}>🏯</div><div style={{ color: '#ff8800', fontWeight: 'bold' }}>観光名所</div></div>
             <div onClick={() => jumpToRandomSpot('nature')} style={{ background: '#222', padding: '20px', borderRadius: '15px', border: '1px solid #333', cursor: 'pointer' }}><div style={{ fontSize: '2rem' }}>🌲</div><div style={{ color: '#00ff7f', fontWeight: 'bold' }}>大自然</div></div>
             <div onClick={() => jumpToRandomSpot('history')} style={{ background: '#222', padding: '20px', borderRadius: '15px', border: '1px solid #333', cursor: 'pointer' }}><div style={{ fontSize: '2rem' }}>🏛️</div><div style={{ color: '#ffcc00', fontWeight: 'bold' }}>歴史遺産</div></div>
             <div onClick={() => jumpToRandomSpot('modern')} style={{ background: '#222', padding: '20px', borderRadius: '15px', border: '1px solid #333', cursor: 'pointer' }}><div style={{ fontSize: '2rem' }}>🏙️</div><div style={{ color: '#00ffff', fontWeight: 'bold' }}>現代建築</div></div>
