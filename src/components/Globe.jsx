@@ -11,14 +11,13 @@ const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 const LANGUAGES = {
-  ja: { code: 'ja', name: 'Japanese', label: '🇯🇵 日本語', placeholder: '例: 日本の城...' },
-  en: { code: 'en', name: 'English', label: '🇺🇸 English', placeholder: 'Ex: Castles in Japan...' },
-  zh: { code: 'zh', name: 'Chinese', label: '🇨🇳 中文', placeholder: '例如：日本的城堡...' },
-  es: { code: 'es', name: 'Spanish', label: '🇪🇸 Español', placeholder: 'Ej: Castillos de Japón...' },
-  fr: { code: 'fr', name: 'French', label: '🇫🇷 Français', placeholder: 'Ex: Châteaux du Japon...' },
+  ja: { code: 'ja', name: 'Japanese', label: '🇯🇵', placeholder: '例: 城...' }, // スマホ用にラベル短縮
+  en: { code: 'en', name: 'English', label: '🇺🇸', placeholder: 'Ex: Castle...' },
+  zh: { code: 'zh', name: 'Chinese', label: '🇨🇳', placeholder: '例如：城堡...' },
+  es: { code: 'es', name: 'Spanish', label: '🇪🇸', placeholder: 'Ej: Castillo...' },
+  fr: { code: 'fr', name: 'French', label: '🇫🇷', placeholder: 'Ex: Château...' },
 };
 
-// 課金が必要なカテゴリーリスト
 const PREMIUM_CATEGORIES = ['modern', 'science', 'art'];
 
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError }) => {
@@ -34,6 +33,9 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       onMoveEnd={onMoveEnd}
       style={{ width: '100%', height: '100%' }}
       onError={onError}
+      // スマホでの誤操作防止
+      dragRotate={true}
+      touchZoomRotate={true}
     >
       <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
       {geoJsonData && (
@@ -44,8 +46,7 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
             paint={{ 
               'circle-radius': 12,
               'circle-color': [
-                'match',
-                ['get', 'category'],
+                'match', ['get', 'category'],
                 'nature', '#00ff7f',
                 'history', '#ffcc00',
                 'modern', '#00ffff',
@@ -89,7 +90,6 @@ const GlobeContent = () => {
   const [showFavList, setShowFavList] = useState(false);
   const [favorites, setFavorites] = useState(new Set());
 
-  // フィルター設定
   const [visibleCategories, setVisibleCategories] = useState({
     history: true, nature: true, modern: true, science: true, art: true
   });
@@ -99,7 +99,7 @@ const GlobeContent = () => {
   const [voiceVolume, setVoiceVolume] = useState(1.0);
   const [isBgmOn, setIsBgmOn] = useState(false);
 
-  // PC用UI state
+  // PC判定
   const [isPc, setIsPc] = useState(window.innerWidth > 768);
   const [popupPos, setPopupPos] = useState({ x: 20, y: 100 });
   const [isDragging, setIsDragging] = useState(false);
@@ -115,7 +115,7 @@ const GlobeContent = () => {
 
   const handleMouseDown = (e) => {
     if (!isPc) return;
-    if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+    if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
     setIsDragging(true);
     setDragOffset({ x: e.clientX - popupPos.x, y: e.clientY - popupPos.y });
   };
@@ -344,25 +344,17 @@ const GlobeContent = () => {
     }
   };
 
-  // ★フィルター機能 (課金制限付き)
   const filteredGeoJsonData = useMemo(() => {
     const filtered = locations.filter(loc => {
       const cat = loc.category || 'history';
-      
-      // ★制限チェック: 課金カテゴリかつ非Premiumなら表示しない
-      if (!isPremium && PREMIUM_CATEGORIES.includes(cat)) {
-        return false;
-      }
-
+      if (!isPremium && PREMIUM_CATEGORIES.includes(cat)) return false;
       return visibleCategories[cat];
     });
     return {
       type: 'FeatureCollection',
-      features: filtered.map(loc => ({ 
-        type: 'Feature', geometry: { type: 'Point', coordinates: [loc.lon, loc.lat] }, properties: { ...loc } 
-      }))
+      features: filtered.map(loc => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [loc.lon, loc.lat] }, properties: { ...loc } }))
     };
-  }, [locations, visibleCategories, isPremium]); // isPremiumに依存させる
+  }, [locations, visibleCategories, isPremium]);
 
   const handleMoveEnd = useCallback((evt) => {
     if (!evt.originalEvent || isGeneratingRef.current) return;
@@ -421,61 +413,49 @@ const GlobeContent = () => {
   }, [isBgmOn, isPlaying, bgmVolume]);
 
   return (
-    <div style={{ width: "100vw", height: "100dvh", background: "black", fontFamily: 'sans-serif', position: 'relative', overflow: 'hidden' }}>
+    // ★スクロール禁止のスタイルを追加 (touchAction, overscrollBehavior)
+    <div style={{ width: "100vw", height: "100dvh", background: "black", fontFamily: 'sans-serif', position: 'fixed', top: 0, left: 0, overflow: 'hidden', touchAction: 'none', overscrollBehavior: 'none' }}>
       <audio ref={audioRef} src="/bgm.mp3" loop />
       
-      <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 100, background: 'rgba(0,0,0,0.7)', color: '#00ff00', fontSize: '10px', padding: '5px', borderRadius: '5px', maxWidth: '300px', pointerEvents: 'none' }}>{logs.map((log, i) => <div key={i}>{log}</div>)}</div>
+      {/* ログ (スマホでは邪魔なので非表示にするか、極小にする) */}
+      {isPc && <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 100, background: 'rgba(0,0,0,0.7)', color: '#00ff00', fontSize: '10px', padding: '5px', borderRadius: '5px', maxWidth: '300px', pointerEvents: 'none' }}>{logs.map((log, i) => <div key={i}>{log}</div>)}</div>}
 
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={setupUser} />}
       {showFavList && user && <FavoritesModal userId={user.id} onClose={() => setShowFavList(false)} onSelect={handleSelectFromList} />}
 
-      <div style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 20, display: 'flex', gap: '8px', background: 'rgba(0,0,0,0.6)', padding: '10px', borderRadius: '12px', backdropFilter: 'blur(5px)', border: '1px solid rgba(255,255,255,0.1)', alignItems: 'center' }}>
-        <select value={currentLang} onChange={(e) => setCurrentLang(e.target.value)} style={{ appearance: 'none', background: 'transparent', color: 'white', border: 'none', fontSize: '1.2rem', fontWeight: 'bold', cursor: 'pointer', paddingRight: '15px', outline: 'none' }}>{Object.keys(LANGUAGES).map(key => <option key={key} value={key} style={{ color: 'black' }}>{LANGUAGES[key].label}</option>)}</select>
+      {/* ★上部UI: スマホ用にレイアウト調整 */}
+      <div style={{ 
+        position: 'absolute', top: '10px', left: '10px', right: isPc ? 'auto' : '60px', // スマホなら右側を空ける（ユーザーアイコン用）
+        zIndex: 20, display: 'flex', flexWrap: 'wrap', gap: '5px', 
+        background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '12px', 
+        backdropFilter: 'blur(5px)', border: '1px solid rgba(255,255,255,0.1)', alignItems: 'center' 
+      }}>
+        <select value={currentLang} onChange={(e) => setCurrentLang(e.target.value)} style={{ appearance: 'none', background: 'transparent', color: 'white', border: 'none', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer', paddingRight: '5px', outline: 'none' }}>{Object.keys(LANGUAGES).map(key => <option key={key} value={key} style={{ color: 'black' }}>{LANGUAGES[key].label}</option>)}</select>
         <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.3)' }}></div>
-        <input type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder={LANGUAGES[currentLang].placeholder} style={{ background: 'transparent', border: 'none', color: 'white', outline: 'none', padding: '5px', width: '120px', fontSize: '0.9rem' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
-        <button onClick={handleGenerate} disabled={isGenerating} style={{ background: isGenerating ? '#555' : '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 12px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem' }}>Go</button>
+        {/* スマホならプレースホルダーを短くする工夫も可 */}
+        <input type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder={isPc ? LANGUAGES[currentLang].placeholder : "Search..."} style={{ background: 'transparent', border: 'none', color: 'white', outline: 'none', padding: '5px', width: isPc ? '120px' : '70px', fontSize: '0.9rem' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
+        <button onClick={handleGenerate} disabled={isGenerating} style={{ background: isGenerating ? '#555' : '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem' }}>Go</button>
         <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} style={{ background: 'transparent', color: 'white', border: 'none', cursor: 'pointer', fontSize: '1.2rem', padding: '0 5px' }}>⚙️</button>
       </div>
 
-      <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 20, display: 'flex', alignItems: 'center', gap: '10px' }}>
-        {profile && (<div style={{ color: 'white', fontSize: '0.9rem', background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '8px', border: isPremium ? '1px solid #FFD700' : '1px solid #444' }}><span style={{ fontWeight: 'bold' }}>{profile.username}</span><span style={{ color: '#888', marginLeft: '5px' }}>#{profile.discriminator}</span>{isPremium && <span style={{ marginLeft: '5px', color: '#FFD700' }}>★</span>}</div>)}
-        {user && (<button onClick={() => setShowFavList(true)} style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid #ff3366', color: '#ff3366', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>♥</button>)}
-        <button onClick={() => { if (user) { if (window.confirm('ログアウトしますか？')) { supabase.auth.signOut(); clearUser(); } } else { setShowAuthModal(true); } }} style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', color: user ? '#00ffcc' : 'white', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{user ? '👤' : '🔑'}</button>
+      {/* ★右上ユーザーメニュー: スマホでは名前を隠してアイコンのみに */}
+      <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 20, display: 'flex', alignItems: 'center', gap: '5px' }}>
+        {profile && isPc && (<div style={{ color: 'white', fontSize: '0.9rem', background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '8px', border: isPremium ? '1px solid #FFD700' : '1px solid #444' }}><span style={{ fontWeight: 'bold' }}>{profile.username}</span>{isPremium && <span style={{ marginLeft: '5px', color: '#FFD700' }}>★</span>}</div>)}
+        {user && (<button onClick={() => setShowFavList(true)} style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid #ff3366', color: '#ff3366', borderRadius: '50%', width: '36px', height: '36px', cursor: 'pointer', fontSize: '1rem', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>♥</button>)}
+        <button onClick={() => { if (user) { if (window.confirm('ログアウトしますか？')) { supabase.auth.signOut(); clearUser(); } } else { setShowAuthModal(true); } }} style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', color: user ? '#00ffcc' : 'white', borderRadius: '50%', width: '36px', height: '36px', cursor: 'pointer', fontSize: '1rem', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{user ? '👤' : '🔑'}</button>
       </div>
 
       {isSettingsOpen && (
-        <div style={{ position: 'absolute', top: '70px', left: '20px', zIndex: 20, background: 'rgba(20,20,20,0.9)', padding: '15px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)', color: 'white', minWidth: '220px', backdropFilter: 'blur(10px)', maxHeight: '80vh', overflowY: 'auto' }}>
+        <div style={{ position: 'absolute', top: '60px', left: '10px', zIndex: 20, background: 'rgba(20,20,20,0.95)', padding: '15px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)', color: 'white', minWidth: '220px', backdropFilter: 'blur(10px)', maxHeight: '70vh', overflowY: 'auto', boxShadow: '0 4px 20px black' }}>
           <div style={{ marginBottom: '15px', fontWeight: 'bold', color: '#00ffcc', borderBottom: '1px solid #444', paddingBottom: '5px' }}>Settings</div>
           <div style={{ marginBottom: '15px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div style={{ fontSize: '0.85rem', color: '#ccc', marginBottom: '5px' }}>表示フィルター</div>
-            
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-              <input type="checkbox" checked={visibleCategories.history} onChange={e => setVisibleCategories(prev => ({...prev, history: e.target.checked}))} />
-              <span style={{ color: '#ffcc00', fontWeight: 'bold' }}>🏛️ 世界遺産 (文化)</span>
-            </label>
-            
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-              <input type="checkbox" checked={visibleCategories.nature} onChange={e => setVisibleCategories(prev => ({...prev, nature: e.target.checked}))} />
-              <span style={{ color: '#00ff7f', fontWeight: 'bold' }}>🌲 自然遺産</span>
-            </label>
-
-            {/* ★課金ユーザーのみ有効になるエリア */}
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: isPremium ? 'pointer' : 'not-allowed', opacity: isPremium ? 1 : 0.5 }}>
-              <input type="checkbox" checked={visibleCategories.modern} disabled={!isPremium} onChange={e => setVisibleCategories(prev => ({...prev, modern: e.target.checked}))} />
-              <span style={{ color: '#00ffff', fontWeight: 'bold' }}>🏙️ 現代建築 {!isPremium && '🔒'}</span>
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: isPremium ? 'pointer' : 'not-allowed', opacity: isPremium ? 1 : 0.5 }}>
-              <input type="checkbox" checked={visibleCategories.science} disabled={!isPremium} onChange={e => setVisibleCategories(prev => ({...prev, science: e.target.checked}))} />
-              <span style={{ color: '#d800ff', fontWeight: 'bold' }}>🚀 宇宙・科学 {!isPremium && '🔒'}</span>
-            </label>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: isPremium ? 'pointer' : 'not-allowed', opacity: isPremium ? 1 : 0.5 }}>
-              <input type="checkbox" checked={visibleCategories.art} disabled={!isPremium} onChange={e => setVisibleCategories(prev => ({...prev, art: e.target.checked}))} />
-              <span style={{ color: '#ff0055', fontWeight: 'bold' }}>🎨 美術館 {!isPremium && '🔒'}</span>
-            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}><input type="checkbox" checked={visibleCategories.history} onChange={e => setVisibleCategories(prev => ({...prev, history: e.target.checked}))} /><span style={{ color: '#ffcc00', fontWeight: 'bold' }}>🏛️ 世界遺産 (文化)</span></label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}><input type="checkbox" checked={visibleCategories.nature} onChange={e => setVisibleCategories(prev => ({...prev, nature: e.target.checked}))} /><span style={{ color: '#00ff7f', fontWeight: 'bold' }}>🌲 自然遺産</span></label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: isPremium ? 'pointer' : 'not-allowed', opacity: isPremium ? 1 : 0.5 }}><input type="checkbox" checked={visibleCategories.modern} disabled={!isPremium} onChange={e => setVisibleCategories(prev => ({...prev, modern: e.target.checked}))} /><span style={{ color: '#00ffff', fontWeight: 'bold' }}>🏙️ 現代建築 {!isPremium && '🔒'}</span></label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: isPremium ? 'pointer' : 'not-allowed', opacity: isPremium ? 1 : 0.5 }}><input type="checkbox" checked={visibleCategories.science} disabled={!isPremium} onChange={e => setVisibleCategories(prev => ({...prev, science: e.target.checked}))} /><span style={{ color: '#d800ff', fontWeight: 'bold' }}>🚀 宇宙・科学 {!isPremium && '🔒'}</span></label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: isPremium ? 'pointer' : 'not-allowed', opacity: isPremium ? 1 : 0.5 }}><input type="checkbox" checked={visibleCategories.art} disabled={!isPremium} onChange={e => setVisibleCategories(prev => ({...prev, art: e.target.checked}))} /><span style={{ color: '#ff0055', fontWeight: 'bold' }}>🎨 美術館 {!isPremium && '🔒'}</span></label>
           </div>
-          
           <div style={{ borderTop: '1px solid #444', paddingTop: '10px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}><span>BGM</span><button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: isBgmOn ? '#ffaa00' : '#555', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 8px', fontSize: '0.8rem', cursor: 'pointer' }}>{isBgmOn ? 'ON' : 'OFF'}</button></div>
             <input type="range" min="0" max="1" step="0.1" value={bgmVolume} onChange={e => setBgmVolume(parseFloat(e.target.value))} style={{ width: '100%', marginBottom: '15px', cursor: 'pointer' }} /><div style={{ marginBottom: '5px' }}>Voice Vol</div><input type="range" min="0" max="1" step="0.1" value={voiceVolume} onChange={e => setVoiceVolume(parseFloat(e.target.value))} style={{ width: '100%', cursor: 'pointer' }} />
@@ -491,27 +471,30 @@ const GlobeContent = () => {
         <div 
           onMouseDown={handleMouseDown}
           style={{ 
+            // ★UI分岐: PCならドラッグ可能、スマホなら画面下固定(シート)
             position: 'absolute', 
-            left: isPc ? popupPos.x : '50%', 
+            left: isPc ? popupPos.x : 0, 
             top: isPc ? popupPos.y : 'auto', 
-            bottom: isPc ? 'auto' : '15%',
-            transform: isPc ? 'none' : 'translateX(-50%)',
-            background: 'rgba(10, 10, 10, 0.85)', 
+            bottom: isPc ? 'auto' : 0, // スマホは下端
+            transform: isPc ? 'none' : 'none',
+            
+            background: 'rgba(10, 10, 10, 0.9)', // スマホは少し濃く
             padding: '20px', 
-            borderRadius: '20px', 
+            borderRadius: isPc ? '20px' : '20px 20px 0 0', // スマホは上だけ丸く
             color: 'white', 
             textAlign: 'center', 
             backdropFilter: 'blur(10px)', 
-            border: '1px solid rgba(255, 255, 255, 0.2)', 
+            borderTop: '1px solid rgba(255, 255, 255, 0.2)', 
             zIndex: 10, 
-            minWidth: '320px', 
-            maxWidth: isPc ? 'none' : '85%', 
-            width: isPc ? '400px' : 'auto',
-            boxShadow: '0 4px 30px rgba(0,0,0,0.5)', 
+            
+            width: isPc ? '400px' : '100%', // スマホは全幅
+            maxWidth: '100%',
+            
+            boxShadow: '0 -4px 30px rgba(0,0,0,0.6)', 
             resize: isPc ? 'both' : 'none',
             overflow: isPc ? 'auto' : 'visible',
             cursor: isPc ? (isDragging ? 'grabbing' : 'grab') : 'default',
-            animation: isDragging ? 'none' : 'fadeIn 0.5s'
+            animation: isDragging ? 'none' : 'fadeIn 0.3s'
           }}
         >
           {displayData.image_url && (
@@ -524,22 +507,22 @@ const GlobeContent = () => {
           <div style={{ position: 'absolute', top: '15px', right: '15px' }}>
             <button onMouseDown={e => e.stopPropagation()} onClick={toggleFavorite} style={{ background: favorites.has(selectedLocation.id) ? '#ff3366' : '#333', color: 'white', border: '2px solid white', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', boxShadow: '0 4px 10px rgba(0,0,0,0.5)', transition: 'all 0.2s' }}>{favorites.has(selectedLocation.id) ? '♥' : '♡'}</button>
           </div>
-          <div style={{ marginBottom: '10px', fontSize: '12px', color: isPlaying ? '#00ffcc' : '#888' }}>{isPlaying ? <><span className="pulse">●</span> ON AIR</> : <span>● READY</span>}</div>
           
           <div style={{ color: '#ffccaa', marginBottom: '10px' }}>{renderNameWithTags(displayData.name, displayData.category)}</div>
           
-          <p style={{ margin: 0, fontSize: '0.85rem', color: '#ddd', maxHeight: '150px', overflowY: 'auto', textAlign: 'left', lineHeight: '1.6', cursor: 'text' }} onMouseDown={e => e.stopPropagation()}>
+          {/* スマホならスクロール可能にする */}
+          <p style={{ margin: 0, fontSize: '0.85rem', color: '#ddd', maxHeight: '150px', overflowY: 'auto', textAlign: 'left', lineHeight: '1.6', cursor: 'text', paddingBottom: '20px' }} onMouseDown={e => e.stopPropagation()}>
             {displayData.description}
           </p>
           
           {displayData.needsTranslation && (
-            <button onMouseDown={e => e.stopPropagation()} onClick={() => translateAndFix(selectedLocation, currentLang)} style={{ marginTop: '10px', background: '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 15px', fontWeight: 'bold', cursor: 'pointer' }}>🔄 日本語に翻訳する</button>
+            <button onMouseDown={e => e.stopPropagation()} onClick={() => translateAndFix(selectedLocation, currentLang)} style={{ marginTop: '10px', background: '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 15px', fontWeight: 'bold', cursor: 'pointer', marginBottom: '10px' }}>🔄 日本語に翻訳する</button>
           )}
         </div>
       )}
 
       <MemoizedMap mapRef={mapRef} mapboxAccessToken={MAPBOX_TOKEN} initialViewState={initialViewState} onMoveEnd={handleMoveEnd} geoJsonData={filteredGeoJsonData} onError={(e) => addLog(`Map Error: ${e.error.message}`)} />
-      <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } } .pulse { animation: pulse 1s infinite; } @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }`}</style>
+      <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } } .pulse { animation: pulse 1s infinite; } @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }`}</style>
     </div>
   );
 };
