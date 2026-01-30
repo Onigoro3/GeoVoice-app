@@ -18,6 +18,8 @@ const LANGUAGES = {
   fr: { code: 'fr', name: 'French', label: '🇫🇷 Français', placeholder: 'Rechercher...' },
 };
 
+const PREMIUM_CATEGORIES = ['modern', 'science', 'art'];
+
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError, padding }) => {
   return (
     <Map
@@ -77,7 +79,9 @@ const GlobeContent = () => {
   const historyIndexRef = useRef(0);
   const historySortedSpotsRef = useRef([]);
   const rideTimeoutRef = useRef(null);
-  
+  // ★追加: これが抜けていました
+  const visibleCategoriesRef = useRef(null);
+
   const [locations, setLocations] = useState([]);
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [displayData, setDisplayData] = useState(null);
@@ -111,17 +115,15 @@ const GlobeContent = () => {
   const [isBgmOn, setIsBgmOn] = useState(false);
 
   const [isPc, setIsPc] = useState(window.innerWidth > 768);
-  const [popupPos, setPopupPos] = useState({ x: -1, y: -1 }); // 初期値は無効値に
+  const [popupPos, setPopupPos] = useState({ x: -1, y: -1 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
-  // ★タブ管理 (初期値: explore)
-  const [activeTab, setActiveTab] = useState('explore'); // explore, fav, browse, search, settings, map
+  const [activeTab, setActiveTab] = useState('explore'); 
   const [nearbySpots, setNearbySpots] = useState([]);
 
   const initialViewState = { longitude: 135.0, latitude: 35.0, zoom: 3.5 };
 
-  // PC版のスポットカード初期位置を右上に設定
   useEffect(() => {
     if (isPc && popupPos.x === -1) {
       setPopupPos({ x: window.innerWidth - 380, y: 20 });
@@ -146,9 +148,7 @@ const GlobeContent = () => {
   const handleMouseDown = (e) => {
     if (!isPc) return;
     if (['BUTTON', 'INPUT', 'SELECT', 'OPTION', 'A'].includes(e.target.tagName)) return;
-    // PCパネル内でのドラッグ防止
-    if (e.target.closest('.pc-panel-content') || e.target.closest('.control-bar')) return;
-    
+    if (e.target.closest('.pc-ui-container')) return;
     setIsDragging(true);
     setDragOffset({ x: e.clientX - popupPos.x, y: e.clientY - popupPos.y });
   };
@@ -165,11 +165,13 @@ const GlobeContent = () => {
 
   const addLog = (msg) => { console.log(msg); setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 5)); };
 
+  // Refの同期
   useEffect(() => { locationsRef.current = locations; }, [locations]);
   useEffect(() => { selectedLocationRef.current = selectedLocation; }, [selectedLocation]);
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
+  // ★追加: カテゴリフィルターのRef同期
+  useEffect(() => { visibleCategoriesRef.current = visibleCategories; }, [visibleCategories]);
 
-  // ライドモード制御
   useEffect(() => {
     isRideModeRef.current = isRideMode;
     isHistoryModeRef.current = isHistoryMode;
@@ -359,7 +361,7 @@ const GlobeContent = () => {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { longitude, latitude } = pos.coords;
-        mapRef.current?.flyTo({ center: [longitude, latitude], zoom: 10, speed: 1.5, curve: 1 });
+        mapRef.current?.flyTo({ center: [longitude, latitude], zoom: 9, speed: 1.5, curve: 1 });
       },
       () => { alert("位置情報の取得に失敗しました"); }
     );
@@ -382,7 +384,6 @@ const GlobeContent = () => {
     setIsHistoryMode(false);
     if (isRideMode) setIsRideMode(false);
     
-    // PCもスマホもマップに戻して、マップ上で移動
     setActiveTab('map'); 
     
     const nextSpot = candidates[Math.floor(Math.random() * candidates.length)];
@@ -422,31 +423,26 @@ const GlobeContent = () => {
     return { type: 'FeatureCollection', features: filtered.map(loc => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [loc.lon, loc.lat] }, properties: { ...loc } })) };
   }, [locations, visibleCategories, isPremium]);
 
-  // ★探索機能 & マップ移動ハンドラ
   const handleMoveEnd = useCallback((evt) => {
     if (isRideModeRef.current || isGeneratingRef.current) return;
     
     const map = mapRef.current?.getMap(); if (!map) return;
     const center = map.getCenter(); 
     
-    // 1. 周辺スポット探索 (Exploreタブ用)
     const bounds = map.getBounds();
     const ne = bounds.getNorthEast();
     const sw = bounds.getSouthWest();
     const nearby = locationsRef.current.filter(loc => {
       return loc.lat >= sw.lat && loc.lat <= ne.lat && loc.lon >= sw.lng && loc.lon <= ne.lng;
     });
-    // 距離順ソート
+    
     nearby.sort((a, b) => {
       const distA = Math.pow(a.lat - center.lat, 2) + Math.pow(a.lon - center.lng, 2);
       const distB = Math.pow(b.lat - center.lat, 2) + Math.pow(b.lon - center.lng, 2);
       return distA - distB;
     });
-    setNearbySpots(nearby.slice(0, 15)); // 15件
+    setNearbySpots(nearby.slice(0, 15)); 
 
-    // 2. 〇枠判定 (選択用)
-    // 探索タブが開いているときは、勝手に選択を変えない方が使いやすいかも？
-    // でも〇枠に入ったら選択されるのが仕様なので維持
     const point = map.project(center);
     const boxSize = 60;
     const features = map.queryRenderedFeatures([[point.x - boxSize/2, point.y - boxSize/2], [point.x + boxSize/2, point.y + boxSize/2]], { layers: ['point-core'] });
@@ -454,7 +450,6 @@ const GlobeContent = () => {
       const fullLocation = locationsRef.current.find(l => l.id === features[0].properties.id);
       if (fullLocation) setSelectedLocation(fullLocation);
     } else {
-      // 探索タブ以外の時は選択解除
       if (activeTab === 'map') setSelectedLocation(null);
     }
   }, [activeTab]);
@@ -480,7 +475,6 @@ const GlobeContent = () => {
     if (isBgmOn) { audio.play().catch(() => {}); audio.volume = isPlaying ? bgmVolume * 0.2 : bgmVolume; } else { audio.pause(); }
   }, [isBgmOn, isPlaying, bgmVolume]);
 
-  // ★タブ切り替え (トグル動作)
   const handleTabChange = (tab) => {
     if (activeTab === tab) {
       setActiveTab('map');
@@ -491,7 +485,6 @@ const GlobeContent = () => {
     if (tab === 'fav') { if (user) setShowFavList(true); else setShowAuthModal(true); }
   };
 
-  // ★共通パネルコンテンツ描画
   const renderPanelContent = () => {
     if (activeTab === 'explore') {
       return (
@@ -604,12 +597,10 @@ const GlobeContent = () => {
           
           {user && <button onClick={() => { if(confirm('Logout?')) { supabase.auth.signOut(); clearUser(); handleTabChange('map'); }}} style={{ width: '100%', padding: '15px', background: '#222', color: '#ff3366', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 'bold', marginTop:'30px' }}>ログアウト</button>}
           
-          {/* スクロール余白 */}
           <div style={{ height: '100px' }}></div> 
         </div>
       );
     }
-    // Favなどはモーダルで処理するのでここはnull
     return null;
   };
 
@@ -619,11 +610,11 @@ const GlobeContent = () => {
       
       {isPc && <div style={{ position: 'absolute', bottom: '10px', right: '10px', zIndex: 100, background: 'rgba(0,0,0,0.7)', color: '#00ff00', fontSize: '10px', padding: '5px', borderRadius: '5px', maxWidth: '300px', pointerEvents: 'none' }}>{logs.map((log, i) => <div key={i}>{log}</div>)}</div>}
       
-      {/* ★PC用UIコンテナ (一体型・Radio Garden風) */}
+      {/* ★PC用UIコンテナ */}
       {isPc && (
         <div className="pc-ui-container" style={{ position: 'absolute', bottom: '20px', left: '20px', width: '360px', zIndex: 100, display: 'flex', flexDirection: 'column' }}>
           
-          {/* 上部パネル (アクティブなタブがあれば開く) */}
+          {/* 上部パネル */}
           <div style={{
              background: '#111', 
              borderTopLeftRadius: '15px', borderTopRightRadius: '15px',
@@ -641,7 +632,7 @@ const GlobeContent = () => {
              {renderPanelContent()}
           </div>
 
-          {/* 下部コントロールバー (常に表示) */}
+          {/* 下部コントロールバー */}
           <div className="control-bar" style={{ 
             background: '#111', 
             borderBottomLeftRadius: '15px', borderBottomRightRadius: '15px',
@@ -652,7 +643,6 @@ const GlobeContent = () => {
             boxShadow: '0 4px 20px rgba(0,0,0,0.8)',
             zIndex: 101
           }}>
-            {/* ヘッダー: タイトル・ライドボタン・現在地 */}
             <div style={{ padding: '15px', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ color: 'white', fontWeight: 'bold', fontSize: '1.2rem' }}>GeoVoice</div>
               <div style={{ display: 'flex', gap: '10px' }}>
@@ -661,7 +651,6 @@ const GlobeContent = () => {
               </div>
             </div>
             
-            {/* ナビゲーション */}
             <div style={{ display: 'flex', borderTop: '1px solid #222', height:'70px', alignItems:'center' }}>
               <NavButton icon="🌍" label="探索" active={activeTab === 'explore'} onClick={() => handleTabChange('explore')} />
               <NavButton icon="♥" label="リスト" active={activeTab === 'fav'} onClick={() => handleTabChange('fav')} />
@@ -673,7 +662,7 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* PC版 ログアウト (右上) */}
+      {/* PC版 ログアウト */}
       {isPc && user && (
         <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 50 }}>
           {profile && <div style={{ color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '8px', marginBottom: '5px', textAlign: 'right' }}>{profile.username}</div>}
@@ -683,13 +672,12 @@ const GlobeContent = () => {
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={setupUser} />}
       {showFavList && user && <FavoritesModal userId={user.id} onClose={() => setShowFavList(false)} onSelect={handleSelectFromList} />}
 
-      {/* スマホ用パネル (設定・ブラウズ・検索・探索 全てここで表示) */}
+      {/* スマホ用パネル */}
       {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== 'fav' && (
         <div style={{ 
           position: 'fixed', top: 0, left: 0, width: '100%', height: 'calc(100% - 80px)', 
           background: '#111', zIndex: 200, overflowY: 'auto', padding: '20px', boxSizing: 'border-box'
         }}>
-          {/* 閉じるボタン */}
           <button onClick={() => setActiveTab('map')} style={{ position:'absolute', top:'15px', right:'15px', background:'transparent', border:'none', color:'#888', fontSize:'1.5rem' }}>✕</button>
           {renderPanelContent()}
         </div>
@@ -711,17 +699,14 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ★スマホ用 フロートボタン (現在地 & ライド) */}
+      {/* ★スマホ版 フローティングボタン */}
       {!isPc && activeTab === 'map' && (
         <div style={{ position: 'absolute', bottom: '100px', left: '20px', display:'flex', gap:'15px', zIndex:110 }}>
-            {/* 現在地 */}
             <button onClick={handleCurrentLocation} style={{ width: '50px', height: '50px', background: '#222', border: '1px solid #444', borderRadius: '50%', color: '#00ffcc', fontSize: '1.5rem', boxShadow: '0 4px 10px black', cursor: 'pointer' }}>📍</button>
-            {/* ライド */}
             <button onClick={toggleRideMode} style={{ width: '50px', height: '50px', background: isRideMode?'#ff3366':'#00aaff', border: '2px solid white', borderRadius: '50%', color: 'white', fontSize: '1.2rem', boxShadow: '0 4px 10px black', cursor: 'pointer' }}>{isRideMode?'🛑':'✈️'}</button>
         </div>
       )}
 
-      {/* ライド中のNEXTボタン (スマホ) */}
       {!isPc && isRideMode && (
         <div style={{ position: 'absolute', bottom: '100px', left: '50%', transform: 'translateX(-50%)', zIndex: 110 }}>
             <button onClick={handleNextRide} style={{ background: 'white', color: 'black', border: 'none', borderRadius: '30px', padding: '10px 25px', fontWeight: 'bold', boxShadow: '0 4px 15px rgba(0,0,0,0.5)' }}>⏩ NEXT</button>
@@ -730,13 +715,10 @@ const GlobeContent = () => {
 
       {statusMessage && <div style={{ position: 'absolute', top: '80px', left: '20px', zIndex: 20, color: '#00ffcc', textShadow: '0 0 5px black' }}>{statusMessage}</div>}
 
-      {/* 〇枠 */}
       <div style={{ position: 'absolute', top: isPc ? '50%' : '30%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
 
-      {/* スポットカード (UI分割) */}
       {selectedLocation && displayData && (activeTab === 'map' || isPc) && (
         <>
-          {/* 上部画像 (スマホ) */}
           {!isPc && displayData.image_url && (
             <div style={{
               position: 'absolute', top: '40px', left: '10px', right: '10px',
@@ -749,7 +731,6 @@ const GlobeContent = () => {
             </div>
           )}
 
-          {/* 説明カード */}
           <div 
             onMouseDown={handleMouseDown}
             style={{ 
@@ -757,7 +738,6 @@ const GlobeContent = () => {
               left: isPc ? popupPos.x : '10px', 
               right: isPc ? 'auto' : '10px',
               top: isPc ? popupPos.y : 'auto', 
-              // ★余白調整: ライド中はさらに上げて被り回避
               bottom: isPc ? 'auto' : (isRideMode ? '190px' : '120px'), 
               transform: isPc ? 'none' : 'none', 
               background: 'rgba(10, 10, 10, 0.95)', 
@@ -790,6 +770,9 @@ const GlobeContent = () => {
             <div style={{ overflowY: 'auto', flex: 1, touchAction: 'pan-y', paddingBottom: '10px' }} onMouseDown={e => e.stopPropagation()}>
               <p style={{ margin: 0, fontSize: '0.85rem', color: '#ddd', lineHeight: '1.6', textAlign: 'left' }}>{displayData.description}</p>
             </div>
+            {isPc && isRideMode && (
+                <button onClick={handleNextRide} style={{ marginTop:'10px', width:'100%', padding:'10px', background:'#333', color:'white', border:'1px solid #555', borderRadius:'5px' }}>⏩ 次へスキップ</button>
+            )}
           </div>
         </>
       )}
