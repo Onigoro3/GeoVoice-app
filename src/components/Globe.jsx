@@ -11,48 +11,18 @@ const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 const LANGUAGES = {
-  ja: { code: 'ja', name: 'Japanese', label: '🇯🇵 日本語', placeholder: '場所を検索...' },
-  en: { code: 'en', name: 'English', label: '🇺🇸 English', placeholder: 'Search...' },
-  zh: { code: 'zh', name: 'Chinese', label: '🇨🇳 中文', placeholder: '搜索...' },
-  es: { code: 'es', name: 'Spanish', label: '🇪🇸 Español', placeholder: 'Buscar...' },
-  fr: { code: 'fr', name: 'French', label: '🇫🇷 Français', placeholder: 'Rechercher...' },
+  ja: { code: 'ja', name: 'Japanese', label: '🇯🇵 日本語' },
+  en: { code: 'en', name: 'English', label: '🇺🇸 English' },
+  zh: { code: 'zh', name: 'Chinese', label: '🇨🇳 中文' },
+  es: { code: 'es', name: 'Spanish', label: '🇪🇸 Español' },
+  fr: { code: 'fr', name: 'French', label: '🇫🇷 Français' },
 };
 
-// ★軽量化: マップ設定をコンポーネント外に定数化
-const MAP_FOG = {
-  range: [0.5, 10],
-  color: 'rgba(255, 255, 255, 0)',
-  'high-color': '#000',
-  'space-color': '#000',
-  'star-intensity': 0.6
-};
-const MAP_TERRAIN = { source: 'mapbox-dem', exaggeration: 1.5 };
-const MAP_STYLE = "mapbox://styles/mapbox/satellite-v9";
-
-// ★軽量化: マーカーのデザイン定義
-const LAYER_GLOW = {
-  id: 'point-glow',
-  type: 'circle',
-  paint: {
-    'circle-radius': 6,
-    'circle-color': [
-      'match', ['get', 'category'],
-      'landmark', '#ff8800',
-      'nature', '#00ff7f',
-      'history', '#ffcc00',
-      'modern', '#00ffff',
-      'science', '#d800ff',
-      'art', '#ff0055',
-      '#ffcc00'
-    ],
-    'circle-opacity': 0.8,
-    'circle-blur': 0.4
-  }
-};
-const LAYER_CORE = {
-  id: 'point-core',
-  type: 'circle',
-  paint: { 'circle-radius': 3, 'circle-color': '#fff', 'circle-opacity': 1 }
+// 軽量化: 設定を外に出す
+const MAP_CONFIG = {
+  fog: { range: [0.5, 10], color: 'rgba(255, 255, 255, 0)', 'high-color': '#000', 'space-color': '#000', 'star-intensity': 0.6 },
+  terrain: { source: 'mapbox-dem', exaggeration: 1.5 },
+  style: "mapbox://styles/mapbox/satellite-v9"
 };
 
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError, padding }) => {
@@ -62,9 +32,9 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       mapboxAccessToken={mapboxAccessToken}
       initialViewState={initialViewState}
       projection="globe"
-      mapStyle={MAP_STYLE}
-      fog={MAP_FOG}
-      terrain={MAP_TERRAIN}
+      mapStyle={MAP_CONFIG.style}
+      fog={MAP_CONFIG.fog}
+      terrain={MAP_CONFIG.terrain}
       onMoveEnd={onMoveEnd}
       style={{ width: '100%', height: '100%' }}
       onError={onError}
@@ -77,8 +47,26 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
       {geoJsonData && (
         <Source id="my-locations" type="geojson" data={geoJsonData}>
-          <Layer {...LAYER_GLOW} />
-          <Layer {...LAYER_CORE} />
+          <Layer 
+            id="point-glow" 
+            type="circle" 
+            paint={{ 
+              'circle-radius': 6, 
+              'circle-color': [
+                'match', ['get', 'category'],
+                'landmark', '#ff8800',
+                'nature', '#00ff7f',
+                'history', '#ffcc00',
+                'modern', '#00ffff',
+                'science', '#d800ff',
+                'art', '#ff0055',
+                '#ffcc00'
+              ],
+              'circle-opacity': 0.8, 
+              'circle-blur': 0.4 
+            }} 
+          />
+          <Layer id="point-core" type="circle" paint={{ 'circle-radius': 3, 'circle-color': '#fff', 'circle-opacity': 1 }} />
         </Source>
       )}
     </Map>
@@ -186,7 +174,6 @@ const GlobeContent = () => {
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
   useEffect(() => { visibleCategoriesRef.current = visibleCategories; }, [visibleCategories]);
 
-  // ライドモード制御
   useEffect(() => {
     isRideModeRef.current = isRideMode;
     isHistoryModeRef.current = isHistoryMode;
@@ -444,19 +431,21 @@ const GlobeContent = () => {
     const map = mapRef.current?.getMap(); if (!map) return;
     const center = map.getCenter(); 
     
-    // 周辺スポット検索
-    const bounds = map.getBounds();
-    const ne = bounds.getNorthEast();
-    const sw = bounds.getSouthWest();
-    const nearby = locationsRef.current.filter(loc => {
-      return loc.lat >= sw.lat && loc.lat <= ne.lat && loc.lon >= sw.lng && loc.lon <= ne.lng;
-    });
-    nearby.sort((a, b) => {
-      const distA = Math.pow(a.lat - center.lat, 2) + Math.pow(a.lon - center.lng, 2);
-      const distB = Math.pow(b.lat - center.lat, 2) + Math.pow(b.lon - center.lng, 2);
-      return distA - distB;
-    });
-    setNearbySpots(nearby.slice(0, 15)); 
+    // ★軽量化: 探索タブの時のみ周辺検索を行う
+    if (activeTab === 'explore') {
+      const bounds = map.getBounds();
+      const ne = bounds.getNorthEast();
+      const sw = bounds.getSouthWest();
+      const nearby = locationsRef.current.filter(loc => {
+        return loc.lat >= sw.lat && loc.lat <= ne.lat && loc.lon >= sw.lng && loc.lon <= ne.lng;
+      });
+      nearby.sort((a, b) => {
+        const distA = Math.pow(a.lat - center.lat, 2) + Math.pow(a.lon - center.lng, 2);
+        const distB = Math.pow(b.lat - center.lat, 2) + Math.pow(b.lon - center.lng, 2);
+        return distA - distB;
+      });
+      setNearbySpots(nearby.slice(0, 15)); 
+    }
 
     const point = map.project(center);
     const boxSize = 60;
@@ -500,7 +489,6 @@ const GlobeContent = () => {
     if (tab === 'fav') { if (user) setShowFavList(true); else setShowAuthModal(true); }
   };
 
-  // PCパネルコンテンツ
   const renderPanelContent = () => {
     if (activeTab === 'explore') {
       return (
@@ -620,7 +608,7 @@ const GlobeContent = () => {
     return null;
   };
 
-  // PCパネルの表示状態管理 (黒い画面バグ修正)
+  // PCパネル開閉判定
   const isPanelOpen = isPc && (activeTab !== 'map' && activeTab !== 'ride' && activeTab !== 'fav');
 
   return (
@@ -629,25 +617,25 @@ const GlobeContent = () => {
       
       {isPc && <div style={{ position: 'absolute', bottom: '10px', right: '10px', zIndex: 100, background: 'rgba(0,0,0,0.7)', color: '#00ff00', fontSize: '10px', padding: '5px', borderRadius: '5px', maxWidth: '300px', pointerEvents: 'none' }}>{logs.map((log, i) => <div key={i}>{log}</div>)}</div>}
       
-      {/* ★PC用UIコンテナ */}
+      {/* PC用UIコンテナ */}
       {isPc && (
         <div className="pc-ui-container" style={{ position: 'absolute', bottom: '20px', left: '20px', width: '360px', zIndex: 100, display: 'flex', flexDirection: 'column' }}>
           
-          {/* 上部パネル: 表示時のみレンダリング & opacity制御でバグ回避 */}
+          {/* 上部パネル: バグ修正済 */}
           <div style={{
-             background: '#111', 
+             background: isPanelOpen ? '#111' : 'transparent', // 開いてない時は透明
              borderTopLeftRadius: '15px', borderTopRightRadius: '15px',
              borderBottom: 'none',
              height: isPanelOpen ? '60vh' : '0px',
              overflowY: 'auto',
              transition: 'height 0.3s ease-in-out, opacity 0.3s',
              opacity: isPanelOpen ? 1 : 0,
-             visibility: isPanelOpen ? 'visible' : 'hidden', // ★これで黒い残像を消す
-             borderLeft: '1px solid rgba(255,255,255,0.1)',
-             borderRight: '1px solid rgba(255,255,255,0.1)',
-             borderTop: '1px solid rgba(255,255,255,0.1)',
+             borderLeft: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : 'none',
+             borderRight: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : 'none',
+             borderTop: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : 'none',
              padding: isPanelOpen ? '20px' : '0 20px',
-             boxSizing: 'border-box'
+             boxSizing: 'border-box',
+             visibility: isPanelOpen ? 'visible' : 'hidden' // 完全に消す
           }}>
              {renderPanelContent()}
           </div>
@@ -682,7 +670,7 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* PC版 ログアウト (右上) */}
+      {/* PC版 ログアウト */}
       {isPc && user && (
         <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 50 }}>
           {profile && <div style={{ color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '8px', marginBottom: '5px', textAlign: 'right' }}>{profile.username}</div>}
@@ -719,20 +707,23 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ★スマホ版 フローティングボタン (重ならないよう配置調整) */}
+      {/* ★スマホ版 操作ボタン群 (中層: 90px付近) */}
       {!isPc && activeTab === 'map' && (
-        <div style={{ position: 'absolute', bottom: '100px', left: '20px', display:'flex', gap:'15px', zIndex:110 }}>
-            {/* 現在地 */}
+        <div style={{ position: 'absolute', bottom: '90px', left: '20px', right:'20px', display:'flex', justifyContent:'space-between', zIndex:110 }}>
+            {/* 左: 現在地 */}
             <button onClick={handleCurrentLocation} style={{ width: '50px', height: '50px', background: '#222', border: '1px solid #444', borderRadius: '50%', color: '#00ffcc', fontSize: '1.5rem', boxShadow: '0 4px 10px black', cursor: 'pointer' }}>📍</button>
-            {/* ライド */}
-            <button onClick={toggleRideMode} style={{ width: '50px', height: '50px', background: isRideMode?'#ff3366':'#00aaff', border: '2px solid white', borderRadius: '50%', color: 'white', fontSize: '1.2rem', boxShadow: '0 4px 10px black', cursor: 'pointer' }}>{isRideMode?'🛑':'✈️'}</button>
-        </div>
-      )}
-
-      {/* ライド中のNEXTボタン (スマホ) */}
-      {!isPc && isRideMode && (
-        <div style={{ position: 'absolute', bottom: '100px', left: '50%', transform: 'translateX(-50%)', zIndex: 110 }}>
-            <button onClick={handleNextRide} style={{ background: 'white', color: 'black', border: 'none', borderRadius: '30px', padding: '10px 25px', fontWeight: 'bold', boxShadow: '0 4px 15px rgba(0,0,0,0.5)' }}>⏩ NEXT</button>
+            
+            {/* 右: ライド/NEXT */}
+            <div style={{display:'flex', gap:'10px'}}>
+                {isRideMode ? (
+                    <>
+                        <button onClick={toggleRideMode} style={{ width: '50px', height: '50px', background: '#ff3366', border: '2px solid white', borderRadius: '50%', color: 'white', fontSize: '1.2rem', boxShadow: '0 4px 10px black', cursor: 'pointer' }}>🛑</button>
+                        <button onClick={handleNextRide} style={{ height: '50px', padding:'0 20px', background: 'white', color:'black', border: 'none', borderRadius: '25px', fontWeight:'bold', boxShadow: '0 4px 10px black' }}>⏩</button>
+                    </>
+                ) : (
+                    <button onClick={toggleRideMode} style={{ width: '50px', height: '50px', background: '#00aaff', border: '2px solid white', borderRadius: '50%', color: 'white', fontSize: '1.2rem', boxShadow: '0 4px 10px black', cursor: 'pointer' }}>✈️</button>
+                )}
+            </div>
         </div>
       )}
 
@@ -740,7 +731,7 @@ const GlobeContent = () => {
 
       <div style={{ position: 'absolute', top: isPc ? '50%' : '30%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
 
-      {/* スポットカード (UI分割) */}
+      {/* スポットカード (UI分割・上層) */}
       {selectedLocation && displayData && (activeTab === 'map' || isPc) && (
         <>
           {!isPc && displayData.image_url && (
@@ -762,8 +753,8 @@ const GlobeContent = () => {
               left: isPc ? popupPos.x : '10px', 
               right: isPc ? 'auto' : '10px',
               top: isPc ? popupPos.y : 'auto', 
-              // ★スマホ版余白調整: ライド中はさらに上げて被り回避 (Bottom 180px以上)
-              bottom: isPc ? 'auto' : (isRideMode ? '190px' : '180px'), 
+              // ★スマホ版余白調整: ボタン(90-140px)の上、160px以上に配置
+              bottom: isPc ? 'auto' : '160px', 
               transform: isPc ? 'none' : 'none', 
               background: 'rgba(10, 10, 10, 0.95)', 
               padding: '20px', borderRadius: '20px', color: 'white', textAlign: 'center', 
