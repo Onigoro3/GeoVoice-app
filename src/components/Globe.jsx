@@ -416,19 +416,17 @@ const GlobeContent = () => {
         {isPc && <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid white', color: 'white', borderRadius: '50%', width: '36px', height: '36px' }}>⚙️</button>}
       </div>
 
-      {/* ★Radio Garden風 設定メニュー (全画面オーバーレイ) */}
+      {/* 設定メニュー (全画面オーバーレイ) */}
       {isSettingsOpen && (
         <div style={{ 
           position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', 
           background: '#111', zIndex: 200, overflowY: 'auto', padding: '20px', boxSizing: 'border-box'
         }}>
-          {/* ヘッダー */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', marginTop: '20px' }}>
             <h2 style={{ margin: 0, color: 'white', fontSize: '1.8rem' }}>設定</h2>
             <button onClick={() => setIsSettingsOpen(false)} style={{ background: 'transparent', border: '1px solid #555', color: 'white', borderRadius: '50%', width: '40px', height: '40px', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
           </div>
 
-          {/* 情報セクション */}
           <div style={{ marginBottom: '30px' }}>
             <div style={{ color: '#888', marginBottom: '10px', fontSize: '0.9rem' }}>情報</div>
             <div style={{ background: '#222', borderRadius: '10px', overflow: 'hidden' }}>
@@ -438,11 +436,9 @@ const GlobeContent = () => {
             </div>
           </div>
 
-          {/* カスタマイズセクション */}
           <div style={{ marginBottom: '30px' }}>
             <div style={{ color: '#888', marginBottom: '10px', fontSize: '0.9rem' }}>カスタマイズ</div>
             <div style={{ background: '#222', borderRadius: '10px', overflow: 'hidden', padding: '15px' }}>
-              {/* 表示フィルター */}
               <div style={{ marginBottom: '15px', color: '#ccc', fontSize: '0.9rem' }}>表示フィルター</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '20px' }}>
                 <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'white' }}><span>🏛️ 世界遺産</span><input type="checkbox" checked={visibleCategories.history} onChange={e => setVisibleCategories(prev => ({...prev, history: e.target.checked}))} style={{ transform: 'scale(1.3)' }} /></label>
@@ -452,7 +448,6 @@ const GlobeContent = () => {
                 <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'white' }}><span>🎨 美術館</span><input type="checkbox" checked={visibleCategories.art} onChange={e => setVisibleCategories(prev => ({...prev, art: e.target.checked}))} style={{ transform: 'scale(1.3)' }} /></label>
               </div>
 
-              {/* 音量設定 */}
               <div style={{ borderTop: '1px solid #333', paddingTop: '15px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', color: 'white' }}><span>BGM</span><button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: isBgmOn ? '#ffaa00' : '#555', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 10px', fontSize: '0.8rem' }}>{isBgmOn ? 'ON' : 'OFF'}</button></div>
                 <input type="range" min="0" max="1" step="0.1" value={bgmVolume} onChange={e => setBgmVolume(parseFloat(e.target.value))} style={{ width: '100%', marginBottom: '15px' }} />
@@ -464,7 +459,7 @@ const GlobeContent = () => {
 
           {user && <button onClick={() => { if(confirm('ログアウトしますか？')) { supabase.auth.signOut(); clearUser(); setIsSettingsOpen(false); }}} style={{ width: '100%', padding: '15px', background: '#333', color: '#ff3366', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 'bold' }}>ログアウト</button>}
           
-          <div style={{ height: '50px' }}></div> {/* 余白 */}
+          <div style={{ height: '50px' }}></div>
         </div>
       )}
 
@@ -504,8 +499,14 @@ const GlobeContent = () => {
         </div>
       )}
 
+      {/* ライド中のコントロール (スマホのみ) */}
       {!isPc && isRideMode && activeTab !== 'browse' && (
-        <div style={{ position: 'absolute', bottom: '110px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '10px', zIndex: 50 }}>
+        <div style={{ 
+          position: 'absolute', 
+          // ★ライドボタンの位置調整: 説明文の下、ボトムバーの上に配置
+          bottom: '90px', 
+          left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '10px', zIndex: 50 
+        }}>
           <button onClick={toggleRideMode} style={{ background: '#ff3366', color: 'white', border: 'none', borderRadius: '30px', padding: '10px 25px', fontWeight: 'bold', boxShadow: '0 4px 15px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', gap: '5px' }}>🛑 STOP</button>
           <button onClick={handleNextRide} style={{ background: 'white', color: 'black', border: 'none', borderRadius: '30px', padding: '10px 25px', fontWeight: 'bold', boxShadow: '0 4px 15px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', gap: '5px' }}>⏩ NEXT</button>
         </div>
@@ -513,13 +514,12 @@ const GlobeContent = () => {
 
       {statusMessage && <div style={{ position: 'absolute', top: '80px', left: '20px', zIndex: 20, color: '#00ffcc', textShadow: '0 0 5px black' }}>{statusMessage}</div>}
 
-      {/* ★〇枠の位置調整 (上30%に配置し、上下のUIと被らないようにする) */}
+      {/* 〇枠 */}
       <div style={{ position: 'absolute', top: isPc ? '50%' : '35%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
 
-      {/* ★スマホ版 UI分割表示 (Split UI) */}
+      {/* UI分割表示 */}
       {selectedLocation && displayData && !showBrowseOverlay && (
         <>
-          {/* 上部カード: 画像のみ */}
           {!isPc && displayData.image_url && (
             <div style={{
               position: 'absolute', top: '70px', left: '10px', right: '10px',
@@ -532,7 +532,6 @@ const GlobeContent = () => {
             </div>
           )}
 
-          {/* 下部カード: 説明文・コントローラー */}
           <div 
             onMouseDown={handleMouseDown}
             style={{ 
@@ -540,8 +539,8 @@ const GlobeContent = () => {
               left: isPc ? popupPos.x : '10px', 
               right: isPc ? 'auto' : '10px',
               top: isPc ? popupPos.y : 'auto', 
-              // ★余白を大きく確保 (ボトムバー80px + 隙間30px)
-              bottom: isPc ? 'auto' : '110px', 
+              // ★説明文の位置調整: 〇枠の下付近まで上げる。ライドボタンのスペースを空ける。
+              bottom: isPc ? 'auto' : '180px', 
               transform: isPc ? 'none' : 'none', 
               background: 'rgba(10, 10, 10, 0.95)', 
               padding: '20px', 
@@ -553,7 +552,7 @@ const GlobeContent = () => {
               zIndex: 10, 
               width: isPc ? '400px' : 'auto', 
               maxWidth: isPc ? '360px' : 'none', 
-              maxHeight: isPc ? 'none' : '40vh', // 高さを制限
+              maxHeight: isPc ? 'none' : '40vh',
               boxShadow: '0 4px 30px rgba(0,0,0,0.6)', 
               resize: isPc ? 'both' : 'none', 
               overflow: isPc ? 'auto' : 'hidden', 
@@ -562,7 +561,6 @@ const GlobeContent = () => {
               animation: isDragging ? 'none' : 'fadeIn 0.3s',
             }}
           >
-            {/* PCの場合はここに画像を含める */}
             {isPc && displayData.image_url && (
               <div style={{ width: '100%', height: '140px', marginBottom: '10px', borderRadius: '12px', overflow: 'hidden', position: 'relative', flexShrink: 0 }}>
                 <img src={displayData.image_url} alt={displayData.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -591,7 +589,6 @@ const GlobeContent = () => {
         </>
       )}
 
-      {/* Map Padding: 上35%の位置に中心を合わせる */}
       <MemoizedMap mapRef={mapRef} mapboxAccessToken={MAPBOX_TOKEN} initialViewState={initialViewState} onMoveEnd={handleMoveEnd} geoJsonData={filteredGeoJsonData} onError={(e) => addLog(`Map Error: ${e.error.message}`)} padding={isPc ? {} : { bottom: window.innerHeight * 0.3 }} />
       <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(20px) translateX(-50%); } to { opacity: 1; transform: translateY(0) translateX(-50%); } } .pulse { animation: pulse 1s infinite; } @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }`}</style>
     </div>
