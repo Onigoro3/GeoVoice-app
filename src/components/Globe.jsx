@@ -72,16 +72,15 @@ const GlobeContent = () => {
   const selectedLocationRef = useRef(null);
   const isGeneratingRef = useRef(false);
   
-  // ★ライド機能用のRef
+  // ★ライド機能用のRef (非同期処理でも最新の値を参照するため)
   const isRideModeRef = useRef(false);
   const rideTimeoutRef = useRef(null);
+  const visibleCategoriesRef = useRef(null); // フィルター設定もRefで持つ
 
   const [locations, setLocations] = useState([]);
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [displayData, setDisplayData] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  
-  // ★ライド状態管理
   const [isRideMode, setIsRideMode] = useState(false);
   
   const [currentLang, setCurrentLang] = useState('ja');
@@ -154,12 +153,28 @@ const GlobeContent = () => {
     setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 5));
   };
 
+  // Ref同期
   useEffect(() => { locationsRef.current = locations; }, [locations]);
   useEffect(() => { selectedLocationRef.current = selectedLocation; }, [selectedLocation]);
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
-  
-  // Ref同期: ライドモード
-  useEffect(() => { isRideModeRef.current = isRideMode; }, [isRideMode]);
+  useEffect(() => { visibleCategoriesRef.current = visibleCategories; }, [visibleCategories]);
+
+  // ★ライドモードの管理 (修正版)
+  useEffect(() => {
+    isRideModeRef.current = isRideMode;
+    
+    if (isRideMode) {
+      addLog("✈️ フライトライド開始");
+      // 状態がONになったら即座に次のスポットへ
+      nextRideStep();
+    } else {
+      addLog("🛑 フライトライド停止");
+      // 停止処理
+      window.speechSynthesis.cancel();
+      setIsPlaying(false);
+      if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current);
+    }
+  }, [isRideMode]);
 
   const fetchSpots = async () => {
     try {
@@ -268,7 +283,6 @@ const GlobeContent = () => {
       if (selectedLocationRef.current && selectedLocationRef.current.id === spot.id) {
         const newData = { ...spot, ...updateData, name: json.name, description: json.description };
         setDisplayData(newData);
-        // ライド中は自動再生ロジックが別にあるのでここでは再生しない（手動翻訳時のみ）
         if (!isRideModeRef.current) speak(json.description);
       }
     } catch (e) {
@@ -305,16 +319,13 @@ const GlobeContent = () => {
     
     setDisplayData(newData);
     
-    // ★ライドモードなら翻訳が必要なければすぐ喋る、必要なら翻訳待機
-    // 手動選択時も同様
     if (!newData.needsTranslation) {
       window.speechSynthesis.cancel();
-      // speak関数内でライド時の「読み終わり次へ」処理を行う
       speak(newData.description);
     }
   }, [selectedLocation, currentLang]);
 
-  // ★読み上げ完了を検知して次へ進むspeak関数
+  // ★自動再生・次へ進む処理
   const speak = (text) => {
     if (!text) { setIsPlaying(false); return; }
     const utterance = new SpeechSynthesisUtterance(text);
@@ -324,12 +335,12 @@ const GlobeContent = () => {
     
     utterance.onend = () => {
       setIsPlaying(false);
-      // ★ライドモード中なら、読み終わり後3秒で次のスポットへ
+      // ライドモードなら読み終わり後に次へ
       if (isRideModeRef.current) {
-        addLog("読み上げ完了。次のスポットへ...");
+        addLog("次のスポットへ...");
         rideTimeoutRef.current = setTimeout(() => {
           nextRideStep();
-        }, 3000);
+        }, 3000); // 3秒後に移動
       }
     };
     
@@ -368,39 +379,31 @@ const GlobeContent = () => {
     }
   };
 
-  // ★フライトライド開始・停止
+  // ★ボタンを押した時の処理
   const toggleRideMode = () => {
-    if (isRideMode) {
-      // 停止
-      setIsRideMode(false);
-      window.speechSynthesis.cancel();
-      if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current);
-      addLog("🛑 フライトライド停止");
-    } else {
-      // 開始
-      setIsRideMode(true);
-      addLog("✈️ フライトライド開始");
-      nextRideStep(); // 最初のスポットへ
-    }
+    // 状態を反転させるだけにする（実際の処理はuseEffectで行う）
+    setIsRideMode(prev => !prev);
   };
 
-  // ★次のスポットへ飛ぶ関数
+  // ★次のスポットへ飛ぶ関数 (フィルター対応版)
   const nextRideStep = () => {
     if (!isRideModeRef.current) return;
 
-    // 現在のフィルター条件に合うスポットを抽出
+    // 現在のフィルター設定を使って候補を絞り込む
+    const currentFilters = visibleCategoriesRef.current || { history: true, nature: true, modern: true, science: true, art: true };
+    
     const candidates = locationsRef.current.filter(loc => {
       const cat = loc.category || 'history';
-      // 課金制限チェック
+      
+      // 課金制限
       if (!profile?.is_premium && !isVipUser(user?.email) && PREMIUM_CATEGORIES.includes(cat)) return false;
-      // 表示フィルターチェック
-      // ※stateの値はクロージャで古くなる可能性があるため、visibleCategoriesはstateそのまま使うと危険だが
-      // ここでは簡易的に全候補からランダムにする（本当はRefで管理すべきだが省略）
-      return true; 
+      
+      // フィルター設定 (チェックが入っているものだけ対象)
+      return currentFilters[cat];
     });
 
     if (candidates.length === 0) {
-      alert("表示できるスポットがありません");
+      alert("フィルター条件に合うスポットがありません。");
       setIsRideMode(false);
       return;
     }
@@ -408,17 +411,16 @@ const GlobeContent = () => {
     // ランダムに1つ選ぶ
     const nextSpot = candidates[Math.floor(Math.random() * candidates.length)];
     
-    // 選択状態にしてカメラ移動
+    // 選択して移動
     setSelectedLocation(nextSpot);
     
-    // シネマティックなカメラ移動
     mapRef.current?.flyTo({
       center: [nextSpot.lon, nextSpot.lat],
-      zoom: 6, // 少し寄り気味
-      speed: 0.8, // ゆっくり優雅に
-      curve: 1.5, // 大きく弧を描く
-      pitch: 45, // 斜めから見下ろす
-      bearing: Math.random() * 360, // 角度をランダムに変えて飽きさせない
+      zoom: 6,
+      speed: 0.8,
+      curve: 1.5,
+      pitch: 45,
+      bearing: Math.random() * 360, // 角度もランダムに
       essential: true
     });
   };
@@ -436,14 +438,9 @@ const GlobeContent = () => {
   }, [locations, visibleCategories, isPremium]);
 
   const handleMoveEnd = useCallback((evt) => {
-    // ライドモード中は自動制御するので、手動判定はスキップ（もしくはライドの到着判定に使う）
-    // MapboxのflyTo完了もmoveEndを発火する
-    if (!evt.originalEvent && isRideModeRef.current) {
-      // 自動移動完了時 -> useEffectでselectedLocationが変わっているので、そこからspeak等が走る
-      return; 
-    }
-
-    if (isGeneratingRef.current || isRideModeRef.current) return;
+    // ライドモード中は自動制御するので、手動判定はスキップ
+    if (!evt.originalEvent && isRideModeRef.current) return;
+    if (isGeneratingRef.current) return;
 
     const map = mapRef.current?.getMap();
     if (!map) return;
@@ -505,7 +502,7 @@ const GlobeContent = () => {
         <button onClick={handleGenerate} disabled={isGenerating} style={{ background: isGenerating ? '#555' : '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem' }}>Go</button>
         <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} style={{ background: 'transparent', color: 'white', border: 'none', cursor: 'pointer', fontSize: '1.2rem', padding: '0 5px' }}>⚙️</button>
         
-        {/* ★フライトライドボタン */}
+        {/* ★Rideボタン */}
         <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.3)', margin: '0 5px' }}></div>
         <button 
           onClick={toggleRideMode} 
