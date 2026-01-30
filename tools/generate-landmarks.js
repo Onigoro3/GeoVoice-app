@@ -17,34 +17,44 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-// ターゲットとする国や地域
-const TARGET_REGIONS = [
-  "Japan", "USA", "France", "UK", "Italy", "China", "Australia"
+// 日本を地域ブロックに分割して大量取得を狙う
+const TARGET_AREAS = [
+  "Hokkaido, Japan",
+  "Tohoku Region, Japan", 
+  "Tokyo, Japan",
+  "Kanagawa (Yokohama/Kamakura), Japan",
+  "Kanto Region (excluding Tokyo/Kanagawa), Japan",
+  "Chubu Region (Nagoya/Kanazawa/Mt.Fuji areas), Japan",
+  "Kyoto, Japan",
+  "Osaka, Japan",
+  "Kansai Region (Nara/Kobe/Wakayama), Japan",
+  "Chugoku Region (Hiroshima/Okayama), Japan",
+  "Shikoku Region, Japan",
+  "Kyushu Region (Fukuoka/Nagasaki/Beppu), Japan",
+  "Okinawa, Japan"
 ];
 
-async function generateLandmarks(region) {
-  console.log(`\n🔍 ${region} の観光名所を生成中...`);
+async function generateLandmarks(area) {
+  console.log(`\n🔍 ${area} の観光名所を探索中...`);
 
   try {
     const prompt = `
-      List 5 to 8 "Must-Visit Popular Tourist Landmarks" in ${region}.
+      List 10 to 15 popular tourist landmarks in "${area}".
       
       Rules:
-      1. Exclude sites that are purely strictly "Nature" (like mountains), focus on buildings, districts, or monuments.
-      2. Include famous spots like "Osaka Castle", "Tokyo Tower", "Times Square", "Eiffel Tower".
-      3. It fits the category "landmark".
+      1. Focus on specific tourist spots (Buildings, Towers, Temples, Districts, Parks).
+      2. Do NOT include broad regions, only specific point locations.
+      3. Exclude World Heritage Sites if possible (focus on local popular spots like "Dotonbori", "Tokyo Tower", "Scramble Crossing").
+      4. Category must be "landmark".
       
       Output JSON format:
       [
         {
           "name": "Name in English",
           "name_ja": "日本語名",
-          "description_ja": "魅力を伝える日本語の解説(100文字程度)",
-          "description_en": "Description in English",
-          "lat": 0.0,
-          "lon": 0.0,
+          "description_ja": "観光客向けの魅力的な解説(100文字程度)",
           "category": "landmark",
-          "country": "${region}"
+          "country": "Japan"
         }
       ]
     `;
@@ -53,36 +63,60 @@ async function generateLandmarks(region) {
     const text = result.response.text().replace(/```json/g, "").replace(/```/g, "").trim();
     const spots = JSON.parse(text);
 
-    console.log(`✅ ${spots.length} 件取得。保存します...`);
+    console.log(`✅ ${spots.length} 件 ヒットしました。`);
 
+    let count = 0;
     for (const spot of spots) {
-      // 重複チェック（名前で簡易判定）
-      const { data: existing } = await supabase.from('spots').select('id').eq('name_en', spot.name).maybeSingle();
+      // 名前で重複チェック
+      const { data: existing } = await supabase.from('spots').select('id').eq('name_ja', spot.name_ja).maybeSingle();
       
       if (!existing) {
-        const { error } = await supabase.from('spots').insert(spot);
-        if (error) console.error("保存エラー:", error.message);
-        else console.log(`  ➕ 追加: ${spot.name_ja}`);
+        // 座標はあとで "fix:all" で自動補完されるため、ここでは省略可だが
+        // Geminiが座標を返さないことも多いため、別途ジオコーディングが必要になる可能性があります。
+        // 今回はとりあえずデータを入れます。座標がないと地図に出ないので、
+        // 本来は座標もAIに頼むのがベストです。プロンプトを修正して座標も要求します。
+        
+        // (プロンプト修正版のロジックで再取得する形にします)
+        const latLonPrompt = `Get coordinates for "${spot.name} ${area}". JSON: {"lat": 0.0, "lon": 0.0}`;
+        try {
+            const locResult = await model.generateContent(latLonPrompt);
+            const locText = locResult.response.text().replace(/```json/g, "").replace(/```/g, "").trim();
+            const loc = JSON.parse(locText);
+            
+            spot.lat = loc.lat;
+            spot.lon = loc.lon;
+
+            const { error } = await supabase.from('spots').insert(spot);
+            if (error) console.error("  ❌ 保存エラー:", error.message);
+            else { 
+                console.log(`  ➕ 追加: ${spot.name_ja}`);
+                count++;
+            }
+        } catch(e) {
+            console.log(`  ⚠️ 座標取得失敗: ${spot.name}`);
+        }
       } else {
-        console.log(`  DATA 既存: ${spot.name_ja}`);
+        // console.log(`  Skip: ${spot.name_ja}`);
       }
+      // API制限回避の待機
+      await new Promise(r => setTimeout(r, 1000));
     }
+    console.log(`  => ${count} 件 新規保存しました。`);
 
   } catch (e) {
-    console.error(`エラー (${region}):`, e.message);
+    console.error(`エラー (${area}):`, e.message);
   }
 }
 
 async function main() {
-  console.log("🚀 観光名所データの生成を開始します...");
+  console.log("🚀 日本全国 観光名所プロジェクト始動...");
   
-  for (const region of TARGET_REGIONS) {
-    await generateLandmarks(region);
-    // API制限考慮の待機
+  for (const area of TARGET_AREAS) {
+    await generateLandmarks(area);
     await new Promise(r => setTimeout(r, 2000));
   }
   
-  console.log("\n🎉 完了しました！ 'npm run fix:all' を実行して画像を取得してください。");
+  console.log("\n🎉 全地域のスキャン完了！ 'npm run fix:all' を実行して画像を収集してください。");
 }
 
 main();

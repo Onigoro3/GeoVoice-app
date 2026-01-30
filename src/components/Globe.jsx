@@ -20,7 +20,6 @@ const LANGUAGES = {
 
 const PREMIUM_CATEGORIES = ['modern', 'science', 'art'];
 
-// 地図コンポーネント
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError, padding }) => {
   return (
     <Map
@@ -29,7 +28,13 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       initialViewState={initialViewState}
       projection="globe"
       mapStyle="mapbox://styles/mapbox/satellite-v9"
-      fog={{ range: [0.5, 10], color: 'rgba(255, 255, 255, 0)', 'high-color': '#000', 'space-color': '#000', 'star-intensity': 0.6 }}
+      fog={{ 
+        range: [0.5, 10], 
+        color: 'rgba(255, 255, 255, 0)', 
+        'high-color': '#000', 
+        'space-color': '#000', 
+        'star-intensity': 0.6 
+      }}
       terrain={{ source: 'mapbox-dem', exaggeration: 1.5 }}
       onMoveEnd={onMoveEnd}
       style={{ width: '100%', height: '100%' }}
@@ -47,10 +52,11 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
             id="point-glow" 
             type="circle" 
             paint={{ 
-              'circle-radius': 18,
+              // ★点を小さく修正 (Radio Garden風)
+              'circle-radius': 6, 
               'circle-color': [
                 'match', ['get', 'category'],
-                'landmark', '#ff8800', // ★観光名所はオレンジ
+                'landmark', '#ff8800',
                 'nature', '#00ff7f',
                 'history', '#ffcc00',
                 'modern', '#00ffff',
@@ -58,11 +64,11 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
                 'art', '#ff0055',
                 '#ffcc00'
               ],
-              'circle-opacity': 0.7, 
-              'circle-blur': 0.6 
+              'circle-opacity': 0.8, 
+              'circle-blur': 0.4 
             }} 
           />
-          <Layer id="point-core" type="circle" paint={{ 'circle-radius': 6, 'circle-color': '#fff', 'circle-opacity': 1 }} />
+          <Layer id="point-core" type="circle" paint={{ 'circle-radius': 3, 'circle-color': '#fff', 'circle-opacity': 1 }} />
         </Source>
       )}
     </Map>
@@ -98,7 +104,6 @@ const GlobeContent = () => {
   const [showFavList, setShowFavList] = useState(false);
   const [favorites, setFavorites] = useState(new Set());
 
-  // ★landmarkを追加
   const [visibleCategories, setVisibleCategories] = useState({
     landmark: true, history: true, nature: true, modern: true, science: true, art: true
   });
@@ -116,7 +121,7 @@ const GlobeContent = () => {
   const [activeTab, setActiveTab] = useState('map');
   const [showBrowseOverlay, setShowBrowseOverlay] = useState(false);
 
-  const initialViewState = { longitude: 135.5, latitude: 34.7, zoom: 4 }; // 大阪付近を初期位置に
+  const initialViewState = { longitude: 135.0, latitude: 35.0, zoom: 3.5 };
 
   useEffect(() => {
     const handleResize = () => setIsPc(window.innerWidth > 768);
@@ -166,7 +171,6 @@ const GlobeContent = () => {
       const { data, error } = await supabase.from('spots').select('*');
       if (error) throw error;
       if (data) {
-        // ★データがない場合のデフォルトカテゴリをhistoryにする
         const formattedData = data.map(d => ({ ...d, category: d.category || 'history' }));
         setLocations(formattedData);
         addLog(`Loaded ${data.length} spots`);
@@ -318,6 +322,7 @@ const GlobeContent = () => {
   const toggleRideMode = () => setIsRideMode(prev => !prev);
   const handleNextRide = () => { if (!isRideMode) return; window.speechSynthesis.cancel(); if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current); nextRideStep(); };
 
+  // ★現在地へ移動
   const handleCurrentLocation = () => {
     if (!navigator.geolocation) { alert("現在地機能が使えません"); return; }
     navigator.geolocation.getCurrentPosition(
@@ -387,7 +392,7 @@ const GlobeContent = () => {
 
   const getCategoryDetails = (category) => {
     let tag = '世界遺産'; let color = '#ffcc00';
-    if (category === 'landmark') { tag = '観光名所'; color = '#ff8800'; } // ★新カテゴリ
+    if (category === 'landmark') { tag = '観光名所'; color = '#ff8800'; }
     if (category === 'nature') { tag = '自然遺産'; color = '#00ff7f'; }
     if (category === 'modern') { tag = '現代建築'; color = '#00ffff'; }
     if (category === 'science') { tag = '宇宙・科学'; color = '#d800ff'; }
@@ -549,7 +554,7 @@ const GlobeContent = () => {
           display: 'flex', justifyContent: 'space-around', alignItems: 'center', 
           zIndex: 100, paddingBottom: 'env(safe-area-inset-bottom)'
         }}>
-          {/* ★スマホ版 現在地ボタン (左下に固定) */}
+          {/* ★スマホ版 現在地ボタン (左下に固定・ボトムバーの上) */}
           <button onClick={handleCurrentLocation} style={{ position: 'absolute', top: '-60px', left: '20px', width: '45px', height: '45px', background: '#222', border: '1px solid #444', borderRadius: '50%', color: '#00ffcc', fontSize: '1.2rem', boxShadow: '0 4px 10px black', zIndex: 110, cursor: 'pointer' }}>📍</button>
           
           <NavButton icon="🌍" label="探索" active={activeTab === 'map'} onClick={() => handleTabChange('map')} />
@@ -560,9 +565,9 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ★スマホ用 ライドコントロール: ボトムバー(80px)の上、マージン確保して配置 (bottom: 120px) */}
+      {/* ★スマホ用 ライドコントロール: Bottom 170px (大幅上げ) */}
       {!isPc && isRideMode && activeTab !== 'browse' && (
-        <div style={{ position: 'absolute', bottom: '120px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '10px', zIndex: 50 }}>
+        <div style={{ position: 'absolute', bottom: '170px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '10px', zIndex: 50 }}>
           <button onClick={toggleRideMode} style={{ background: '#ff3366', color: 'white', border: 'none', borderRadius: '30px', padding: '10px 25px', fontWeight: 'bold', boxShadow: '0 4px 15px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', gap: '5px' }}>🛑 STOP</button>
           <button onClick={handleNextRide} style={{ background: 'white', color: 'black', border: 'none', borderRadius: '30px', padding: '10px 25px', fontWeight: 'bold', boxShadow: '0 4px 15px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', gap: '5px' }}>⏩ NEXT</button>
         </div>
@@ -595,8 +600,8 @@ const GlobeContent = () => {
               left: isPc ? popupPos.x : '10px', 
               right: isPc ? 'auto' : '10px',
               top: isPc ? popupPos.y : 'auto', 
-              // ★説明文カードの位置調整: ライド中はさらに上げて被り回避 (190px / 120px)
-              bottom: isPc ? 'auto' : (isRideMode ? '190px' : '120px'), 
+              // ★スポットカード位置: ライド中は240px, 通常は170px (大幅上げ)
+              bottom: isPc ? 'auto' : (isRideMode ? '240px' : '170px'), 
               transform: isPc ? 'none' : 'none', 
               background: 'rgba(10, 10, 10, 0.95)', 
               padding: '20px', 
