@@ -20,7 +20,7 @@ const LANGUAGES = {
 
 const PREMIUM_CATEGORIES = ['modern', 'science', 'art'];
 
-const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError }) => {
+const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError, padding }) => {
   return (
     <Map
       ref={mapRef}
@@ -35,6 +35,7 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       onError={onError}
       dragRotate={true}
       touchZoomRotate={true}
+      padding={padding} // ★スマホ用に地図の中心をずらす設定
     >
       <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
       {geoJsonData && (
@@ -62,7 +63,7 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       )}
     </Map>
   );
-}, (prev, next) => prev.geoJsonData === next.geoJsonData);
+}, (prev, next) => prev.geoJsonData === next.geoJsonData && prev.padding === next.padding);
 
 const GlobeContent = () => {
   const mapRef = useRef(null);
@@ -411,10 +412,10 @@ const GlobeContent = () => {
   }, [isBgmOn, isPlaying, bgmVolume]);
 
   return (
+    // ★画面全体のスクロールを禁止
     <div style={{ width: "100vw", height: "100dvh", background: "black", fontFamily: 'sans-serif', position: 'fixed', top: 0, left: 0, overflow: 'hidden', touchAction: 'none', overscrollBehavior: 'none' }}>
       <audio ref={audioRef} src="/bgm.mp3" loop />
       
-      {/* ログ (PCのみ表示) */}
       {isPc && <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 100, background: 'rgba(0,0,0,0.7)', color: '#00ff00', fontSize: '10px', padding: '5px', borderRadius: '5px', maxWidth: '300px', pointerEvents: 'none' }}>{logs.map((log, i) => <div key={i}>{log}</div>)}</div>}
 
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={setupUser} />}
@@ -460,60 +461,73 @@ const GlobeContent = () => {
         <div 
           onMouseDown={handleMouseDown}
           style={{ 
-            // ★スマホUIの修正点: 左右に余白(5%)、下から少し浮かせる
+            // ★UI分岐: スマホ版の修正
             position: 'absolute', 
-            left: isPc ? popupPos.x : '5%', 
+            left: isPc ? popupPos.x : '50%', // ★常に中央
             top: isPc ? popupPos.y : 'auto', 
-            bottom: isPc ? 'auto' : '30px', 
-            transform: isPc ? 'none' : 'none',
+            bottom: isPc ? 'auto' : '30px',  // ★下から少し浮かせる
+            transform: isPc ? 'none' : 'translateX(-50%)', // ★中央揃えの決め手
             
             background: 'rgba(10, 10, 10, 0.9)', 
-            // パディングを少し控えめに
-            padding: isPc ? '20px' : '15px', 
-            borderRadius: '20px', 
+            padding: isPc ? '20px' : '15px', // スマホは少しパディングを減らす
+            borderRadius: '20px',
             color: 'white', 
             textAlign: 'center', 
             backdropFilter: 'blur(10px)', 
             border: '1px solid rgba(255, 255, 255, 0.2)', 
             zIndex: 10, 
             
-            // 幅を90%に制限してカード状に
-            width: isPc ? '400px' : '90%', 
-            maxWidth: '100%',
+            width: isPc ? '400px' : '90%', // ★幅を90%に設定
+            maxWidth: '360px', // ★最大幅を制限してデカすぎ防止
+            maxHeight: isPc ? 'none' : '50vh', // ★高さを画面半分までに制限
             
             boxShadow: '0 4px 30px rgba(0,0,0,0.6)', 
             resize: isPc ? 'both' : 'none',
-            overflow: isPc ? 'auto' : 'visible',
+            overflow: isPc ? 'auto' : 'hidden', // コンテナ自体のスクロールは隠す
+            display: 'flex', flexDirection: 'column', // Flexboxで中身を整理
+            
             cursor: isPc ? (isDragging ? 'grabbing' : 'grab') : 'default',
             animation: isDragging ? 'none' : 'fadeIn 0.3s'
           }}
         >
           {displayData.image_url && (
-            <div style={{ width: '100%', height: '150px', marginBottom: '15px', borderRadius: '12px', overflow: 'hidden', position: 'relative', pointerEvents: 'none' }}>
+            <div style={{ width: '100%', height: '140px', marginBottom: '10px', borderRadius: '12px', overflow: 'hidden', position: 'relative', flexShrink: 0 }}>
               <img src={displayData.image_url} alt={displayData.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)', height: '50px' }} />
             </div>
           )}
 
-          {/* ハートボタンの位置を少し内側に調整 */}
-          <div style={{ position: 'absolute', top: '10px', right: '10px' }}>
+          {/* ハートボタン: 位置を少し内側に */}
+          <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 5 }}>
             <button onMouseDown={e => e.stopPropagation()} onClick={toggleFavorite} style={{ background: favorites.has(selectedLocation.id) ? '#ff3366' : '#333', color: 'white', border: '2px solid white', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', boxShadow: '0 4px 10px rgba(0,0,0,0.5)', transition: 'all 0.2s' }}>{favorites.has(selectedLocation.id) ? '♥' : '♡'}</button>
           </div>
           
-          <div style={{ color: '#ffccaa', marginBottom: '10px' }}>{renderNameWithTags(displayData.name, displayData.category)}</div>
+          <div style={{ color: '#ffccaa', marginBottom: '10px', flexShrink: 0 }}>{renderNameWithTags(displayData.name, displayData.category)}</div>
           
-          <p style={{ margin: 0, fontSize: '0.85rem', color: '#ddd', maxHeight: '150px', overflowY: 'auto', textAlign: 'left', lineHeight: '1.6', cursor: 'text', paddingBottom: '10px' }} onMouseDown={e => e.stopPropagation()}>
-            {displayData.description}
-          </p>
+          {/* ★説明文エリア: ここだけスクロールさせる & タッチ操作を許可 */}
+          <div style={{ overflowY: 'auto', flex: 1, touchAction: 'pan-y', paddingBottom: '10px' }} onMouseDown={e => e.stopPropagation()}>
+            <p style={{ margin: 0, fontSize: '0.85rem', color: '#ddd', lineHeight: '1.6', textAlign: 'left' }}>
+              {displayData.description}
+            </p>
+          </div>
           
           {displayData.needsTranslation && (
-            <button onMouseDown={e => e.stopPropagation()} onClick={() => translateAndFix(selectedLocation, currentLang)} style={{ marginTop: '10px', background: '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 15px', fontWeight: 'bold', cursor: 'pointer', marginBottom: '5px' }}>🔄 日本語に翻訳する</button>
+            <button onMouseDown={e => e.stopPropagation()} onClick={() => translateAndFix(selectedLocation, currentLang)} style={{ marginTop: '5px', background: '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 15px', fontWeight: 'bold', cursor: 'pointer', flexShrink: 0 }}>🔄 日本語に翻訳する</button>
           )}
         </div>
       )}
 
-      <MemoizedMap mapRef={mapRef} mapboxAccessToken={MAPBOX_TOKEN} initialViewState={initialViewState} onMoveEnd={handleMoveEnd} geoJsonData={filteredGeoJsonData} onError={(e) => addLog(`Map Error: ${e.error.message}`)} />
-      <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } } .pulse { animation: pulse 1s infinite; } @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }`}</style>
+      {/* ★paddingを追加して地図中心を上にずらす (スマホのみ) */}
+      <MemoizedMap 
+        mapRef={mapRef} 
+        mapboxAccessToken={MAPBOX_TOKEN} 
+        initialViewState={initialViewState} 
+        onMoveEnd={handleMoveEnd} 
+        geoJsonData={filteredGeoJsonData} 
+        onError={(e) => addLog(`Map Error: ${e.error.message}`)}
+        padding={isPc ? {} : { bottom: 250 }} // スマホの時は中心を上に250pxずらす
+      />
+      <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(20px) translateX(-50%); } to { opacity: 1; transform: translateY(0) translateX(-50%); } } .pulse { animation: pulse 1s infinite; } @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }`}</style>
     </div>
   );
 };
