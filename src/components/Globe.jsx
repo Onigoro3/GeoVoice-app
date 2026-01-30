@@ -20,7 +20,7 @@ const LANGUAGES = {
 
 const PREMIUM_CATEGORIES = ['modern', 'science', 'art'];
 
-const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError }) => {
+const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError, padding }) => {
   return (
     <Map
       ref={mapRef}
@@ -35,6 +35,7 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       onError={onError}
       dragRotate={true}
       touchZoomRotate={true}
+      padding={padding} // ★重要: 中心をずらす設定
     >
       <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
       {geoJsonData && (
@@ -43,7 +44,8 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
             id="point-glow" 
             type="circle" 
             paint={{ 
-              'circle-radius': 12,
+              // ★スポットを大きく変更 (12 -> 18)
+              'circle-radius': 18,
               'circle-color': [
                 'match', ['get', 'category'],
                 'nature', '#00ff7f',
@@ -57,12 +59,13 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
               'circle-blur': 0.6 
             }} 
           />
-          <Layer id="point-core" type="circle" paint={{ 'circle-radius': 4, 'circle-color': '#fff', 'circle-opacity': 1 }} />
+          {/* ★中心核も少し大きく (4 -> 6) */}
+          <Layer id="point-core" type="circle" paint={{ 'circle-radius': 6, 'circle-color': '#fff', 'circle-opacity': 1 }} />
         </Source>
       )}
     </Map>
   );
-}, (prev, next) => prev.geoJsonData === next.geoJsonData);
+}, (prev, next) => prev.geoJsonData === next.geoJsonData && prev.padding === next.padding);
 
 const GlobeContent = () => {
   const mapRef = useRef(null);
@@ -361,6 +364,7 @@ const GlobeContent = () => {
     const center = map.getCenter();
     const point = map.project(center);
     
+    // ★判定エリア拡大
     const boxSize = 60; 
     const features = map.queryRenderedFeatures(
       [[point.x - boxSize/2, point.y - boxSize/2], [point.x + boxSize/2, point.y + boxSize/2]], 
@@ -379,7 +383,6 @@ const GlobeContent = () => {
     }
   }, []);
 
-  // ★カテゴリーのタグと色を取得するヘルパー関数
   const getCategoryDetails = (category) => {
     let tag = '世界遺産';
     let color = '#ffcc00';
@@ -444,7 +447,8 @@ const GlobeContent = () => {
 
       {statusMessage && <div style={{ position: 'absolute', top: '80px', left: '20px', zIndex: 20, color: '#00ffcc', textShadow: '0 0 5px black' }}>{statusMessage}</div>}
 
-      <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
+      {/* ★〇枠の位置調整: スマホは上(37.5%)にずらす */}
+      <div style={{ position: 'absolute', top: isPc ? '50%' : '37.5%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
 
       {selectedLocation && displayData && (
         <div 
@@ -453,7 +457,7 @@ const GlobeContent = () => {
             position: 'absolute', 
             left: isPc ? popupPos.x : '50%', 
             top: isPc ? popupPos.y : 'auto', 
-            // ★スマホUI調整: 余白を60pxに拡大
+            // ★スマホUI調整: 底上げしてマージン確保
             bottom: isPc ? 'auto' : '60px', 
             transform: isPc ? 'none' : 'translateX(-50%)', 
             
@@ -491,12 +495,10 @@ const GlobeContent = () => {
             <button onMouseDown={e => e.stopPropagation()} onClick={toggleFavorite} style={{ background: favorites.has(selectedLocation.id) ? '#ff3366' : '#333', color: 'white', border: '2px solid white', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', boxShadow: '0 4px 10px rgba(0,0,0,0.5)', transition: 'all 0.2s' }}>{favorites.has(selectedLocation.id) ? '♥' : '♡'}</button>
           </div>
           
-          {/* ★名前表示 */}
           <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#ffccaa', marginBottom: '5px', flexShrink: 0 }}>
             {displayData.name.split('#')[0].trim()}
           </div>
 
-          {/* ★タグと翻訳ボタンを横並びにするコンテナ */}
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px', marginBottom: '10px', flexShrink: 0 }}>
             {(() => {
               const { tag, color } = getCategoryDetails(displayData.category);
@@ -529,6 +531,7 @@ const GlobeContent = () => {
         </div>
       )}
 
+      {/* ★Paddingを大きくして中心をしっかりずらす */}
       <MemoizedMap 
         mapRef={mapRef} 
         mapboxAccessToken={MAPBOX_TOKEN} 
@@ -536,6 +539,7 @@ const GlobeContent = () => {
         onMoveEnd={handleMoveEnd} 
         geoJsonData={filteredGeoJsonData} 
         onError={(e) => addLog(`Map Error: ${e.error.message}`)}
+        padding={isPc ? {} : { bottom: window.innerHeight * 0.25 }} // 画面の25%分ずらす
       />
       <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(20px) translateX(-50%); } to { opacity: 1; transform: translateY(0) translateX(-50%); } } .pulse { animation: pulse 1s infinite; } @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }`}</style>
     </div>
