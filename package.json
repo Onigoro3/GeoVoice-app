@@ -3,11 +3,21 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "scripts": {
+ "scripts": {
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    
+    "// --- 以下を追記 (メンテナンス用ツール) ---": "",
+    "fix:all": "node tools/fix-all-data.js",
+    "fix:cat": "node tools/fix-category.js",
+    "gen:nature": "node tools/generate-nature.js",
+    "gen:special": "node tools/generate-special.js",
+    "update:img": "node tools/update-images.js",
+    "update:country": "node tools/update-countries.js",
+    "trans:all": "node tools/translate-all.js",
+    "check:model": "node tools/check-models.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
