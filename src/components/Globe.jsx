@@ -18,7 +18,9 @@ const LANGUAGES = {
   fr: { code: 'fr', name: 'French', label: '🇫🇷 Français', placeholder: 'Ex: Châteaux du Japon...' },
 };
 
-// 地図コンポーネント
+// 課金が必要なカテゴリーリスト
+const PREMIUM_CATEGORIES = ['modern', 'science', 'art'];
+
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError }) => {
   return (
     <Map
@@ -87,6 +89,7 @@ const GlobeContent = () => {
   const [showFavList, setShowFavList] = useState(false);
   const [favorites, setFavorites] = useState(new Set());
 
+  // フィルター設定
   const [visibleCategories, setVisibleCategories] = useState({
     history: true, nature: true, modern: true, science: true, art: true
   });
@@ -96,41 +99,31 @@ const GlobeContent = () => {
   const [voiceVolume, setVoiceVolume] = useState(1.0);
   const [isBgmOn, setIsBgmOn] = useState(false);
 
-  // ★PC用UI state
+  // PC用UI state
   const [isPc, setIsPc] = useState(window.innerWidth > 768);
-  const [popupPos, setPopupPos] = useState({ x: 20, y: 100 }); // PCでの初期位置
+  const [popupPos, setPopupPos] = useState({ x: 20, y: 100 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
 
   const initialViewState = { longitude: 13.4, latitude: 41.9, zoom: 3 };
 
-  // PC判定のリサイズ監視
   useEffect(() => {
     const handleResize = () => setIsPc(window.innerWidth > 768);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // ★ドラッグ処理
   const handleMouseDown = (e) => {
-    if (!isPc) return; // モバイルは無視
-    // 入力エリアやボタン上でのドラッグ開始を防ぐ
+    if (!isPc) return;
     if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
-    
     setIsDragging(true);
-    setDragOffset({
-      x: e.clientX - popupPos.x,
-      y: e.clientY - popupPos.y
-    });
+    setDragOffset({ x: e.clientX - popupPos.x, y: e.clientY - popupPos.y });
   };
 
   const handleMouseMove = useCallback((e) => {
     if (isDragging) {
       e.preventDefault();
-      setPopupPos({
-        x: e.clientX - dragOffset.x,
-        y: e.clientY - dragOffset.y
-      });
+      setPopupPos({ x: e.clientX - dragOffset.x, y: e.clientY - dragOffset.y });
     }
   }, [isDragging, dragOffset]);
 
@@ -149,7 +142,6 @@ const GlobeContent = () => {
       window.removeEventListener('mouseup', handleMouseUp);
     };
   }, [isDragging, handleMouseMove]);
-
 
   const addLog = (msg) => {
     console.log(msg);
@@ -352,9 +344,16 @@ const GlobeContent = () => {
     }
   };
 
+  // ★フィルター機能 (課金制限付き)
   const filteredGeoJsonData = useMemo(() => {
     const filtered = locations.filter(loc => {
       const cat = loc.category || 'history';
+      
+      // ★制限チェック: 課金カテゴリかつ非Premiumなら表示しない
+      if (!isPremium && PREMIUM_CATEGORIES.includes(cat)) {
+        return false;
+      }
+
       return visibleCategories[cat];
     });
     return {
@@ -363,7 +362,7 @@ const GlobeContent = () => {
         type: 'Feature', geometry: { type: 'Point', coordinates: [loc.lon, loc.lat] }, properties: { ...loc } 
       }))
     };
-  }, [locations, visibleCategories]);
+  }, [locations, visibleCategories, isPremium]); // isPremiumに依存させる
 
   const handleMoveEnd = useCallback((evt) => {
     if (!evt.originalEvent || isGeneratingRef.current) return;
@@ -449,12 +448,34 @@ const GlobeContent = () => {
           <div style={{ marginBottom: '15px', fontWeight: 'bold', color: '#00ffcc', borderBottom: '1px solid #444', paddingBottom: '5px' }}>Settings</div>
           <div style={{ marginBottom: '15px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div style={{ fontSize: '0.85rem', color: '#ccc', marginBottom: '5px' }}>表示フィルター</div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}><input type="checkbox" checked={visibleCategories.history} onChange={e => setVisibleCategories(prev => ({...prev, history: e.target.checked}))} /><span style={{ color: '#ffcc00', fontWeight: 'bold' }}>🏛️ 世界遺産 (文化)</span></label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}><input type="checkbox" checked={visibleCategories.nature} onChange={e => setVisibleCategories(prev => ({...prev, nature: e.target.checked}))} /><span style={{ color: '#00ff7f', fontWeight: 'bold' }}>🌲 自然遺産</span></label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}><input type="checkbox" checked={visibleCategories.modern} onChange={e => setVisibleCategories(prev => ({...prev, modern: e.target.checked}))} /><span style={{ color: '#00ffff', fontWeight: 'bold' }}>🏙️ 現代建築</span></label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}><input type="checkbox" checked={visibleCategories.science} onChange={e => setVisibleCategories(prev => ({...prev, science: e.target.checked}))} /><span style={{ color: '#d800ff', fontWeight: 'bold' }}>🚀 宇宙・科学</span></label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}><input type="checkbox" checked={visibleCategories.art} onChange={e => setVisibleCategories(prev => ({...prev, art: e.target.checked}))} /><span style={{ color: '#ff0055', fontWeight: 'bold' }}>🎨 美術館</span></label>
+            
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input type="checkbox" checked={visibleCategories.history} onChange={e => setVisibleCategories(prev => ({...prev, history: e.target.checked}))} />
+              <span style={{ color: '#ffcc00', fontWeight: 'bold' }}>🏛️ 世界遺産 (文化)</span>
+            </label>
+            
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input type="checkbox" checked={visibleCategories.nature} onChange={e => setVisibleCategories(prev => ({...prev, nature: e.target.checked}))} />
+              <span style={{ color: '#00ff7f', fontWeight: 'bold' }}>🌲 自然遺産</span>
+            </label>
+
+            {/* ★課金ユーザーのみ有効になるエリア */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: isPremium ? 'pointer' : 'not-allowed', opacity: isPremium ? 1 : 0.5 }}>
+              <input type="checkbox" checked={visibleCategories.modern} disabled={!isPremium} onChange={e => setVisibleCategories(prev => ({...prev, modern: e.target.checked}))} />
+              <span style={{ color: '#00ffff', fontWeight: 'bold' }}>🏙️ 現代建築 {!isPremium && '🔒'}</span>
+            </label>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: isPremium ? 'pointer' : 'not-allowed', opacity: isPremium ? 1 : 0.5 }}>
+              <input type="checkbox" checked={visibleCategories.science} disabled={!isPremium} onChange={e => setVisibleCategories(prev => ({...prev, science: e.target.checked}))} />
+              <span style={{ color: '#d800ff', fontWeight: 'bold' }}>🚀 宇宙・科学 {!isPremium && '🔒'}</span>
+            </label>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: isPremium ? 'pointer' : 'not-allowed', opacity: isPremium ? 1 : 0.5 }}>
+              <input type="checkbox" checked={visibleCategories.art} disabled={!isPremium} onChange={e => setVisibleCategories(prev => ({...prev, art: e.target.checked}))} />
+              <span style={{ color: '#ff0055', fontWeight: 'bold' }}>🎨 美術館 {!isPremium && '🔒'}</span>
+            </label>
           </div>
+          
           <div style={{ borderTop: '1px solid #444', paddingTop: '10px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}><span>BGM</span><button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: isBgmOn ? '#ffaa00' : '#555', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 8px', fontSize: '0.8rem', cursor: 'pointer' }}>{isBgmOn ? 'ON' : 'OFF'}</button></div>
             <input type="range" min="0" max="1" step="0.1" value={bgmVolume} onChange={e => setBgmVolume(parseFloat(e.target.value))} style={{ width: '100%', marginBottom: '15px', cursor: 'pointer' }} /><div style={{ marginBottom: '5px' }}>Voice Vol</div><input type="range" min="0" max="1" step="0.1" value={voiceVolume} onChange={e => setVoiceVolume(parseFloat(e.target.value))} style={{ width: '100%', cursor: 'pointer' }} />
@@ -470,14 +491,11 @@ const GlobeContent = () => {
         <div 
           onMouseDown={handleMouseDown}
           style={{ 
-            // ★PC/モバイル分岐
             position: 'absolute', 
-            // PCならドラッグ座標、モバイルなら固定座標
             left: isPc ? popupPos.x : '50%', 
             top: isPc ? popupPos.y : 'auto', 
             bottom: isPc ? 'auto' : '15%',
             transform: isPc ? 'none' : 'translateX(-50%)',
-            
             background: 'rgba(10, 10, 10, 0.85)', 
             padding: '20px', 
             borderRadius: '20px', 
@@ -487,15 +505,13 @@ const GlobeContent = () => {
             border: '1px solid rgba(255, 255, 255, 0.2)', 
             zIndex: 10, 
             minWidth: '320px', 
-            maxWidth: isPc ? 'none' : '85%', // PCは制限解除（リサイズ可能にするため）
-            width: isPc ? '400px' : 'auto', // PC初期幅
+            maxWidth: isPc ? 'none' : '85%', 
+            width: isPc ? '400px' : 'auto',
             boxShadow: '0 4px 30px rgba(0,0,0,0.5)', 
-            
-            // ★リサイズ設定 (PCのみ)
             resize: isPc ? 'both' : 'none',
             overflow: isPc ? 'auto' : 'visible',
             cursor: isPc ? (isDragging ? 'grabbing' : 'grab') : 'default',
-            animation: isDragging ? 'none' : 'fadeIn 0.5s' // ドラッグ中はアニメーションしない
+            animation: isDragging ? 'none' : 'fadeIn 0.5s'
           }}
         >
           {displayData.image_url && (
