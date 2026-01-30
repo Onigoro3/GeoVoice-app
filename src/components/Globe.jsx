@@ -28,7 +28,13 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       initialViewState={initialViewState}
       projection="globe"
       mapStyle="mapbox://styles/mapbox/satellite-v9"
-      fog={{ range: [0.5, 10], color: 'rgba(255, 255, 255, 0)', 'high-color': '#000', 'space-color': '#000', 'star-intensity': 0.6 }}
+      fog={{ 
+        range: [0.5, 10], 
+        color: 'rgba(255, 255, 255, 0)', 
+        'high-color': '#000', 
+        'space-color': '#000', 
+        'star-intensity': 0.6 
+      }}
       terrain={{ source: 'mapbox-dem', exaggeration: 1.5 }}
       onMoveEnd={onMoveEnd}
       style={{ width: '100%', height: '100%' }}
@@ -76,7 +82,7 @@ const GlobeContent = () => {
   const isGeneratingRef = useRef(false);
   const isRideModeRef = useRef(false);
   
-  // ★ヒストリーモード用Ref
+  // ヒストリーモード用Ref
   const isHistoryModeRef = useRef(false);
   const historyIndexRef = useRef(0);
   const historySortedSpotsRef = useRef([]);
@@ -89,8 +95,12 @@ const GlobeContent = () => {
   const [displayData, setDisplayData] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isRideMode, setIsRideMode] = useState(false);
-  // ★ヒストリーモード状態
   const [isHistoryMode, setIsHistoryMode] = useState(false);
+  
+  // ★ヒストリー設定用State
+  const [historyYearInput, setHistoryYearInput] = useState("");
+  const [historyEra, setHistoryEra] = useState("AD"); // AD or BC
+  const [historyCountry, setHistoryCountry] = useState("ALL"); // ALL or CountryName
   
   const [currentLang, setCurrentLang] = useState('ja');
   const [inputTheme, setInputTheme] = useState("");
@@ -124,6 +134,16 @@ const GlobeContent = () => {
 
   const initialViewState = { longitude: 135.0, latitude: 35.0, zoom: 3.5 };
 
+  // 国リストの生成 (データからユニークな国名を抽出)
+  const countryList = useMemo(() => {
+    const countries = new Set();
+    locations.forEach(loc => {
+      if (loc.country_ja) countries.add(loc.country_ja);
+      else if (loc.country) countries.add(loc.country);
+    });
+    return Array.from(countries).sort();
+  }, [locations]);
+
   useEffect(() => {
     const handleResize = () => setIsPc(window.innerWidth > 768);
     window.addEventListener('resize', handleResize);
@@ -153,31 +173,52 @@ const GlobeContent = () => {
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
   useEffect(() => { visibleCategoriesRef.current = visibleCategories; }, [visibleCategories]);
 
-  // ライドモード制御
+  // ライドモード制御 (開始時にリスト作成)
   useEffect(() => {
     isRideModeRef.current = isRideMode;
-    isHistoryModeRef.current = isHistoryMode; // Ref更新
+    isHistoryModeRef.current = isHistoryMode;
 
     if (isRideMode) {
-      // ヒストリーモード開始時の初期化
       if (isHistoryMode) {
-        addLog("⏳ ヒストリーライド開始 (年代順)");
-        // 年代順にソート (yearがないものは後ろへ)
-        const sorted = [...locationsRef.current]
-          .filter(l => l.year !== null && l.year !== undefined)
-          .sort((a, b) => a.year - b.year);
+        addLog("⏳ ヒストリーライド構築中...");
         
-        if (sorted.length === 0) {
-          alert("年代データがまだありません。'update-years.js'を実行してください。");
+        // 1. ベースとなるリストを作成 (年代があるもの限定)
+        let candidates = locationsRef.current.filter(l => l.year !== null && l.year !== undefined);
+        
+        // 2. 国フィルタ
+        if (historyCountry !== "ALL") {
+          candidates = candidates.filter(l => l.country === historyCountry || l.country_ja === historyCountry);
+        }
+
+        // 3. ソートロジック
+        if (historyYearInput && !isNaN(historyYearInput)) {
+          // 指定年代に近い順
+          let targetYear = parseInt(historyYearInput);
+          if (historyEra === "BC") targetYear = -targetYear;
+          
+          addLog(`Target: ${targetYear} (${historyCountry})`);
+          
+          // 距離(年差)でソート
+          candidates.sort((a, b) => Math.abs(a.year - targetYear) - Math.abs(b.year - targetYear));
+        } else {
+          // 指定なしなら古い順
+          addLog(`Target: 古代〜現代 (${historyCountry})`);
+          candidates.sort((a, b) => a.year - b.year);
+        }
+        
+        if (candidates.length === 0) {
+          alert("条件に合うスポットが見つかりませんでした。条件を変えて試してください。");
           setIsHistoryMode(false);
           setIsRideMode(false);
           return;
         }
-        historySortedSpotsRef.current = sorted;
-        historyIndexRef.current = 0; // 最初から
+
+        historySortedSpotsRef.current = candidates;
+        historyIndexRef.current = 0;
       } else {
         addLog("✈️ ランダムライド開始");
       }
+      
       setActiveTab('ride');
       nextRideStep();
     } else {
@@ -186,7 +227,7 @@ const GlobeContent = () => {
       setIsPlaying(false);
       if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current);
     }
-  }, [isRideMode]); // isHistoryModeは依存に入れない(トグル時にリセットさせないため)
+  }, [isRideMode]);
 
   const fetchSpots = async () => {
     try {
@@ -359,8 +400,7 @@ const GlobeContent = () => {
   const startHistoryRide = () => {
     setShowBrowseOverlay(false);
     setIsHistoryMode(true);
-    // state更新後にuseEffectで自動スタート
-    setIsRideMode(true);
+    setIsRideMode(true); // useEffectで処理が走る
   };
 
   const jumpToRandomSpot = (targetCategory = null) => {
@@ -372,7 +412,6 @@ const GlobeContent = () => {
     });
     if (candidates.length === 0) { alert("スポットが見つかりません"); return; }
     
-    // ヒストリーモードはOFF
     setIsHistoryMode(false);
     if (isRideMode) setIsRideMode(false);
     setShowBrowseOverlay(false);
@@ -387,15 +426,13 @@ const GlobeContent = () => {
 
     let nextSpot = null;
 
-    // ★ヒストリーモードの場合: ソート済みリストから順番に
     if (isHistoryModeRef.current) {
         const sorted = historySortedSpotsRef.current;
         let idx = historyIndexRef.current;
-        if (idx >= sorted.length) idx = 0; // ループ
+        if (idx >= sorted.length) idx = 0; 
         nextSpot = sorted[idx];
         historyIndexRef.current = idx + 1;
     } else {
-        // ★通常モード: ランダム
         const currentFilters = visibleCategoriesRef.current || { history: true, nature: true, modern: true, science: true, art: true };
         const candidates = locationsRef.current.filter(loc => {
           const cat = loc.category || 'history';
@@ -487,7 +524,6 @@ const GlobeContent = () => {
             <div style={{ color: 'white', fontWeight: 'bold', fontSize: '1.1rem' }}>{isRideMode ? (isHistoryMode ? '⏳ History Ride' : '✈️ Auto Ride') : '🌍 GeoVoice'}</div>
             <button onClick={handleCurrentLocation} style={{ background: '#333', border: 'none', color: '#00ffcc', borderRadius: '50%', width: '30px', height: '30px', cursor: 'pointer' }}>📍</button>
           </div>
-          {/* ★年代表示バー (PC) */}
           {isHistoryMode && displayData?.year && (
              <div style={{ background: '#222', color: '#ffcc00', padding: '5px 15px', textAlign: 'center', fontWeight: 'bold', fontSize: '1.2rem', borderBottom: '1px solid #333' }}>
                 {getYearLabel(displayData.year)}
@@ -523,7 +559,6 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* PC版 ログアウト */}
       {isPc && user && (
         <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 50 }}>
           {profile && <div style={{ color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '8px', marginBottom: '5px', textAlign: 'right' }}>{profile.username}</div>}
@@ -533,7 +568,6 @@ const GlobeContent = () => {
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={setupUser} />}
       {showFavList && user && <FavoritesModal userId={user.id} onClose={() => setShowFavList(false)} onSelect={handleSelectFromList} />}
 
-      {/* 設定画面 (共通) */}
       {isSettingsOpen && (
         <div style={{ 
           position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', 
@@ -581,7 +615,7 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ブラウズ画面 */}
+      {/* ★ブラウズ画面: ヒストリーライドの設定 */}
       {showBrowseOverlay && (
         <div style={{
           position: 'fixed', top: 0, left: 0, width: '100%', height: isPc ? '100%' : 'calc(100% - 80px)', 
@@ -592,12 +626,48 @@ const GlobeContent = () => {
           <h2 style={{ color: 'white', marginTop: '40px', fontSize: '2rem' }}>ブラウズ</h2>
           <p style={{ color: '#aaa', marginBottom: '30px' }}>どこか知らない地点へ行って、<br/>その土地の空気を吸ってみよう。</p>
           
-          {/* ★ヒストリーライドボタン */}
-          <button onClick={startHistoryRide} style={{ width: '100%', padding: '15px', borderRadius: '30px', background: 'transparent', border: '2px solid #ffcc00', color: '#ffcc00', fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '15px', cursor: 'pointer' }}>
-            ⏳ ヒストリーライド (年代順)
-          </button>
+          {/* ★ヒストリーライド設定カード */}
+          <div style={{ background: '#222', borderRadius: '15px', padding: '20px', marginBottom: '40px', border: '1px solid #ffcc00' }}>
+            <h3 style={{ margin: '0 0 15px 0', color: '#ffcc00' }}>⏳ ヒストリーライド</h3>
+            
+            {/* 年代入力 */}
+            <div style={{ marginBottom: '15px' }}>
+              <div style={{ color: '#888', marginBottom: '5px', fontSize: '0.8rem' }}>年代を指定 (空欄で全年代)</div>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <input 
+                  type="number" placeholder="例: 1600" value={historyYearInput} 
+                  onChange={e => setHistoryYearInput(e.target.value)}
+                  style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #555', background: '#111', color: 'white' }}
+                />
+                <select 
+                  value={historyEra} onChange={e => setHistoryEra(e.target.value)}
+                  style={{ padding: '10px', borderRadius: '8px', border: '1px solid #555', background: '#111', color: 'white' }}
+                >
+                  <option value="AD">西暦 (AD)</option>
+                  <option value="BC">紀元前 (BC)</option>
+                </select>
+              </div>
+            </div>
 
-          <button onClick={() => jumpToRandomSpot()} style={{ width: '100%', padding: '15px', borderRadius: '30px', background: 'transparent', border: '2px solid #00ffcc', color: '#00ffcc', fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '40px', cursor: 'pointer' }}>
+            {/* 国指定 */}
+            <div style={{ marginBottom: '20px' }}>
+              <div style={{ color: '#888', marginBottom: '5px', fontSize: '0.8rem' }}>国を指定</div>
+              <select 
+                value={historyCountry} onChange={e => setHistoryCountry(e.target.value)}
+                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #555', background: '#111', color: 'white' }}
+              >
+                <option value="ALL">全ての国</option>
+                {countryList.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+
+            <button onClick={startHistoryRide} style={{ width: '100%', padding: '12px', borderRadius: '30px', background: '#ffcc00', border: 'none', color: 'black', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer' }}>
+              タイムトラベル開始！
+            </button>
+          </div>
+
+          <h3 style={{ color: 'white', marginBottom: '15px', borderLeft: '4px solid #00ff7f', paddingLeft: '10px' }}>ランダムツアー</h3>
+          <button onClick={() => jumpToRandomSpot()} style={{ width: '100%', padding: '15px', borderRadius: '30px', background: 'transparent', border: '2px solid #00ffcc', color: '#00ffcc', fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '30px', cursor: 'pointer' }}>
             気球の旅に出かけよう 🎈
           </button>
 
@@ -631,9 +701,9 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ★スマホ用 ライドコントロール: ボトムバー(80px)の上、マージン確保して配置 (bottom: 120px) */}
+      {/* ★スマホ用 ライドコントロール: Bottom 170px (大幅上げ) */}
       {!isPc && isRideMode && activeTab !== 'browse' && (
-        <div style={{ position: 'absolute', bottom: '120px', left: '50%', transform: 'translateX(-50%)', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '10px', zIndex: 50, width: '90%' }}>
+        <div style={{ position: 'absolute', bottom: '170px', left: '50%', transform: 'translateX(-50%)', display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '10px', zIndex: 50, width: '90%' }}>
           {/* ★年号表示 (スマホ) */}
           {isHistoryMode && displayData?.year && (
              <div style={{ width: '100%', textAlign: 'center', color: '#ffcc00', fontWeight: 'bold', fontSize: '1.2rem', textShadow: '0 0 5px black', marginBottom: '5px' }}>
@@ -672,8 +742,8 @@ const GlobeContent = () => {
               left: isPc ? popupPos.x : '10px', 
               right: isPc ? 'auto' : '10px',
               top: isPc ? popupPos.y : 'auto', 
-              // ★説明文カードの位置調整: ライド中はさらに上げて被り回避 (190px / 120px)
-              bottom: isPc ? 'auto' : (isRideMode ? '190px' : '120px'), 
+              // ★スポットカード位置: ライド中は240px, 通常は170px (大幅上げ)
+              bottom: isPc ? 'auto' : (isRideMode ? '240px' : '170px'), 
               transform: isPc ? 'none' : 'none', 
               background: 'rgba(10, 10, 10, 0.95)', 
               padding: '20px', 
