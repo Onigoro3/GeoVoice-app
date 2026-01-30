@@ -11,7 +11,7 @@ const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 const LANGUAGES = {
-  ja: { code: 'ja', name: 'Japanese', label: '🇯🇵', placeholder: '例: 城...' }, // スマホ用にラベル短縮
+  ja: { code: 'ja', name: 'Japanese', label: '🇯🇵', placeholder: '例: 城...' },
   en: { code: 'en', name: 'English', label: '🇺🇸', placeholder: 'Ex: Castle...' },
   zh: { code: 'zh', name: 'Chinese', label: '🇨🇳', placeholder: '例如：城堡...' },
   es: { code: 'es', name: 'Spanish', label: '🇪🇸', placeholder: 'Ej: Castillo...' },
@@ -33,7 +33,6 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       onMoveEnd={onMoveEnd}
       style={{ width: '100%', height: '100%' }}
       onError={onError}
-      // スマホでの誤操作防止
       dragRotate={true}
       touchZoomRotate={true}
     >
@@ -99,7 +98,6 @@ const GlobeContent = () => {
   const [voiceVolume, setVoiceVolume] = useState(1.0);
   const [isBgmOn, setIsBgmOn] = useState(false);
 
-  // PC判定
   const [isPc, setIsPc] = useState(window.innerWidth > 768);
   const [popupPos, setPopupPos] = useState({ x: 20, y: 100 });
   const [isDragging, setIsDragging] = useState(false);
@@ -413,32 +411,23 @@ const GlobeContent = () => {
   }, [isBgmOn, isPlaying, bgmVolume]);
 
   return (
-    // ★スクロール禁止のスタイルを追加 (touchAction, overscrollBehavior)
     <div style={{ width: "100vw", height: "100dvh", background: "black", fontFamily: 'sans-serif', position: 'fixed', top: 0, left: 0, overflow: 'hidden', touchAction: 'none', overscrollBehavior: 'none' }}>
       <audio ref={audioRef} src="/bgm.mp3" loop />
       
-      {/* ログ (スマホでは邪魔なので非表示にするか、極小にする) */}
+      {/* ログ (PCのみ表示) */}
       {isPc && <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 100, background: 'rgba(0,0,0,0.7)', color: '#00ff00', fontSize: '10px', padding: '5px', borderRadius: '5px', maxWidth: '300px', pointerEvents: 'none' }}>{logs.map((log, i) => <div key={i}>{log}</div>)}</div>}
 
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={setupUser} />}
       {showFavList && user && <FavoritesModal userId={user.id} onClose={() => setShowFavList(false)} onSelect={handleSelectFromList} />}
 
-      {/* ★上部UI: スマホ用にレイアウト調整 */}
-      <div style={{ 
-        position: 'absolute', top: '10px', left: '10px', right: isPc ? 'auto' : '60px', // スマホなら右側を空ける（ユーザーアイコン用）
-        zIndex: 20, display: 'flex', flexWrap: 'wrap', gap: '5px', 
-        background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '12px', 
-        backdropFilter: 'blur(5px)', border: '1px solid rgba(255,255,255,0.1)', alignItems: 'center' 
-      }}>
+      <div style={{ position: 'absolute', top: '10px', left: '10px', right: isPc ? 'auto' : '60px', zIndex: 20, display: 'flex', flexWrap: 'wrap', gap: '5px', background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '12px', backdropFilter: 'blur(5px)', border: '1px solid rgba(255,255,255,0.1)', alignItems: 'center' }}>
         <select value={currentLang} onChange={(e) => setCurrentLang(e.target.value)} style={{ appearance: 'none', background: 'transparent', color: 'white', border: 'none', fontSize: '1rem', fontWeight: 'bold', cursor: 'pointer', paddingRight: '5px', outline: 'none' }}>{Object.keys(LANGUAGES).map(key => <option key={key} value={key} style={{ color: 'black' }}>{LANGUAGES[key].label}</option>)}</select>
         <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.3)' }}></div>
-        {/* スマホならプレースホルダーを短くする工夫も可 */}
         <input type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder={isPc ? LANGUAGES[currentLang].placeholder : "Search..."} style={{ background: 'transparent', border: 'none', color: 'white', outline: 'none', padding: '5px', width: isPc ? '120px' : '70px', fontSize: '0.9rem' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
         <button onClick={handleGenerate} disabled={isGenerating} style={{ background: isGenerating ? '#555' : '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem' }}>Go</button>
         <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} style={{ background: 'transparent', color: 'white', border: 'none', cursor: 'pointer', fontSize: '1.2rem', padding: '0 5px' }}>⚙️</button>
       </div>
 
-      {/* ★右上ユーザーメニュー: スマホでは名前を隠してアイコンのみに */}
       <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 20, display: 'flex', alignItems: 'center', gap: '5px' }}>
         {profile && isPc && (<div style={{ color: 'white', fontSize: '0.9rem', background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '8px', border: isPremium ? '1px solid #FFD700' : '1px solid #444' }}><span style={{ fontWeight: 'bold' }}>{profile.username}</span>{isPremium && <span style={{ marginLeft: '5px', color: '#FFD700' }}>★</span>}</div>)}
         {user && (<button onClick={() => setShowFavList(true)} style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid #ff3366', color: '#ff3366', borderRadius: '50%', width: '36px', height: '36px', cursor: 'pointer', fontSize: '1rem', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>♥</button>)}
@@ -471,26 +460,28 @@ const GlobeContent = () => {
         <div 
           onMouseDown={handleMouseDown}
           style={{ 
-            // ★UI分岐: PCならドラッグ可能、スマホなら画面下固定(シート)
+            // ★スマホUIの修正点: 左右に余白(5%)、下から少し浮かせる
             position: 'absolute', 
-            left: isPc ? popupPos.x : 0, 
+            left: isPc ? popupPos.x : '5%', 
             top: isPc ? popupPos.y : 'auto', 
-            bottom: isPc ? 'auto' : 0, // スマホは下端
+            bottom: isPc ? 'auto' : '30px', 
             transform: isPc ? 'none' : 'none',
             
-            background: 'rgba(10, 10, 10, 0.9)', // スマホは少し濃く
-            padding: '20px', 
-            borderRadius: isPc ? '20px' : '20px 20px 0 0', // スマホは上だけ丸く
+            background: 'rgba(10, 10, 10, 0.9)', 
+            // パディングを少し控えめに
+            padding: isPc ? '20px' : '15px', 
+            borderRadius: '20px', 
             color: 'white', 
             textAlign: 'center', 
             backdropFilter: 'blur(10px)', 
-            borderTop: '1px solid rgba(255, 255, 255, 0.2)', 
+            border: '1px solid rgba(255, 255, 255, 0.2)', 
             zIndex: 10, 
             
-            width: isPc ? '400px' : '100%', // スマホは全幅
+            // 幅を90%に制限してカード状に
+            width: isPc ? '400px' : '90%', 
             maxWidth: '100%',
             
-            boxShadow: '0 -4px 30px rgba(0,0,0,0.6)', 
+            boxShadow: '0 4px 30px rgba(0,0,0,0.6)', 
             resize: isPc ? 'both' : 'none',
             overflow: isPc ? 'auto' : 'visible',
             cursor: isPc ? (isDragging ? 'grabbing' : 'grab') : 'default',
@@ -504,19 +495,19 @@ const GlobeContent = () => {
             </div>
           )}
 
-          <div style={{ position: 'absolute', top: '15px', right: '15px' }}>
+          {/* ハートボタンの位置を少し内側に調整 */}
+          <div style={{ position: 'absolute', top: '10px', right: '10px' }}>
             <button onMouseDown={e => e.stopPropagation()} onClick={toggleFavorite} style={{ background: favorites.has(selectedLocation.id) ? '#ff3366' : '#333', color: 'white', border: '2px solid white', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', boxShadow: '0 4px 10px rgba(0,0,0,0.5)', transition: 'all 0.2s' }}>{favorites.has(selectedLocation.id) ? '♥' : '♡'}</button>
           </div>
           
           <div style={{ color: '#ffccaa', marginBottom: '10px' }}>{renderNameWithTags(displayData.name, displayData.category)}</div>
           
-          {/* スマホならスクロール可能にする */}
-          <p style={{ margin: 0, fontSize: '0.85rem', color: '#ddd', maxHeight: '150px', overflowY: 'auto', textAlign: 'left', lineHeight: '1.6', cursor: 'text', paddingBottom: '20px' }} onMouseDown={e => e.stopPropagation()}>
+          <p style={{ margin: 0, fontSize: '0.85rem', color: '#ddd', maxHeight: '150px', overflowY: 'auto', textAlign: 'left', lineHeight: '1.6', cursor: 'text', paddingBottom: '10px' }} onMouseDown={e => e.stopPropagation()}>
             {displayData.description}
           </p>
           
           {displayData.needsTranslation && (
-            <button onMouseDown={e => e.stopPropagation()} onClick={() => translateAndFix(selectedLocation, currentLang)} style={{ marginTop: '10px', background: '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 15px', fontWeight: 'bold', cursor: 'pointer', marginBottom: '10px' }}>🔄 日本語に翻訳する</button>
+            <button onMouseDown={e => e.stopPropagation()} onClick={() => translateAndFix(selectedLocation, currentLang)} style={{ marginTop: '10px', background: '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 15px', fontWeight: 'bold', cursor: 'pointer', marginBottom: '5px' }}>🔄 日本語に翻訳する</button>
           )}
         </div>
       )}
