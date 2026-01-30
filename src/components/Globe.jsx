@@ -383,11 +383,8 @@ const GlobeContent = () => {
     if (isBgmOn) { audio.play().catch(() => {}); audio.volume = isPlaying ? bgmVolume * 0.2 : bgmVolume; } else { audio.pause(); }
   }, [isBgmOn, isPlaying, bgmVolume]);
 
-  // ★タブ切り替えロジックの改善 (トグル対応)
   const handleTabChange = (tab) => {
     if (activeTab === tab) {
-      // 既にアクティブなタブを押した場合 -> 閉じる（マップに戻る）
-      // ただし 'map' 自体を押した場合は何もしない
       if (tab !== 'map') {
         setActiveTab('map');
         setShowBrowseOverlay(false);
@@ -396,12 +393,9 @@ const GlobeContent = () => {
       }
       return;
     }
-
-    // 通常の切り替え
     setActiveTab(tab);
     setShowBrowseOverlay(tab === 'browse');
     setIsSettingsOpen(tab === 'settings');
-    
     if (tab === 'ride') { if (!isRideMode) toggleRideMode(); }
     if (tab === 'fav') { if (user) setShowFavList(true); else setShowAuthModal(true); }
   };
@@ -444,8 +438,6 @@ const GlobeContent = () => {
           <div style={{ marginBottom: '30px' }}>
             <div style={{ color: '#888', marginBottom: '10px', fontSize: '0.9rem' }}>カスタマイズ</div>
             <div style={{ background: '#222', borderRadius: '10px', overflow: 'hidden', padding: '15px' }}>
-              
-              {/* ★言語設定の追加 */}
               <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'white' }}>
                 <span>🌐 言語設定</span>
                 <select value={currentLang} onChange={(e) => setCurrentLang(e.target.value)} style={{ background: '#333', color: 'white', border: '1px solid #555', padding: '5px 10px', borderRadius: '5px', fontSize: '1rem' }}>
@@ -504,7 +496,6 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ボトムナビゲーション */}
       {!isPc && (
         <div style={{ 
           position: 'fixed', bottom: 0, left: 0, width: '100%', height: '80px', 
@@ -520,7 +511,6 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ★ライドコントロール: 位置を底上げ (bottom: 100px) */}
       {!isPc && isRideMode && activeTab !== 'browse' && (
         <div style={{ position: 'absolute', bottom: '100px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '10px', zIndex: 50 }}>
           <button onClick={toggleRideMode} style={{ background: '#ff3366', color: 'white', border: 'none', borderRadius: '30px', padding: '10px 25px', fontWeight: 'bold', boxShadow: '0 4px 15px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', gap: '5px' }}>🛑 STOP</button>
@@ -530,15 +520,13 @@ const GlobeContent = () => {
 
       {statusMessage && <div style={{ position: 'absolute', top: '80px', left: '20px', zIndex: 20, color: '#00ffcc', textShadow: '0 0 5px black' }}>{statusMessage}</div>}
 
-      {/* 〇枠 */}
       <div style={{ position: 'absolute', top: isPc ? '50%' : '30%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
 
-      {/* UI分割表示 */}
       {selectedLocation && displayData && !showBrowseOverlay && (
         <>
           {!isPc && displayData.image_url && (
             <div style={{
-              position: 'absolute', top: '70px', left: '10px', right: '10px',
+              position: 'absolute', top: '40px', left: '10px', right: '10px',
               height: '160px', borderRadius: '15px', overflow: 'hidden',
               boxShadow: '0 4px 20px rgba(0,0,0,0.5)', zIndex: 10, pointerEvents: 'none',
               border: '1px solid rgba(255,255,255,0.1)'
@@ -555,8 +543,8 @@ const GlobeContent = () => {
               left: isPc ? popupPos.x : '10px', 
               right: isPc ? 'auto' : '10px',
               top: isPc ? popupPos.y : 'auto', 
-              // ★余白調整: ライド中(170px) / 通常時(110px) で出し分け
-              bottom: isPc ? 'auto' : (isRideMode ? '170px' : '110px'),
+              // ★説明文カードの位置調整: ライド中はさらに上に逃がす
+              bottom: isPc ? 'auto' : (isRideMode ? '170px' : '110px'), 
               transform: isPc ? 'none' : 'none', 
               background: 'rgba(10, 10, 10, 0.95)', 
               padding: '20px', 
@@ -605,7 +593,7 @@ const GlobeContent = () => {
         </>
       )}
 
-      <MemoizedMap mapRef={mapRef} mapboxAccessToken={MAPBOX_TOKEN} initialViewState={initialViewState} onMoveEnd={handleMoveEnd} geoJsonData={filteredGeoJsonData} onError={(e) => addLog(`Map Error: ${e.error.message}`)} padding={isPc ? {} : { bottom: window.innerHeight * 0.3 }} />
+      <MemoizedMap mapRef={mapRef} mapboxAccessToken={MAPBOX_TOKEN} initialViewState={initialViewState} onMoveEnd={handleMoveEnd} geoJsonData={filteredGeoJsonData} onError={(e) => addLog(`Map Error: ${e.error.message}`)} padding={isPc ? {} : { bottom: window.innerHeight * 0.4 }} />
       <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(20px) translateX(-50%); } to { opacity: 1; transform: translateY(0) translateX(-50%); } } .pulse { animation: pulse 1s infinite; } @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }`}</style>
     </div>
   );
