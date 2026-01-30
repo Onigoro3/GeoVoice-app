@@ -10,7 +10,6 @@ import { isVipUser } from '../vipList';
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
-// 言語設定（AIへの指示用に name プロパティを含めています）
 const LANGUAGES = {
   ja: { code: 'ja', name: 'Japanese', label: '🇯🇵 日本語', placeholder: '例: 日本の城...' },
   en: { code: 'en', name: 'English', label: '🇺🇸 English', placeholder: 'Ex: Castles in Japan...' },
@@ -19,7 +18,7 @@ const LANGUAGES = {
   fr: { code: 'fr', name: 'French', label: '🇫🇷 Français', placeholder: 'Ex: Châteaux du Japon...' },
 };
 
-// 地図コンポーネント (ブラックアウト対策のためメモ化)
+// 地図コンポーネント
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError }) => {
   return (
     <Map
@@ -37,25 +36,24 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
       {geoJsonData && (
         <Source id="my-locations" type="geojson" data={geoJsonData}>
-          {/* カテゴリーごとの色分け設定 */}
+          {/* ★色分けの強化: 自然＝蛍光グリーン、文化＝黄金色 */}
           <Layer 
             id="point-glow" 
             type="circle" 
             paint={{ 
-              'circle-radius': 10, 
+              'circle-radius': 12, // 少し大きくして目立たせる
               'circle-color': [
                 'match',
-                ['get', 'category'], // categoryカラムの値を取得
-                'nature', '#00ff88', // 自然遺産なら緑 (#00ff88)
-                'history', '#ffaa88', // 歴史遺産ならオレンジ (#ffaa88)
-                '#ffaa88' // デフォルト
+                ['get', 'category'],
+                'nature', '#00ff7f', // 自然遺産 (Spring Green)
+                'history', '#ffcc00', // 文化遺産 (Gold/Orange)
+                '#ffcc00' // デフォルト
               ],
-              'circle-opacity': 0.6, 
-              'circle-blur': 0.8 
+              'circle-opacity': 0.7, 
+              'circle-blur': 0.6 
             }} 
           />
-          {/* 中心の白い点 */}
-          <Layer id="point-core" type="circle" paint={{ 'circle-radius': 3, 'circle-color': '#fff', 'circle-opacity': 1 }} />
+          <Layer id="point-core" type="circle" paint={{ 'circle-radius': 4, 'circle-color': '#fff', 'circle-opacity': 1 }} />
         </Source>
       )}
     </Map>
@@ -65,8 +63,6 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
 const GlobeContent = () => {
   const mapRef = useRef(null);
   const audioRef = useRef(null);
-  
-  // Refで状態を保持（レンダリング回避・ブラックアウト対策）
   const locationsRef = useRef([]);
   const selectedLocationRef = useRef(null);
   const isGeneratingRef = useRef(false);
@@ -89,6 +85,12 @@ const GlobeContent = () => {
   const [showFavList, setShowFavList] = useState(false);
   const [favorites, setFavorites] = useState(new Set());
 
+  // ★フィルター設定
+  const [visibleCategories, setVisibleCategories] = useState({
+    history: true, // 文化遺産
+    nature: true   // 自然遺産
+  });
+
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [bgmVolume, setBgmVolume] = useState(0.5);
   const [voiceVolume, setVoiceVolume] = useState(1.0);
@@ -96,24 +98,26 @@ const GlobeContent = () => {
 
   const initialViewState = { longitude: 13.4, latitude: 41.9, zoom: 3 };
 
-  // ログ出力関数
   const addLog = (msg) => {
     console.log(msg);
     setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 5));
   };
 
-  // Refの同期
   useEffect(() => { locationsRef.current = locations; }, [locations]);
   useEffect(() => { selectedLocationRef.current = selectedLocation; }, [selectedLocation]);
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
 
-  // データ取得
   const fetchSpots = async () => {
     try {
       const { data, error } = await supabase.from('spots').select('*');
       if (error) throw error;
       if (data) {
-        setLocations(data);
+        // categoryがnullの場合は 'history' として扱う
+        const formattedData = data.map(d => ({
+          ...d,
+          category: d.category || 'history'
+        }));
+        setLocations(formattedData);
         addLog(`Loaded ${data.length} spots`);
       }
     } catch (e) {
@@ -178,7 +182,6 @@ const GlobeContent = () => {
     mapRef.current?.flyTo({ center: [spot.lon, spot.lat], zoom: 6, speed: 1.2, curve: 1 });
   };
 
-  // ★画像取得ロジック（表示時に画像がない場合に発動）
   const fetchAndSaveImage = async (spot) => {
     const searchName = (spot.name_en || spot.name).split('#')[0].trim();
     try {
@@ -197,23 +200,16 @@ const GlobeContent = () => {
 
       if (imageUrl) {
         await supabase.from('spots').update({ image_url: imageUrl }).eq('id', spot.id);
-        
-        // ローカル更新
         const updated = locationsRef.current.map(l => l.id === spot.id ? { ...l, image_url: imageUrl } : l);
         setLocations(updated);
-        locationsRef.current = updated; // Refも更新
-
-        // 表示更新
+        locationsRef.current = updated;
         if (selectedLocationRef.current?.id === spot.id) {
           setDisplayData(prev => ({ ...prev, image_url: imageUrl }));
         }
       }
-    } catch (e) {
-      console.error("Image fetch failed", e);
-    }
+    } catch (e) { console.error("Image fetch failed", e); }
   };
 
-  // ★翻訳ロジック (Gemini 2.0 Flash)
   const translateAndFix = async (spot, lang) => {
     if (statusMessage.includes("生成中")) return;
     setStatusMessage("翻訳中...");
@@ -221,16 +217,8 @@ const GlobeContent = () => {
 
     try {
       const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-      // Gemini 2.0 Flashを使用
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" }); 
-      
-      const prompt = `
-        Translate/Rewrite into ${LANGUAGES[lang].name}.
-        Target: "${spot.name}"
-        Desc: "${spot.description}"
-        Output JSON only: { "name": "Name", "description": "Desc (max 150 chars)" }
-      `;
-
+      const prompt = `Translate/Rewrite into ${LANGUAGES[lang].name}. Target: "${spot.name}" Desc: "${spot.description}" Output JSON only: { "name": "Name", "description": "Desc (max 150 chars)" }`;
       const result = await model.generateContent(prompt);
       const text = result.response.text().replace(/```json/g, "").replace(/```/g, "").trim();
       const json = JSON.parse(text);
@@ -239,9 +227,7 @@ const GlobeContent = () => {
       const descCol = lang === 'ja' ? 'description_ja' : `description_${lang}`;
       const updateData = { [nameCol]: json.name, [descCol]: json.description };
 
-      const { error } = await supabase.from('spots').update(updateData).eq('id', spot.id);
-      if (error) throw error;
-      
+      await supabase.from('spots').update(updateData).eq('id', spot.id);
       addLog("翻訳完了・保存");
 
       const updatedLocations = locations.map(l => l.id === spot.id ? { ...l, ...updateData } : l);
@@ -255,17 +241,11 @@ const GlobeContent = () => {
       }
     } catch (e) {
       addLog(`翻訳失敗: ${e.message}`);
-      if (e.message.includes("429")) {
-        alert("API制限中です。少し待機してください。");
-      } else if (e.message.includes("404")) {
-        alert("モデルが見つかりません。");
-      }
-    } finally {
-      setStatusMessage("");
-    }
+      if (e.message.includes("429")) alert("API制限中です。少し待機してください。");
+      else if (e.message.includes("404")) alert("モデルが見つかりません。");
+    } finally { setStatusMessage(""); }
   };
 
-  // 選択時の処理（表示データ決定・翻訳判定・画像チェック）
   useEffect(() => {
     if (!selectedLocation) {
       setDisplayData(null);
@@ -278,7 +258,6 @@ const GlobeContent = () => {
     let displayName = selectedLocation[`name${suffix}`];
     let displayDesc = selectedLocation[`description${suffix}`];
 
-    // フォールバック
     if (!displayName) displayName = selectedLocation.name;
     if (!displayDesc) displayDesc = selectedLocation.description;
 
@@ -286,10 +265,7 @@ const GlobeContent = () => {
     const hasJapaneseChars = displayName && /[ぁ-んァ-ン一-龯]/.test(displayName);
     const isWeakDesc = !displayDesc || displayDesc.length < 10 || displayDesc.includes("World Heritage") || displayDesc === "世界遺産";
     
-    // 画像がないなら取得を試みる
-    if (!selectedLocation.image_url) {
-      fetchAndSaveImage(selectedLocation);
-    }
+    if (!selectedLocation.image_url) fetchAndSaveImage(selectedLocation);
 
     const newData = { 
       ...selectedLocation, 
@@ -300,12 +276,10 @@ const GlobeContent = () => {
     
     setDisplayData(newData);
     
-    // 翻訳が必要でなければ読み上げ開始
     if (!newData.needsTranslation) {
       window.speechSynthesis.cancel();
       speak(newData.description);
     }
-    
   }, [selectedLocation, currentLang]);
 
   const speak = (text) => {
@@ -318,7 +292,6 @@ const GlobeContent = () => {
     window.speechSynthesis.speak(utterance);
   };
 
-  // スポット生成機能 (Gemini 2.0 Flash)
   const handleGenerate = async () => {
     if (!inputTheme) return;
     setIsGenerating(true);
@@ -335,7 +308,7 @@ const GlobeContent = () => {
         const spot = { ...s };
         spot['name_ja'] = s.name;
         spot['description_ja'] = s.description;
-        spot['category'] = 'history'; // 手動生成は一旦ヒストリー扱い
+        spot['category'] = 'history'; 
         return spot;
       });
 
@@ -351,12 +324,25 @@ const GlobeContent = () => {
     }
   };
 
-  const geoJsonData = useMemo(() => ({
-    type: 'FeatureCollection',
-    features: locations.map(loc => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [loc.lon, loc.lat] }, properties: { ...loc } }))
-  }), [locations]);
+  // ★フィルター適用済みのデータを作成
+  const filteredGeoJsonData = useMemo(() => {
+    // フィルタリング
+    const filtered = locations.filter(loc => {
+      if (loc.category === 'nature') return visibleCategories.nature;
+      // categoryがnull または 'history' の場合
+      return visibleCategories.history;
+    });
 
-  // マップ移動終了時（場所選択）
+    return {
+      type: 'FeatureCollection',
+      features: filtered.map(loc => ({ 
+        type: 'Feature', 
+        geometry: { type: 'Point', coordinates: [loc.lon, loc.lat] }, 
+        properties: { ...loc } 
+      }))
+    };
+  }, [locations, visibleCategories]);
+
   const handleMoveEnd = useCallback((evt) => {
     if (!evt.originalEvent || isGeneratingRef.current) return;
     const map = mapRef.current?.getMap();
@@ -370,24 +356,35 @@ const GlobeContent = () => {
       if (!bestTarget) return;
 
       const fullLocation = locationsRef.current.find(l => l.id === bestTarget.id) || bestTarget;
-      
-      // 同じ場所なら再選択しない（ループ防止）
       if (!selectedLocationRef.current || fullLocation.id !== selectedLocationRef.current.id) {
         setSelectedLocation(fullLocation);
         map.flyTo({ center: [fullLocation.lon, fullLocation.lat], speed: 0.6, curve: 1 });
       }
     } else {
-       // 選択解除
        if (selectedLocationRef.current) setSelectedLocation(null);
     }
   }, []);
 
-  const renderNameWithTags = (fullName) => {
+  const renderNameWithTags = (fullName, category) => {
     if (!fullName) return null;
     const parts = fullName.split('#');
     const name = parts[0].trim();
-    const tags = parts.slice(1).map(t => t.trim());
-    return (<div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}><span style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>{name}</span><div style={{ display: 'flex', gap: '5px' }}>{tags.map((tag, i) => (<span key={i} style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '10px', backgroundColor: '#00ffcc', color: '#000', fontWeight: 'bold' }}>#{tag}</span>))}</div></div>);
+    
+    // ★タグの自動判定: カテゴリに基づいてタグを表示
+    const displayTag = category === 'nature' ? '自然遺産' : '世界遺産';
+    const color = category === 'nature' ? '#00ff7f' : '#ffcc00';
+    const textColor = category === 'nature' ? '#000' : '#000';
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
+        <span style={{ fontSize: '1.2rem', fontWeight: 'bold' }}>{name}</span>
+        <div style={{ display: 'flex', gap: '5px' }}>
+          <span style={{ fontSize: '0.8rem', padding: '2px 10px', borderRadius: '12px', backgroundColor: color, color: textColor, fontWeight: 'bold', boxShadow: '0 0 5px '+color }}>
+            #{displayTag}
+          </span>
+        </div>
+      </div>
+    );
   };
 
   useEffect(() => {
@@ -405,13 +402,11 @@ const GlobeContent = () => {
     <div style={{ width: "100vw", height: "100dvh", background: "black", fontFamily: 'sans-serif', position: 'relative', overflow: 'hidden' }}>
       <audio ref={audioRef} src="/bgm.mp3" loop />
       
-      {/* デバッグログ表示 */}
       <div style={{ position: 'absolute', bottom: '10px', left: '10px', zIndex: 100, background: 'rgba(0,0,0,0.7)', color: '#00ff00', fontSize: '10px', padding: '5px', borderRadius: '5px', maxWidth: '300px', pointerEvents: 'none' }}>{logs.map((log, i) => <div key={i}>{log}</div>)}</div>
 
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={setupUser} />}
       {showFavList && user && <FavoritesModal userId={user.id} onClose={() => setShowFavList(false)} onSelect={handleSelectFromList} />}
 
-      {/* 画面上部コントロール */}
       <div style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 20, display: 'flex', gap: '8px', background: 'rgba(0,0,0,0.6)', padding: '10px', borderRadius: '12px', backdropFilter: 'blur(5px)', border: '1px solid rgba(255,255,255,0.1)', alignItems: 'center' }}>
         <select value={currentLang} onChange={(e) => setCurrentLang(e.target.value)} style={{ appearance: 'none', background: 'transparent', color: 'white', border: 'none', fontSize: '1.2rem', fontWeight: 'bold', cursor: 'pointer', paddingRight: '15px', outline: 'none' }}>{Object.keys(LANGUAGES).map(key => <option key={key} value={key} style={{ color: 'black' }}>{LANGUAGES[key].label}</option>)}</select>
         <div style={{ width: '1px', height: '20px', background: 'rgba(255,255,255,0.3)' }}></div>
@@ -420,7 +415,6 @@ const GlobeContent = () => {
         <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} style={{ background: 'transparent', color: 'white', border: 'none', cursor: 'pointer', fontSize: '1.2rem', padding: '0 5px' }}>⚙️</button>
       </div>
 
-      {/* 右上ユーザーメニュー */}
       <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 20, display: 'flex', alignItems: 'center', gap: '10px' }}>
         {profile && (<div style={{ color: 'white', fontSize: '0.9rem', background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '8px', border: isPremium ? '1px solid #FFD700' : '1px solid #444' }}><span style={{ fontWeight: 'bold' }}>{profile.username}</span><span style={{ color: '#888', marginLeft: '5px' }}>#{profile.discriminator}</span>{isPremium && <span style={{ marginLeft: '5px', color: '#FFD700' }}>★</span>}</div>)}
         {user && (<button onClick={() => setShowFavList(true)} style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid #ff3366', color: '#ff3366', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>♥</button>)}
@@ -428,10 +422,34 @@ const GlobeContent = () => {
       </div>
 
       {isSettingsOpen && (
-        <div style={{ position: 'absolute', top: '70px', left: '20px', zIndex: 20, background: 'rgba(20,20,20,0.9)', padding: '15px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)', color: 'white', minWidth: '200px', backdropFilter: 'blur(10px)' }}>
-          <div style={{ marginBottom: '10px', fontWeight: 'bold', color: '#00ffcc' }}>Settings</div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}><span>BGM</span><button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: isBgmOn ? '#ffaa00' : '#555', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 8px', fontSize: '0.8rem', cursor: 'pointer' }}>{isBgmOn ? 'ON' : 'OFF'}</button></div>
-          <input type="range" min="0" max="1" step="0.1" value={bgmVolume} onChange={e => setBgmVolume(parseFloat(e.target.value))} style={{ width: '100%', marginBottom: '15px', cursor: 'pointer' }} /><div style={{ marginBottom: '5px' }}>Voice Vol</div><input type="range" min="0" max="1" step="0.1" value={voiceVolume} onChange={e => setVoiceVolume(parseFloat(e.target.value))} style={{ width: '100%', cursor: 'pointer' }} />
+        <div style={{ position: 'absolute', top: '70px', left: '20px', zIndex: 20, background: 'rgba(20,20,20,0.9)', padding: '15px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.2)', color: 'white', minWidth: '220px', backdropFilter: 'blur(10px)' }}>
+          <div style={{ marginBottom: '15px', fontWeight: 'bold', color: '#00ffcc', borderBottom: '1px solid #444', paddingBottom: '5px' }}>Settings</div>
+          
+          {/* ★フィルター設定エリア */}
+          <div style={{ marginBottom: '15px' }}>
+            <div style={{ fontSize: '0.85rem', color: '#ccc', marginBottom: '8px' }}>表示フィルター</div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px', cursor: 'pointer' }}>
+              <input 
+                type="checkbox" 
+                checked={visibleCategories.history} 
+                onChange={e => setVisibleCategories(prev => ({...prev, history: e.target.checked}))}
+              />
+              <span style={{ color: '#ffcc00', fontWeight: 'bold' }}>🏛️ 世界遺産 (文化)</span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input 
+                type="checkbox" 
+                checked={visibleCategories.nature} 
+                onChange={e => setVisibleCategories(prev => ({...prev, nature: e.target.checked}))}
+              />
+              <span style={{ color: '#00ff7f', fontWeight: 'bold' }}>🌲 自然遺産</span>
+            </label>
+          </div>
+
+          <div style={{ borderTop: '1px solid #444', paddingTop: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}><span>BGM</span><button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: isBgmOn ? '#ffaa00' : '#555', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 8px', fontSize: '0.8rem', cursor: 'pointer' }}>{isBgmOn ? 'ON' : 'OFF'}</button></div>
+            <input type="range" min="0" max="1" step="0.1" value={bgmVolume} onChange={e => setBgmVolume(parseFloat(e.target.value))} style={{ width: '100%', marginBottom: '15px', cursor: 'pointer' }} /><div style={{ marginBottom: '5px' }}>Voice Vol</div><input type="range" min="0" max="1" step="0.1" value={voiceVolume} onChange={e => setVoiceVolume(parseFloat(e.target.value))} style={{ width: '100%', cursor: 'pointer' }} />
+          </div>
         </div>
       )}
 
@@ -439,11 +457,9 @@ const GlobeContent = () => {
 
       <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
 
-      {/* スポット詳細ポップアップ（選択中のみ表示） */}
       {selectedLocation && displayData && (
         <div style={{ position: 'absolute', bottom: '15%', left: '50%', transform: 'translateX(-50%)', background: 'rgba(10, 10, 10, 0.85)', padding: '20px', borderRadius: '20px', color: 'white', textAlign: 'center', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.2)', zIndex: 10, minWidth: '320px', maxWidth: '85%', boxShadow: '0 4px 30px rgba(0,0,0,0.5)', animation: 'fadeIn 0.5s' }}>
           
-          {/* 画像表示エリア */}
           {displayData.image_url && (
             <div style={{ width: '100%', height: '150px', marginBottom: '15px', borderRadius: '12px', overflow: 'hidden', position: 'relative' }}>
               <img 
@@ -457,31 +473,25 @@ const GlobeContent = () => {
 
           <div style={{ position: 'absolute', top: '-20px', right: '20px' }}><button onClick={toggleFavorite} style={{ background: favorites.has(selectedLocation.id) ? '#ff3366' : '#333', color: 'white', border: '2px solid white', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', boxShadow: '0 4px 10px rgba(0,0,0,0.5)', transition: 'all 0.2s' }}>{favorites.has(selectedLocation.id) ? '♥' : '♡'}</button></div>
           <div style={{ marginBottom: '10px', fontSize: '12px', color: isPlaying ? '#00ffcc' : '#888' }}>{isPlaying ? <><span className="pulse">●</span> ON AIR</> : <span>● READY</span>}</div>
-          <div style={{ color: '#ffccaa', marginBottom: '10px' }}>{renderNameWithTags(displayData.name)}</div>
+          
+          {/* ★タグ表示 (カテゴリに応じて切り替え) */}
+          <div style={{ color: '#ffccaa', marginBottom: '10px' }}>{renderNameWithTags(displayData.name, displayData.category)}</div>
+          
           <p style={{ margin: 0, fontSize: '0.85rem', color: '#ddd', maxHeight: '150px', overflowY: 'auto', textAlign: 'left', lineHeight: '1.6' }}>{displayData.description}</p>
           
-          {/* 翻訳ボタン（必要な時だけ出現） */}
           {displayData.needsTranslation && (
-            <button 
-              onClick={() => translateAndFix(selectedLocation, currentLang)}
-              style={{
-                marginTop: '10px', background: '#00ffcc', color: 'black', border: 'none',
-                borderRadius: '4px', padding: '5px 15px', fontWeight: 'bold', cursor: 'pointer'
-              }}
-            >
-              🔄 日本語に翻訳する
-            </button>
+            <button onClick={() => translateAndFix(selectedLocation, currentLang)} style={{ marginTop: '10px', background: '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '5px 15px', fontWeight: 'bold', cursor: 'pointer' }}>🔄 日本語に翻訳する</button>
           )}
         </div>
       )}
 
-      {/* メモ化されたマップ */}
+      {/* フィルターされたデータを使用 */}
       <MemoizedMap 
         mapRef={mapRef}
         mapboxAccessToken={MAPBOX_TOKEN}
         initialViewState={initialViewState}
         onMoveEnd={handleMoveEnd}
-        geoJsonData={geoJsonData}
+        geoJsonData={filteredGeoJsonData}
         onError={(e) => addLog(`Map Error: ${e.error.message}`)}
       />
       <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } } .pulse { animation: pulse 1s infinite; } @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }`}</style>
