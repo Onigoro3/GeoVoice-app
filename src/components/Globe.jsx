@@ -416,32 +416,59 @@ const GlobeContent = () => {
         {isPc && <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} style={{ background: 'rgba(0,0,0,0.6)', border: '1px solid white', color: 'white', borderRadius: '50%', width: '36px', height: '36px' }}>⚙️</button>}
       </div>
 
+      {/* ★Radio Garden風 設定メニュー (全画面オーバーレイ) */}
       {isSettingsOpen && (
         <div style={{ 
-          position: 'absolute', 
-          // ★スマホ版の設定メニュー位置修正: ボトムバーより上に表示
-          bottom: isPc ? 'auto' : '90px', top: isPc ? '60px' : 'auto', 
-          right: '10px', left: isPc ? 'auto' : '10px', 
-          zIndex: 60, background: 'rgba(20,20,20,0.95)', padding: '15px', borderRadius: '12px', 
-          border: '1px solid rgba(255,255,255,0.2)', color: 'white', minWidth: '220px', 
-          backdropFilter: 'blur(10px)', boxShadow: '0 4px 20px black' 
+          position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', 
+          background: '#111', zIndex: 200, overflowY: 'auto', padding: '20px', boxSizing: 'border-box'
         }}>
-          <div style={{ marginBottom: '15px', fontWeight: 'bold', color: '#00ffcc', borderBottom: '1px solid #444', paddingBottom: '5px' }}>Settings</div>
-          <div style={{ marginBottom: '15px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><input type="checkbox" checked={visibleCategories.history} onChange={e => setVisibleCategories(prev => ({...prev, history: e.target.checked}))} /><span style={{ color: '#ffcc00' }}>🏛️ 世界遺産</span></label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><input type="checkbox" checked={visibleCategories.nature} onChange={e => setVisibleCategories(prev => ({...prev, nature: e.target.checked}))} /><span style={{ color: '#00ff7f' }}>🌲 自然遺産</span></label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><input type="checkbox" checked={visibleCategories.modern} onChange={e => setVisibleCategories(prev => ({...prev, modern: e.target.checked}))} /><span style={{ color: '#00ffff' }}>🏙️ 現代建築</span></label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><input type="checkbox" checked={visibleCategories.science} onChange={e => setVisibleCategories(prev => ({...prev, science: e.target.checked}))} /><span style={{ color: '#d800ff' }}>🚀 宇宙・科学</span></label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><input type="checkbox" checked={visibleCategories.art} onChange={e => setVisibleCategories(prev => ({...prev, art: e.target.checked}))} /><span style={{ color: '#ff0055' }}>🎨 美術館</span></label>
+          {/* ヘッダー */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', marginTop: '20px' }}>
+            <h2 style={{ margin: 0, color: 'white', fontSize: '1.8rem' }}>設定</h2>
+            <button onClick={() => setIsSettingsOpen(false)} style={{ background: 'transparent', border: '1px solid #555', color: 'white', borderRadius: '50%', width: '40px', height: '40px', fontSize: '1.2rem', cursor: 'pointer' }}>✕</button>
           </div>
-          <div style={{ borderTop: '1px solid #444', paddingTop: '10px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}><span>BGM</span><button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: isBgmOn ? '#ffaa00' : '#555', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 8px', fontSize: '0.8rem' }}>{isBgmOn ? 'ON' : 'OFF'}</button></div>
-            <input type="range" min="0" max="1" step="0.1" value={bgmVolume} onChange={e => setBgmVolume(parseFloat(e.target.value))} style={{ width: '100%' }} />
+
+          {/* 情報セクション */}
+          <div style={{ marginBottom: '30px' }}>
+            <div style={{ color: '#888', marginBottom: '10px', fontSize: '0.9rem' }}>情報</div>
+            <div style={{ background: '#222', borderRadius: '10px', overflow: 'hidden' }}>
+              <div style={{ padding: '15px', borderBottom: '1px solid #333', color: 'white', display: 'flex', justifyContent: 'space-between' }}>GeoVoice App <span>&gt;</span></div>
+              <div style={{ padding: '15px', borderBottom: '1px solid #333', color: 'white', display: 'flex', justifyContent: 'space-between' }}>プライバシーポリシー <span>&gt;</span></div>
+              <div style={{ padding: '15px', color: 'white', display: 'flex', justifyContent: 'space-between' }}>お問い合わせ <span>&gt;</span></div>
+            </div>
           </div>
-          {isPc && user && <button onClick={() => { if(confirm('Logout?')) { supabase.auth.signOut(); clearUser(); }}} style={{ marginTop: '10px', width: '100%', background: '#333', color: 'white', border: '1px solid #555', padding: '5px', borderRadius: '5px' }}>Logout</button>}
+
+          {/* カスタマイズセクション */}
+          <div style={{ marginBottom: '30px' }}>
+            <div style={{ color: '#888', marginBottom: '10px', fontSize: '0.9rem' }}>カスタマイズ</div>
+            <div style={{ background: '#222', borderRadius: '10px', overflow: 'hidden', padding: '15px' }}>
+              {/* 表示フィルター */}
+              <div style={{ marginBottom: '15px', color: '#ccc', fontSize: '0.9rem' }}>表示フィルター</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '20px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'white' }}><span>🏛️ 世界遺産</span><input type="checkbox" checked={visibleCategories.history} onChange={e => setVisibleCategories(prev => ({...prev, history: e.target.checked}))} style={{ transform: 'scale(1.3)' }} /></label>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'white' }}><span>🌲 自然遺産</span><input type="checkbox" checked={visibleCategories.nature} onChange={e => setVisibleCategories(prev => ({...prev, nature: e.target.checked}))} style={{ transform: 'scale(1.3)' }} /></label>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'white' }}><span>🏙️ 現代建築</span><input type="checkbox" checked={visibleCategories.modern} onChange={e => setVisibleCategories(prev => ({...prev, modern: e.target.checked}))} style={{ transform: 'scale(1.3)' }} /></label>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'white' }}><span>🚀 宇宙・科学</span><input type="checkbox" checked={visibleCategories.science} onChange={e => setVisibleCategories(prev => ({...prev, science: e.target.checked}))} style={{ transform: 'scale(1.3)' }} /></label>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'white' }}><span>🎨 美術館</span><input type="checkbox" checked={visibleCategories.art} onChange={e => setVisibleCategories(prev => ({...prev, art: e.target.checked}))} style={{ transform: 'scale(1.3)' }} /></label>
+              </div>
+
+              {/* 音量設定 */}
+              <div style={{ borderTop: '1px solid #333', paddingTop: '15px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', color: 'white' }}><span>BGM</span><button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: isBgmOn ? '#ffaa00' : '#555', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 10px', fontSize: '0.8rem' }}>{isBgmOn ? 'ON' : 'OFF'}</button></div>
+                <input type="range" min="0" max="1" step="0.1" value={bgmVolume} onChange={e => setBgmVolume(parseFloat(e.target.value))} style={{ width: '100%', marginBottom: '15px' }} />
+                <div style={{ color: 'white', marginBottom: '5px' }}>ボイス音量</div>
+                <input type="range" min="0" max="1" step="0.1" value={voiceVolume} onChange={e => setVoiceVolume(parseFloat(e.target.value))} style={{ width: '100%' }} />
+              </div>
+            </div>
+          </div>
+
+          {user && <button onClick={() => { if(confirm('ログアウトしますか？')) { supabase.auth.signOut(); clearUser(); setIsSettingsOpen(false); }}} style={{ width: '100%', padding: '15px', background: '#333', color: '#ff3366', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 'bold' }}>ログアウト</button>}
+          
+          <div style={{ height: '50px' }}></div> {/* 余白 */}
         </div>
       )}
 
+      {/* ブラウズ画面 */}
       {!isPc && showBrowseOverlay && (
         <div style={{
           position: 'fixed', top: 0, left: 0, width: '100%', height: 'calc(100% - 80px)', 
@@ -461,7 +488,7 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ★ボトムナビゲーション (高さ80px) */}
+      {/* ボトムナビゲーション */}
       {!isPc && (
         <div style={{ 
           position: 'fixed', bottom: 0, left: 0, width: '100%', height: '80px', 
@@ -478,7 +505,7 @@ const GlobeContent = () => {
       )}
 
       {!isPc && isRideMode && activeTab !== 'browse' && (
-        <div style={{ position: 'absolute', bottom: '100px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '10px', zIndex: 50 }}>
+        <div style={{ position: 'absolute', bottom: '110px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '10px', zIndex: 50 }}>
           <button onClick={toggleRideMode} style={{ background: '#ff3366', color: 'white', border: 'none', borderRadius: '30px', padding: '10px 25px', fontWeight: 'bold', boxShadow: '0 4px 15px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', gap: '5px' }}>🛑 STOP</button>
           <button onClick={handleNextRide} style={{ background: 'white', color: 'black', border: 'none', borderRadius: '30px', padding: '10px 25px', fontWeight: 'bold', boxShadow: '0 4px 15px rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', gap: '5px' }}>⏩ NEXT</button>
         </div>
@@ -486,68 +513,86 @@ const GlobeContent = () => {
 
       {statusMessage && <div style={{ position: 'absolute', top: '80px', left: '20px', zIndex: 20, color: '#00ffcc', textShadow: '0 0 5px black' }}>{statusMessage}</div>}
 
-      {/* ★〇枠の位置調整 (上30%に配置) */}
-      <div style={{ position: 'absolute', top: isPc ? '50%' : '30%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
+      {/* ★〇枠の位置調整 (上30%に配置し、上下のUIと被らないようにする) */}
+      <div style={{ position: 'absolute', top: isPc ? '50%' : '35%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
 
+      {/* ★スマホ版 UI分割表示 (Split UI) */}
       {selectedLocation && displayData && !showBrowseOverlay && (
-        <div 
-          onMouseDown={handleMouseDown}
-          style={{ 
-            position: 'absolute', 
-            left: isPc ? popupPos.x : '50%', 
-            top: isPc ? popupPos.y : 'auto', 
-            // ★スマホUI調整: ボトムバー(80px) + 20px の位置に浮かす
-            bottom: isPc ? 'auto' : '100px', 
-            transform: isPc ? 'none' : 'translateX(-50%)', 
-            background: 'rgba(10, 10, 10, 0.95)', 
-            padding: isPc ? '20px' : '15px', 
-            borderRadius: '20px', 
-            color: 'white', 
-            textAlign: 'center', 
-            backdropFilter: 'blur(10px)', 
-            border: '1px solid rgba(255, 255, 255, 0.2)', 
-            zIndex: 10, 
-            width: isPc ? '400px' : '90%', 
-            maxWidth: '360px', 
-            maxHeight: isPc ? 'none' : '45vh', 
-            boxShadow: '0 4px 30px rgba(0,0,0,0.6)', 
-            resize: isPc ? 'both' : 'none', 
-            overflow: isPc ? 'auto' : 'hidden', 
-            display: 'flex', flexDirection: 'column', 
-            cursor: isPc ? (isDragging ? 'grabbing' : 'grab') : 'default',
-            animation: isDragging ? 'none' : 'fadeIn 0.3s',
-          }}
-        >
-          {displayData.image_url && (
-            <div style={{ width: '100%', height: '140px', marginBottom: '10px', borderRadius: '12px', overflow: 'hidden', position: 'relative', flexShrink: 0 }}>
+        <>
+          {/* 上部カード: 画像のみ */}
+          {!isPc && displayData.image_url && (
+            <div style={{
+              position: 'absolute', top: '70px', left: '10px', right: '10px',
+              height: '160px', borderRadius: '15px', overflow: 'hidden',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.5)', zIndex: 10, pointerEvents: 'none',
+              border: '1px solid rgba(255,255,255,0.1)'
+            }}>
               <img src={displayData.image_url} alt={displayData.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', background: 'linear-gradient(to top, rgba(0,0,0,0.8), transparent)', height: '50px' }} />
+              <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', height: '50px', background: 'linear-gradient(to top, rgba(0,0,0,0.7), transparent)' }} />
             </div>
           )}
 
-          <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 5 }}>
-            <button onMouseDown={e => e.stopPropagation()} onClick={toggleFavorite} style={{ background: favorites.has(selectedLocation.id) ? '#ff3366' : '#333', color: 'white', border: '2px solid white', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', boxShadow: '0 4px 10px rgba(0,0,0,0.5)', transition: 'all 0.2s' }}>{favorites.has(selectedLocation.id) ? '♥' : '♡'}</button>
-          </div>
-          
-          <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#ffccaa', marginBottom: '5px', flexShrink: 0 }}>{displayData.name.split('#')[0].trim()}</div>
+          {/* 下部カード: 説明文・コントローラー */}
+          <div 
+            onMouseDown={handleMouseDown}
+            style={{ 
+              position: 'absolute', 
+              left: isPc ? popupPos.x : '10px', 
+              right: isPc ? 'auto' : '10px',
+              top: isPc ? popupPos.y : 'auto', 
+              // ★余白を大きく確保 (ボトムバー80px + 隙間30px)
+              bottom: isPc ? 'auto' : '110px', 
+              transform: isPc ? 'none' : 'none', 
+              background: 'rgba(10, 10, 10, 0.95)', 
+              padding: '20px', 
+              borderRadius: '20px', 
+              color: 'white', 
+              textAlign: 'center', 
+              backdropFilter: 'blur(10px)', 
+              border: '1px solid rgba(255, 255, 255, 0.2)', 
+              zIndex: 10, 
+              width: isPc ? '400px' : 'auto', 
+              maxWidth: isPc ? '360px' : 'none', 
+              maxHeight: isPc ? 'none' : '40vh', // 高さを制限
+              boxShadow: '0 4px 30px rgba(0,0,0,0.6)', 
+              resize: isPc ? 'both' : 'none', 
+              overflow: isPc ? 'auto' : 'hidden', 
+              display: 'flex', flexDirection: 'column', 
+              cursor: isPc ? (isDragging ? 'grabbing' : 'grab') : 'default',
+              animation: isDragging ? 'none' : 'fadeIn 0.3s',
+            }}
+          >
+            {/* PCの場合はここに画像を含める */}
+            {isPc && displayData.image_url && (
+              <div style={{ width: '100%', height: '140px', marginBottom: '10px', borderRadius: '12px', overflow: 'hidden', position: 'relative', flexShrink: 0 }}>
+                <img src={displayData.image_url} alt={displayData.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              </div>
+            )}
 
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginBottom: '10px', flexShrink: 0, flexWrap: 'wrap' }}>
-            {(displayData.country_ja || displayData.country) && (<span style={{ fontSize: '0.8rem', padding: '2px 10px', borderRadius: '12px', backgroundColor: '#333', border: '1px solid #888', color: '#eee', fontWeight: 'bold' }}>{displayData.country_ja || displayData.country}</span>)}
-            {(() => {
-              const { tag, color } = getCategoryDetails(displayData.category);
-              return (<span style={{ fontSize: '0.8rem', padding: '2px 10px', borderRadius: '12px', backgroundColor: color, color: '#000', fontWeight: 'bold', boxShadow: '0 0 5px '+color }}>#{tag}</span>);
-            })()}
-            {displayData.needsTranslation && (<button onMouseDown={e => e.stopPropagation()} onClick={() => translateAndFix(selectedLocation, currentLang)} style={{ background: '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '2px 10px', fontSize: '0.8rem', fontWeight: 'bold', cursor: 'pointer' }}>🔄 翻訳</button>)}
+            <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 5 }}>
+              <button onMouseDown={e => e.stopPropagation()} onClick={toggleFavorite} style={{ background: favorites.has(selectedLocation.id) ? '#ff3366' : '#333', color: 'white', border: '2px solid white', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', boxShadow: '0 4px 10px rgba(0,0,0,0.5)', transition: 'all 0.2s' }}>{favorites.has(selectedLocation.id) ? '♥' : '♡'}</button>
+            </div>
+            
+            <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#ffccaa', marginBottom: '5px', flexShrink: 0 }}>{displayData.name.split('#')[0].trim()}</div>
+
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginBottom: '10px', flexShrink: 0, flexWrap: 'wrap' }}>
+              {(displayData.country_ja || displayData.country) && (<span style={{ fontSize: '0.8rem', padding: '2px 10px', borderRadius: '12px', backgroundColor: '#333', border: '1px solid #888', color: '#eee', fontWeight: 'bold' }}>{displayData.country_ja || displayData.country}</span>)}
+              {(() => {
+                const { tag, color } = getCategoryDetails(displayData.category);
+                return (<span style={{ fontSize: '0.8rem', padding: '2px 10px', borderRadius: '12px', backgroundColor: color, color: '#000', fontWeight: 'bold', boxShadow: '0 0 5px '+color }}>#{tag}</span>);
+              })()}
+              {displayData.needsTranslation && (<button onMouseDown={e => e.stopPropagation()} onClick={() => translateAndFix(selectedLocation, currentLang)} style={{ background: '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '2px 10px', fontSize: '0.8rem', fontWeight: 'bold', cursor: 'pointer' }}>🔄 翻訳</button>)}
+            </div>
+            
+            <div style={{ overflowY: 'auto', flex: 1, touchAction: 'pan-y', paddingBottom: '10px' }} onMouseDown={e => e.stopPropagation()}>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: '#ddd', lineHeight: '1.6', textAlign: 'left' }}>{displayData.description}</p>
+            </div>
           </div>
-          
-          <div style={{ overflowY: 'auto', flex: 1, touchAction: 'pan-y', paddingBottom: '10px' }} onMouseDown={e => e.stopPropagation()}>
-            <p style={{ margin: 0, fontSize: '0.85rem', color: '#ddd', lineHeight: '1.6', textAlign: 'left' }}>{displayData.description}</p>
-          </div>
-        </div>
+        </>
       )}
 
-      {/* ★Map Padding修正: 中心を上30%付近に持ってくる */}
-      <MemoizedMap mapRef={mapRef} mapboxAccessToken={MAPBOX_TOKEN} initialViewState={initialViewState} onMoveEnd={handleMoveEnd} geoJsonData={filteredGeoJsonData} onError={(e) => addLog(`Map Error: ${e.error.message}`)} padding={isPc ? {} : { bottom: window.innerHeight * 0.4 }} />
+      {/* Map Padding: 上35%の位置に中心を合わせる */}
+      <MemoizedMap mapRef={mapRef} mapboxAccessToken={MAPBOX_TOKEN} initialViewState={initialViewState} onMoveEnd={handleMoveEnd} geoJsonData={filteredGeoJsonData} onError={(e) => addLog(`Map Error: ${e.error.message}`)} padding={isPc ? {} : { bottom: window.innerHeight * 0.3 }} />
       <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(20px) translateX(-50%); } to { opacity: 1; transform: translateY(0) translateX(-50%); } } .pulse { animation: pulse 1s infinite; } @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }`}</style>
     </div>
   );
