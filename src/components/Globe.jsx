@@ -20,7 +20,8 @@ const LANGUAGES = {
 
 const PREMIUM_CATEGORIES = ['modern', 'science', 'art'];
 
-const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError, padding }) => {
+// Mapコンポーネント: paddingプロパティを削除して中心ズレを解消
+const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError }) => {
   return (
     <Map
       ref={mapRef}
@@ -35,7 +36,6 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       onError={onError}
       dragRotate={true}
       touchZoomRotate={true}
-      padding={padding} // ★スマホ用に地図の中心をずらす設定
     >
       <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
       {geoJsonData && (
@@ -63,7 +63,7 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       )}
     </Map>
   );
-}, (prev, next) => prev.geoJsonData === next.geoJsonData && prev.padding === next.padding);
+}, (prev, next) => prev.geoJsonData === next.geoJsonData);
 
 const GlobeContent = () => {
   const mapRef = useRef(null);
@@ -361,15 +361,23 @@ const GlobeContent = () => {
     if (!map) return;
     const center = map.getCenter();
     const point = map.project(center);
-    const features = map.queryRenderedFeatures([[point.x - 20, point.y - 20], [point.x + 20, point.y + 20]], { layers: ['point-core'] });
+    
+    // ★判定エリアを拡大（20px -> 60px）して反応を良くする
+    const boxSize = 60; 
+    const features = map.queryRenderedFeatures(
+      [[point.x - boxSize/2, point.y - boxSize/2], [point.x + boxSize/2, point.y + boxSize/2]], 
+      { layers: ['point-core'] }
+    );
     
     if (features.length > 0) {
-      const bestTarget = features[0].properties;
-      if (!bestTarget) return;
+      // 一番中心に近いものを探す
+      let bestTarget = features[0].properties;
+      
       const fullLocation = locationsRef.current.find(l => l.id === bestTarget.id) || bestTarget;
       if (!selectedLocationRef.current || fullLocation.id !== selectedLocationRef.current.id) {
         setSelectedLocation(fullLocation);
-        map.flyTo({ center: [fullLocation.lon, fullLocation.lat], speed: 0.6, curve: 1 });
+        // ★選択時は確実に中心（〇枠の真ん中）に移動させる
+        map.flyTo({ center: [fullLocation.lon, fullLocation.lat], speed: 1.5, curve: 1 });
       }
     } else {
        if (selectedLocationRef.current) setSelectedLocation(null);
@@ -412,7 +420,6 @@ const GlobeContent = () => {
   }, [isBgmOn, isPlaying, bgmVolume]);
 
   return (
-    // ★画面全体のスクロールを禁止
     <div style={{ width: "100vw", height: "100dvh", background: "black", fontFamily: 'sans-serif', position: 'fixed', top: 0, left: 0, overflow: 'hidden', touchAction: 'none', overscrollBehavior: 'none' }}>
       <audio ref={audioRef} src="/bgm.mp3" loop />
       
@@ -461,33 +468,35 @@ const GlobeContent = () => {
         <div 
           onMouseDown={handleMouseDown}
           style={{ 
-            // ★UI分岐: スマホ版の修正
             position: 'absolute', 
-            left: isPc ? popupPos.x : '50%', // ★常に中央
+            left: isPc ? popupPos.x : '50%', 
             top: isPc ? popupPos.y : 'auto', 
-            bottom: isPc ? 'auto' : '30px',  // ★下から少し浮かせる
-            transform: isPc ? 'none' : 'translateX(-50%)', // ★中央揃えの決め手
+            // ★スマホUI位置調整: 底上げしてマージン確保
+            bottom: isPc ? 'auto' : '50px', 
+            transform: isPc ? 'none' : 'translateX(-50%)', 
             
             background: 'rgba(10, 10, 10, 0.9)', 
-            padding: isPc ? '20px' : '15px', // スマホは少しパディングを減らす
-            borderRadius: '20px',
+            padding: isPc ? '20px' : '15px', 
+            borderRadius: '20px', 
             color: 'white', 
             textAlign: 'center', 
             backdropFilter: 'blur(10px)', 
             border: '1px solid rgba(255, 255, 255, 0.2)', 
             zIndex: 10, 
             
-            width: isPc ? '400px' : '90%', // ★幅を90%に設定
-            maxWidth: '360px', // ★最大幅を制限してデカすぎ防止
-            maxHeight: isPc ? 'none' : '50vh', // ★高さを画面半分までに制限
+            width: isPc ? '400px' : '90%', 
+            maxWidth: '360px', 
+            maxHeight: isPc ? 'none' : '50vh', 
             
             boxShadow: '0 4px 30px rgba(0,0,0,0.6)', 
             resize: isPc ? 'both' : 'none',
-            overflow: isPc ? 'auto' : 'hidden', // コンテナ自体のスクロールは隠す
-            display: 'flex', flexDirection: 'column', // Flexboxで中身を整理
+            overflow: isPc ? 'auto' : 'hidden', 
+            display: 'flex', flexDirection: 'column', 
             
             cursor: isPc ? (isDragging ? 'grabbing' : 'grab') : 'default',
-            animation: isDragging ? 'none' : 'fadeIn 0.3s'
+            animation: isDragging ? 'none' : 'fadeIn 0.3s',
+            // ★iPhoneなどのホームバー対策
+            paddingBottom: 'env(safe-area-inset-bottom)'
           }}
         >
           {displayData.image_url && (
@@ -497,14 +506,12 @@ const GlobeContent = () => {
             </div>
           )}
 
-          {/* ハートボタン: 位置を少し内側に */}
           <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 5 }}>
             <button onMouseDown={e => e.stopPropagation()} onClick={toggleFavorite} style={{ background: favorites.has(selectedLocation.id) ? '#ff3366' : '#333', color: 'white', border: '2px solid white', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', boxShadow: '0 4px 10px rgba(0,0,0,0.5)', transition: 'all 0.2s' }}>{favorites.has(selectedLocation.id) ? '♥' : '♡'}</button>
           </div>
           
           <div style={{ color: '#ffccaa', marginBottom: '10px', flexShrink: 0 }}>{renderNameWithTags(displayData.name, displayData.category)}</div>
           
-          {/* ★説明文エリア: ここだけスクロールさせる & タッチ操作を許可 */}
           <div style={{ overflowY: 'auto', flex: 1, touchAction: 'pan-y', paddingBottom: '10px' }} onMouseDown={e => e.stopPropagation()}>
             <p style={{ margin: 0, fontSize: '0.85rem', color: '#ddd', lineHeight: '1.6', textAlign: 'left' }}>
               {displayData.description}
@@ -517,7 +524,6 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ★paddingを追加して地図中心を上にずらす (スマホのみ) */}
       <MemoizedMap 
         mapRef={mapRef} 
         mapboxAccessToken={MAPBOX_TOKEN} 
@@ -525,7 +531,6 @@ const GlobeContent = () => {
         onMoveEnd={handleMoveEnd} 
         geoJsonData={filteredGeoJsonData} 
         onError={(e) => addLog(`Map Error: ${e.error.message}`)}
-        padding={isPc ? {} : { bottom: 250 }} // スマホの時は中心を上に250pxずらす
       />
       <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(20px) translateX(-50%); } to { opacity: 1; transform: translateY(0) translateX(-50%); } } .pulse { animation: pulse 1s infinite; } @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }`}</style>
     </div>
