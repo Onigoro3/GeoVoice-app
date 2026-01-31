@@ -86,7 +86,7 @@ const LAYER_CORE = {
 
 const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
 
-// ★修正: onClickプロップを追加してクリックイベントを受け取れるようにする
+// ★修正: onClickプロップを追加
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, onClick, geoJsonData, onError, padding }) => {
   return (
     <Map
@@ -98,7 +98,7 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       fog={MAP_CONFIG.fog}
       terrain={MAP_CONFIG.terrain}
       onMoveEnd={onMoveEnd}
-      onClick={onClick} // ★追加: クリックイベント
+      onClick={onClick}
       style={MAP_CONTAINER_STYLE}
       onError={onError}
       dragRotate={true}
@@ -106,7 +106,7 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       padding={padding}
       reuseMaps={true}
       optimizeForTerrain={true}
-      interactiveLayerIds={['point-glow', 'point-core']} // ★追加: クリック判定対象レイヤー
+      interactiveLayerIds={['point-glow', 'point-core']}
     >
       <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
       {geoJsonData && (
@@ -257,7 +257,6 @@ const GlobeContent = () => {
     }
   }, [isRideMode]);
 
-  // 全データ取得
   const fetchSpots = async () => {
     try {
       let allData = [];
@@ -358,10 +357,14 @@ const GlobeContent = () => {
     let displayName = selectedLocation[`name${suffix}`] || selectedLocation.name;
     let displayDesc = selectedLocation[`description${suffix}`] || selectedLocation.description;
     
+    if (!selectedLocation.image_url) {
+        // 画像取得ロジック
+    }
+
     const newData = { ...selectedLocation, name: displayName, description: displayDesc, needsTranslation: currentLang === 'ja' && !/[ぁ-んァ-ン]/.test(displayName) };
     setDisplayData(newData);
     
-    if (!newData.needsTranslation) {
+    if (!newData.needsTranslation && !isRideMode) {
       window.speechSynthesis.cancel();
       speak(newData.description);
     }
@@ -489,8 +492,6 @@ const GlobeContent = () => {
     
     const map = mapRef.current?.getMap(); if (!map) return;
     const center = map.getCenter(); 
-    const point = map.project(center);
-    if (!point) return;
     
     if (activeTab === 'explore') {
       const bounds = map.getBounds();
@@ -506,14 +507,12 @@ const GlobeContent = () => {
       });
       setNearbySpots(nearby.slice(0, 15)); 
     }
-    // ★重要修正: ここにあった「自動スナップ＆自動選択処理」を削除しました。
-    // これにより、地図を動かしただけで勝手に再生が始まることはありません。
+    // ★勝手なスナップ・選択処理は削除
   }, [activeTab]);
 
-  // ★追加: クリック時の処理 (ここで選択＆再生を行う)
+  // ★クリックで選択
   const handleMapClick = useCallback((event) => {
-    if (isRideModeRef.current) return; // ライド中は無視
-
+    if (isRideModeRef.current) return;
     const feature = event.features?.[0];
     if (feature && (feature.layer.id === 'point-glow' || feature.layer.id === 'point-core')) {
         const spotId = feature.properties.id;
@@ -556,8 +555,10 @@ const GlobeContent = () => {
     if (tab === 'fav') { if (user) setShowFavList(true); else setShowAuthModal(true); }
   };
 
+  // PCパネル開閉判定
   const isPanelOpen = isPc && (activeTab === 'explore' || activeTab === 'browse' || activeTab === 'settings' || activeTab === 'privacy');
 
+  // ★PCパネルコンテンツ (黒い空白防止)
   const renderPanelContent = () => {
     const commonStyle = {
         background: '#111', 
@@ -690,7 +691,7 @@ const GlobeContent = () => {
       {/* PC用UIコンテナ */}
       {isPc && (
         <div className="pc-ui-container" style={{ position: 'absolute', bottom: '20px', left: '20px', width: '360px', zIndex: 100, display: 'flex', flexDirection: 'column' }}>
-          {/* 上部パネル */}
+          {/* 上部パネル: コンテナは透明、中身がある時だけ可視化 */}
           <div style={{
              background: 'transparent',
              borderTopLeftRadius: '15px', borderTopRightRadius: '15px',
@@ -700,11 +701,8 @@ const GlobeContent = () => {
              overflowY: 'auto',
              transition: 'max-height 0.3s ease-in-out, opacity 0.3s',
              opacity: isPanelOpen ? 1 : 0,
-             visibility: isPanelOpen ? 'visible' : 'hidden',
-             borderLeft: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
-             borderRight: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
-             borderTop: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
-             padding: isPanelOpen ? '0' : '0px',
+             visibility: isPanelOpen ? 'visible' : 'hidden', // ★これで完全に消す
+             padding: isPanelOpen ? '0 0 10px 0' : '0',
              boxSizing: 'border-box'
           }}>
              {renderPanelContent()}
@@ -862,7 +860,7 @@ const GlobeContent = () => {
         mapboxAccessToken={MAPBOX_TOKEN} 
         initialViewState={initialViewState} 
         onMoveEnd={handleMoveEnd} 
-        onClick={handleMapClick} // ★追加: クリックイベント
+        onClick={handleMapClick}
         geoJsonData={filteredGeoJsonData} 
         onError={(e) => addLog(`Map Error: ${e.error.message}`)} 
         padding={isPc ? {} : { bottom: window.innerHeight * 0.4 }} 
