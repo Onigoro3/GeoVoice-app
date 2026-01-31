@@ -29,9 +29,9 @@ const ERA_LABELS = {
 // ★追加: 拡張BGMライブラリ (アーティスト名を追加)
 // publicフォルダに実際のファイルを配置してください
 const BGM_LIBRARY = [
-  { id: 'def1', title: 'Default', artist: 'System', url: '/bgm/default.mp3' },
-  { id: 'pno1', title: 'Piano 1', artist: 'Classical', url: '/bgm/piano.wav' }, 
-  { id: 'jaz1', title: 'Cool Jazz', artist: 'Jazz Band', url: '/bgm/jazz.mp3' },
+  { id: 'deafolt', title: '10℃', artist: 'しゃろう', url: '/bgm/bgm.mp3' },
+  { id: 'Ki1', title: 'かえりみち', artist: 'きまぐれ', url: '/bgm/Ki1.wav' }, 
+  { id: 'Ki2', title: 'ON AIR', artist: 'きまぐれ', url: '/bgm/Ki2.wav' },
   { id: 'jaz2', title: 'Night Jazz', artist: 'Jazz Band', url: '/bgm/jazz2.mp3' }, // 追加例
   { id: 'fes1', title: 'Matsuri', artist: 'Japan', url: '/bgm/matsuri.mp3' },
 ];
