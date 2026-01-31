@@ -26,13 +26,29 @@ const ERA_LABELS = {
   fr: { AD: 'ap. J.-C.', BC: 'av. J.-C.' },
 };
 
-// ★修正: ジャンル・アーティスト表記を統一したライブラリ
+// ★BGMライブラリ (ジャンル・アーティスト名の大文字小文字を統一)
 const BGM_LIBRARY = [
-  { id: 'default', title: '10℃', artist: 'しゃろう', genre: 'Lo-Fi', url: '/bgm/bgm.mp3' },
-  { id: 'Ki1', title: 'かえりみち', artist: 'きまぐれ', genre: 'Chill', url: '/bgm/Ki1.mp3' }, 
-  { id: 'Ki2', title: 'ON AIR', artist: 'きまぐれ', genre: 'Chill', url: '/bgm/Ki2.mp3' },
-  { id: 'jaz2', title: 'Bad-weather', artist: 'きまぐれ', genre: 'Chill', url: '/bgm/Ki3.mp3' }, // chill -> Chill に統一
-  { id: 'fes1', title: 'Matsuri', artist: 'Japan', genre: 'Traditional', url: '/bgm/matsuri.mp3' },
+  { id: 'default', title: '10℃', artist: 'Japan', genre: 'Pop', url: '/bgm/Pop1.mp3' },
+  { id: 'Ki1', title: 'かえりみち', artist: 'Japan', genre: 'Chill', url: '/bgm/Chill1.mp3' }, 
+  { id: 'Ki2', title: 'ON AIR', artist: 'Japan', genre: 'Chill', url: '/bgm/Chill2.mp3' },
+  { id: 'jaz2', title: 'Bad-weather', artist: 'Japan', genre: 'Chill', url: '/bgm/Chill3.mp3' },
+  { id: 'fes1', title: 'Green park', artist: 'Japan', genre: 'Pop', url: '/bgm/Pop2.mp3' },
+  { id: 'fes1', title: 'ART-Break', artist: 'Japan', genre: 'Pop', url: '/bgm/Pop3.mp3' },
+  { id: 'fes1', title: 'Rolling Girl', artist: 'Japan', genre: 'Rock', url: '/bgm/Rock1.mp3' },
+  { id: 'fes1', title: 'Break your destiny', artist: 'Japan', genre: 'Rock', url: '/bgm/Rock2.mp3' },
+  { id: 'fes1', title: 'Sword in the Void', artist: 'Japan', genre: 'Rock', url: '/bgm/Rock3.mp3' },
+  { id: 'fes1', title: 'MECHANICAL DEATH', artist: 'Japan', genre: 'Metal', url: '/bgm/Metal1.mp3' },
+  { id: 'fes1', title: 'RADICAL GOOD SPEED', artist: 'Japan', genre: 'Metal', url: '/bgm/Metal2.mp3' },
+  { id: 'fes1', title: 'DIVINE WARRIORS', artist: 'Japan', genre: 'Metal', url: '/bgm/Metal3.mp3' },
+  { id: 'fes1', title: 'Cosmic Summer', artist: 'Japan', genre: 'EDM', url: '/bgm/EDM1.mp3' },
+  { id: 'fes1', title: 'Rogue Circuit', artist: 'Japan', genre: 'EDM', url: '/bgm/EDM2.mp3' },
+  { id: 'fes1', title: 'Guide Me to Heaven', artist: 'Japan', genre: 'EDM', url: '/bgm/EDM3.mp3' },
+  { id: 'fes1', title: 'Winter Night Street', artist: 'Japan', genre: 'JAZZ', url: '/bgm/JAZZ1.mp3' },
+  { id: 'fes1', title: 'Dive to ocean', artist: 'Japan', genre: 'JAZZ', url: '/bgm/JAZZ2.mp3' },
+  { id: 'fes1', title: 'Tea with Grace', artist: 'Japan', genre: 'JAZZ', url: '/bgm/JAZZ3.mp3' },
+  { id: 'fes1', title: 'Peaceful Town', artist: 'Japan', genre: 'Country', url: '/bgm/Country1.mp3' },
+  { id: 'fes1', title: '木立の冬支度', artist: 'Japan', genre: 'Country', url: '/bgm/Country2.mp3' },
+  { id: 'fes1', title: '秋を探しに', artist: 'Japan', genre: 'Country', url: '/bgm/Country3.mp3' },
 ];
 
 const PREMIUM_CATEGORIES = ['science', 'art'];
@@ -178,7 +194,7 @@ const GlobeContent = () => {
   const [currentTrack, setCurrentTrack] = useState(BGM_LIBRARY[0]);
   const [loopMode, setLoopMode] = useState('all'); 
   
-  // ★3段階フィルター用のState
+  // 3段階フィルター用のState
   const [genreFilter, setGenreFilter] = useState('ALL');
   const [artistFilter, setArtistFilter] = useState('ALL');
 
@@ -444,9 +460,9 @@ const GlobeContent = () => {
       }
     } else {
       const currentIndex = currentPlaylist.findIndex(t => t.id === currentTrack.id);
-      // 次の曲がない（-1）または最後の曲の場合は最初に戻る
       let nextIndex = 0;
       if (currentIndex !== -1) {
+          // リストの最後まで行ったら最初に戻る
           nextIndex = (currentIndex + 1) % currentPlaylist.length;
       }
       setCurrentTrack(currentPlaylist[nextIndex]);
@@ -763,8 +779,17 @@ const GlobeContent = () => {
                     <select 
                         value={genreFilter} 
                         onChange={(e) => {
-                            setGenreFilter(e.target.value);
-                            setArtistFilter('ALL'); // アーティストリセット
+                            const newGenre = e.target.value;
+                            setGenreFilter(newGenre);
+                            setArtistFilter('ALL'); // ジャンルが変わったらアーティストはリセット
+                            
+                            // ★追加: そのジャンルの1曲目を即再生
+                            let nextTrack = BGM_LIBRARY[0];
+                            if (newGenre !== 'ALL') {
+                                const found = BGM_LIBRARY.find(t => t.genre === newGenre);
+                                if (found) nextTrack = found;
+                            }
+                            setCurrentTrack(nextTrack);
                         }}
                         style={{ width:'100%', background: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', padding: '4px', marginBottom:'5px', fontSize:'0.8rem' }}
                     >
@@ -775,7 +800,26 @@ const GlobeContent = () => {
                     {/* 2. アーティスト選択 (ジャンルで絞り込み済み) */}
                     <select 
                         value={artistFilter} 
-                        onChange={(e) => setArtistFilter(e.target.value)}
+                        onChange={(e) => {
+                            const newArtist = e.target.value;
+                            setArtistFilter(newArtist);
+
+                            // ★追加: そのアーティストの1曲目を即再生
+                            let nextTrack = BGM_LIBRARY[0];
+                            if (newArtist !== 'ALL') {
+                                // ジャンルも考慮して検索
+                                const found = BGM_LIBRARY.find(t => 
+                                    t.artist === newArtist && 
+                                    (genreFilter === 'ALL' || t.genre === genreFilter)
+                                );
+                                if (found) nextTrack = found;
+                            } else if (genreFilter !== 'ALL') {
+                                // アーティストALLに戻した場合、そのジャンルの1曲目へ
+                                const found = BGM_LIBRARY.find(t => t.genre === genreFilter);
+                                if (found) nextTrack = found;
+                            }
+                            setCurrentTrack(nextTrack);
+                        }}
                         style={{ width:'100%', background: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', padding: '4px', marginBottom:'5px', fontSize:'0.8rem' }}
                     >
                         <option value="ALL">All Artists</option>
