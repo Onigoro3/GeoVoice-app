@@ -59,12 +59,11 @@ const MAP_CONFIG = {
   terrain: { source: 'mapbox-dem', exaggeration: 1.5 }
 };
 
-// ★修正: クラスタリング削除し、元のドット表示に戻す
 const LAYER_GLOW = {
   id: 'point-glow',
   type: 'circle',
   paint: {
-    'circle-radius': 3, // 小さく維持
+    'circle-radius': 3,
     'circle-color': [
       'match', ['get', 'category'],
       'landmark', '#ff8800',
@@ -87,7 +86,8 @@ const LAYER_CORE = {
 
 const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
 
-const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError, padding }) => {
+// ★修正: onClickプロップを追加してクリックイベントを受け取れるようにする
+const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, onClick, geoJsonData, onError, padding }) => {
   return (
     <Map
       ref={mapRef}
@@ -98,6 +98,7 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       fog={MAP_CONFIG.fog}
       terrain={MAP_CONFIG.terrain}
       onMoveEnd={onMoveEnd}
+      onClick={onClick} // ★追加: クリックイベント
       style={MAP_CONTAINER_STYLE}
       onError={onError}
       dragRotate={true}
@@ -105,6 +106,7 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       padding={padding}
       reuseMaps={true}
       optimizeForTerrain={true}
+      interactiveLayerIds={['point-glow', 'point-core']} // ★追加: クリック判定対象レイヤー
     >
       <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
       {geoJsonData && (
@@ -504,22 +506,24 @@ const GlobeContent = () => {
       });
       setNearbySpots(nearby.slice(0, 15)); 
     }
-
-    // ★軽量化: スナップ処理 (距離チェックで間引く)
-    const features = map.queryRenderedFeatures([[point.x - 30, point.y - 30], [point.x + 30, point.y + 30]], { layers: ['point-core'] });
-    if (features.length > 0) {
-      const fullLocation = locationsRef.current.find(l => l.id === features[0].properties.id);
-      if (fullLocation) {
-        setSelectedLocation(fullLocation);
-        const dist = Math.sqrt(Math.pow(fullLocation.lon - center.lng, 2) + Math.pow(fullLocation.lat - center.lat, 2));
-        if (dist > 0.0001) {
-            map.easeTo({ center: [fullLocation.lon, fullLocation.lat], duration: 500 });
-        }
-      }
-    } else {
-      if (activeTab === 'map') setSelectedLocation(null);
-    }
+    // ★重要修正: ここにあった「自動スナップ＆自動選択処理」を削除しました。
+    // これにより、地図を動かしただけで勝手に再生が始まることはありません。
   }, [activeTab]);
+
+  // ★追加: クリック時の処理 (ここで選択＆再生を行う)
+  const handleMapClick = useCallback((event) => {
+    if (isRideModeRef.current) return; // ライド中は無視
+
+    const feature = event.features?.[0];
+    if (feature && (feature.layer.id === 'point-glow' || feature.layer.id === 'point-core')) {
+        const spotId = feature.properties.id;
+        const spot = locationsRef.current.find(l => l.id === spotId);
+        if (spot) {
+            setSelectedLocation(spot);
+            mapRef.current?.flyTo({ center: [spot.lon, spot.lat], zoom: 6, speed: 1.2, curve: 1 });
+        }
+    }
+  }, []);
 
   const getCategoryDetails = (category) => {
     let tag = '世界遺産'; let color = '#ffcc00';
@@ -552,10 +556,8 @@ const GlobeContent = () => {
     if (tab === 'fav') { if (user) setShowFavList(true); else setShowAuthModal(true); }
   };
 
-  // PCパネル開閉判定
   const isPanelOpen = isPc && (activeTab === 'explore' || activeTab === 'browse' || activeTab === 'settings' || activeTab === 'privacy');
 
-  // PCパネルコンテンツ
   const renderPanelContent = () => {
     const commonStyle = {
         background: '#111', 
@@ -823,6 +825,7 @@ const GlobeContent = () => {
               left: isPc ? (popupPos?.x || (window.innerWidth - 420)) : '10px', 
               top: isPc ? (popupPos?.y || 20) : 'auto', 
               right: isPc ? 'auto' : '10px',
+              // ★スマホ版余白調整: 常に下から290px
               bottom: isPc ? 'auto' : '290px', 
               transform: isPc ? 'none' : 'none', 
               background: 'rgba(10, 10, 10, 0.95)', padding: '20px', borderRadius: '20px', color: 'white', textAlign: 'center', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.2)', zIndex: 10, width: isPc ? '400px' : 'auto', maxWidth: isPc ? '360px' : 'none', maxHeight: isPc ? 'none' : '40vh', boxShadow: '0 4px 30px rgba(0,0,0,0.6)', resize: isPc ? 'both' : 'none', overflow: isPc ? 'auto' : 'hidden', display: 'flex', flexDirection: 'column', cursor: isPc ? (isDragging ? 'grabbing' : 'grab') : 'default', animation: isDragging ? 'none' : 'fadeIn 0.3s'
@@ -854,7 +857,16 @@ const GlobeContent = () => {
         </>
       )}
 
-      <MemoizedMap mapRef={mapRef} mapboxAccessToken={MAPBOX_TOKEN} initialViewState={initialViewState} onMoveEnd={handleMoveEnd} geoJsonData={filteredGeoJsonData} onError={(e) => addLog(`Map Error: ${e.error.message}`)} padding={isPc ? {} : { bottom: window.innerHeight * 0.4 }} />
+      <MemoizedMap 
+        mapRef={mapRef} 
+        mapboxAccessToken={MAPBOX_TOKEN} 
+        initialViewState={initialViewState} 
+        onMoveEnd={handleMoveEnd} 
+        onClick={handleMapClick} // ★追加: クリックイベント
+        geoJsonData={filteredGeoJsonData} 
+        onError={(e) => addLog(`Map Error: ${e.error.message}`)} 
+        padding={isPc ? {} : { bottom: window.innerHeight * 0.4 }} 
+      />
       <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(20px) translateX(-50%); } to { opacity: 1; transform: translateY(0) translateX(-50%); } } .pulse { animation: pulse 1s infinite; } @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }`}</style>
     </div>
   );
