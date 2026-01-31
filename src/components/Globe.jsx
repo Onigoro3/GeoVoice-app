@@ -29,8 +29,8 @@ const ERA_LABELS = {
 // ★BGMライブラリ (前回ご提示いただいた内容)
 const BGM_LIBRARY = [
   { id: 'default', title: '10℃', artist: 'しゃろう', url: '/bgm/bgm.mp3' },
-  { id: 'Ki1', title: 'かえりみち', artist: 'きまぐれ', url: '/bgm/Ki1.wav' }, 
-  { id: 'Ki2', title: 'ON AIR', artist: 'きまぐれ', url: '/bgm/Ki2.wav' },
+  { id: 'Ki1', title: 'かえりみち', artist: 'きまぐれ', url: '/bgm/Ki1.mp3' }, 
+  { id: 'Ki2', title: 'ON AIR', artist: 'きまぐれ', url: '/bgm/Ki2.mp3' },
   { id: 'jaz2', title: 'Night Jazz', artist: 'Jazz Band', url: '/bgm/jazz2.mp3' },
   { id: 'fes1', title: 'Matsuri', artist: 'Japan', url: '/bgm/matsuri.mp3' },
 ];
