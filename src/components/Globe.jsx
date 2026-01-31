@@ -103,7 +103,7 @@ const LAYER_GLOW = {
   id: 'point-glow',
   type: 'circle',
   paint: {
-    'circle-radius': 3,
+    'circle-radius': 5, // 少し大きくしてクリックしやすく
     'circle-color': [
       'match', ['get', 'category'],
       'landmark', '#ff8800',
@@ -121,12 +121,13 @@ const LAYER_GLOW = {
 const LAYER_CORE = {
   id: 'point-core',
   type: 'circle',
-  paint: { 'circle-radius': 1.5, 'circle-color': '#fff', 'circle-opacity': 1 }
+  paint: { 'circle-radius': 2.5, 'circle-color': '#fff', 'circle-opacity': 1 }
 };
 
 const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
 
-const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, onClick, geoJsonData, onError, padding }) => {
+// Mapコンポーネント (カーソル制御追加)
+const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, onClick, onMouseEnter, onMouseLeave, cursor, geoJsonData, onError, padding }) => {
   return (
     <Map
       ref={mapRef}
@@ -138,6 +139,9 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       terrain={MAP_CONFIG.terrain}
       onMoveEnd={onMoveEnd}
       onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      cursor={cursor} // カーソルスタイル適用
       style={MAP_CONTAINER_STYLE}
       onError={onError}
       dragRotate={true}
@@ -156,7 +160,7 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       )}
     </Map>
   );
-}, (prev, next) => prev.geoJsonData === next.geoJsonData && prev.padding === next.padding);
+}, (prev, next) => prev.geoJsonData === next.geoJsonData && prev.padding === next.padding && prev.cursor === next.cursor);
 
 const GlobeContent = () => {
   const mapRef = useRef(null);
@@ -203,23 +207,34 @@ const GlobeContent = () => {
   const [bgmVolume, setBgmVolume] = useState(0.5);
   const [voiceVolume, setVoiceVolume] = useState(1.0);
   const [isBgmOn, setIsBgmOn] = useState(false);
-  
   const [currentTrack, setCurrentTrack] = useState(BGM_LIBRARY[0]);
   const [loopMode, setLoopMode] = useState('all'); 
-  
-  // 3段階フィルター用のState
   const [genreFilter, setGenreFilter] = useState('ALL');
   const [artistFilter, setArtistFilter] = useState('ALL');
 
+  // UI状態
   const [isPc, setIsPc] = useState(window.innerWidth > 768);
   const [popupPos, setPopupPos] = useState({ x: 20, y: 20 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-
   const [activeTab, setActiveTab] = useState('explore'); 
   const [nearbySpots, setNearbySpots] = useState([]);
+  const [cursor, setCursor] = useState('auto'); // カーソル形状
 
   const initialViewState = { longitude: 135.0, latitude: 35.0, zoom: 3.5 };
+
+  // ヘルパー関数定義 (順序重要)
+  const toggleRideMode = () => setIsRideMode(prev => !prev);
+
+  const handleTabChange = (tab) => {
+    if (activeTab === tab) {
+      setActiveTab('map');
+      return;
+    }
+    setActiveTab(tab);
+    if (tab === 'ride') { if (!isRideMode) toggleRideMode(); }
+    if (tab === 'fav') { if (user) setShowFavList(true); else setShowAuthModal(true); }
+  };
 
   useEffect(() => {
     if (isPc) {
@@ -236,7 +251,7 @@ const GlobeContent = () => {
     return Array.from(countries).sort();
   }, [locations]);
 
-  // --- ミュージックフィルターロジック ---
+  // BGMフィルターロジック
   const availableGenres = useMemo(() => {
     const genres = new Set(BGM_LIBRARY.map(track => track.genre));
     return Array.from(genres).sort();
@@ -268,6 +283,7 @@ const GlobeContent = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // UIドラッグ処理
   const handleMouseDown = (e) => {
     if (!isPc) return;
     if (['BUTTON', 'INPUT', 'SELECT', 'OPTION', 'A'].includes(e.target.tagName)) return;
@@ -295,9 +311,6 @@ const GlobeContent = () => {
   useEffect(() => { selectedLocationRef.current = selectedLocation; }, [selectedLocation]);
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
   useEffect(() => { visibleCategoriesRef.current = visibleCategories; }, [visibleCategories]);
-
-  // ★重要: toggleRideMode を先に定義 (ReferenceError対策)
-  const toggleRideMode = () => setIsRideMode(prev => !prev);
 
   // ライドモード制御
   useEffect(() => {
@@ -464,6 +477,7 @@ const GlobeContent = () => {
     }
   };
 
+  // BGM制御
   const playNextTrack = () => {
     if (loopMode === 'one') {
       const audio = audioRef.current;
@@ -501,28 +515,66 @@ const GlobeContent = () => {
         audio.volume = isPlaying ? bgmVolume * 0.2 : bgmVolume;
         const playPromise = audio.play();
         if (playPromise !== undefined) {
-            playPromise.catch(error => {
-                console.log("Auto-play prevented");
-            });
+            playPromise.catch(error => { console.log("Auto-play prevented"); });
         }
     } else {
         audio.pause();
     }
   }, [isBgmOn, isPlaying, bgmVolume, currentTrack]);
 
-  // 管理者用ツール
+  // ★重要: クリック判定 (修正版)
+  const handleMapClick = useCallback((event) => {
+    // ライドモード中でもクリックされたら、ライドを停止してそのスポットを表示する
+    if (isRideModeRef.current) {
+        setIsRideMode(false);
+    }
+    
+    const feature = event.features?.[0];
+    if (feature && (feature.layer.id === 'point-glow' || feature.layer.id === 'point-core')) {
+        const spotId = feature.properties.id;
+        console.log("Clicked:", spotId);
+        
+        // 型変換を許容してID比較
+        const spot = locationsRef.current.find(l => l.id == spotId);
+        
+        if (spot) {
+            setSelectedLocation(spot); // これが useEffect -> speak() をトリガーする
+            mapRef.current?.flyTo({ center: [spot.lon, spot.lat], zoom: 6, speed: 1.2, curve: 1 });
+        }
+    }
+  }, []);
+
+  // ★カーソル変更 (ホバー時に指マークにする)
+  const onMouseEnter = useCallback(() => setCursor('pointer'), []);
+  const onMouseLeave = useCallback(() => setCursor('auto'), []);
+
+  const handleMoveEnd = useCallback((evt) => {
+    if (isRideModeRef.current || isGeneratingRef.current) return;
+    const map = mapRef.current?.getMap(); if (!map) return;
+    const center = map.getCenter(); 
+    if (activeTab === 'explore') {
+      const bounds = map.getBounds();
+      const ne = bounds.getNorthEast();
+      const sw = bounds.getSouthWest();
+      const nearby = locationsRef.current.filter(loc => {
+        return loc.lat >= sw.lat && loc.lat <= ne.lat && loc.lon >= sw.lng && loc.lon <= ne.lng;
+      });
+      nearby.sort((a, b) => {
+        const distA = Math.pow(a.lat - center.lat, 2) + Math.pow(a.lon - center.lng, 2);
+        const distB = Math.pow(b.lat - center.lat, 2) + Math.pow(b.lon - center.lng, 2);
+        return distA - distB;
+      });
+      setNearbySpots(nearby.slice(0, 15)); 
+    }
+  }, [activeTab]);
+
   const updateAllCountryTags = async () => {
     if (!confirm("全てのスポットの国名情報をAIで再取得しますか？\n（データ数が多い場合、時間がかかります）")) return;
     setIsGenerating(true);
     setStatusMessage("国名データ更新開始...");
-    try {
-      alert("ブラウザでの全件更新は負荷が高いため、scripts/update_countries.js の利用を推奨します。");
-    } catch (e) {
-        alert("エラー: " + e.message);
-    } finally {
-        setIsGenerating(false);
-        setStatusMessage("");
-    }
+    try { alert("ブラウザでの全件更新は負荷が高いため、scripts/update_countries.js の利用を推奨します。"); } 
+    catch (e) { alert("エラー: " + e.message); } 
+    finally { setIsGenerating(false); setStatusMessage(""); }
   };
 
   const handleGenerate = async () => {
@@ -609,50 +661,6 @@ const GlobeContent = () => {
     return { type: 'FeatureCollection', features: filtered.map(loc => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [loc.lon, loc.lat] }, properties: { ...loc } })) };
   }, [locations, visibleCategories, isPremium]);
 
-  // クリック判定ロジック
-  const handleMapClick = useCallback((event) => {
-    if (isRideModeRef.current) return;
-    
-    const feature = event.features?.[0];
-    if (feature && (feature.layer.id === 'point-glow' || feature.layer.id === 'point-core')) {
-        const spotId = feature.properties.id;
-        console.log("Clicked Spot ID:", spotId);
-        
-        // ID照合 (==で型変換を許容して比較)
-        const spot = locationsRef.current.find(l => l.id == spotId);
-        
-        if (spot) {
-            console.log("Spot Found:", spot.name);
-            setSelectedLocation(spot);
-            mapRef.current?.flyTo({ center: [spot.lon, spot.lat], zoom: 6, speed: 1.2, curve: 1 });
-        } else {
-            console.log("Spot NOT found in locationsRef");
-        }
-    }
-  }, []);
-
-  const handleMoveEnd = useCallback((evt) => {
-    if (isRideModeRef.current || isGeneratingRef.current) return;
-    
-    const map = mapRef.current?.getMap(); if (!map) return;
-    const center = map.getCenter(); 
-    
-    if (activeTab === 'explore') {
-      const bounds = map.getBounds();
-      const ne = bounds.getNorthEast();
-      const sw = bounds.getSouthWest();
-      const nearby = locationsRef.current.filter(loc => {
-        return loc.lat >= sw.lat && loc.lat <= ne.lat && loc.lon >= sw.lng && loc.lon <= ne.lng;
-      });
-      nearby.sort((a, b) => {
-        const distA = Math.pow(a.lat - center.lat, 2) + Math.pow(a.lon - center.lng, 2);
-        const distB = Math.pow(b.lat - center.lat, 2) + Math.pow(b.lon - center.lng, 2);
-        return distA - distB;
-      });
-      setNearbySpots(nearby.slice(0, 15)); 
-    }
-  }, [activeTab]);
-
   const getCategoryDetails = (category) => {
     let tag = '世界遺産'; let color = '#ffcc00';
     if (category === 'landmark') { tag = '観光名所'; color = '#ff8800'; }
@@ -666,17 +674,6 @@ const GlobeContent = () => {
   const getYearLabel = (year) => {
     if (!year) return '';
     return year < 0 ? `BC ${Math.abs(year)}` : `AD ${year}`;
-  };
-
-  // ★重要: handleTabChange はここで一度だけ定義する (toggleRideModeより後ろ)
-  const handleTabChange = (tab) => {
-    if (activeTab === tab) {
-      setActiveTab('map');
-      return;
-    }
-    setActiveTab(tab);
-    if (tab === 'ride') { if (!isRideMode) toggleRideMode(); }
-    if (tab === 'fav') { if (user) setShowFavList(true); else setShowAuthModal(true); }
   };
 
   const isPanelOpen = isPc && (activeTab === 'explore' || activeTab === 'browse' || activeTab === 'settings' || activeTab === 'privacy');
@@ -722,6 +719,7 @@ const GlobeContent = () => {
         </div>
       );
     }
+    // ... (ブラウズ、設定、プライバシーポリシーのコードは前と同じ)
     if (activeTab === 'browse') {
       return (
         <div style={commonStyle}>
@@ -790,74 +788,21 @@ const GlobeContent = () => {
                         <div style={{color:'#888', fontSize:'0.8rem'}}>{currentTrack.artist}</div>
                     </div>
                     
-                    {/* 1. ジャンル選択 */}
-                    <select 
-                        value={genreFilter} 
-                        onChange={(e) => {
-                            const newGenre = e.target.value;
-                            setGenreFilter(newGenre);
-                            setArtistFilter('ALL');
-                            
-                            let nextTrack = BGM_LIBRARY[0];
-                            if (newGenre !== 'ALL') {
-                                const found = BGM_LIBRARY.find(t => t.genre === newGenre);
-                                if (found) nextTrack = found;
-                            }
-                            setCurrentTrack(nextTrack);
-                        }}
-                        style={{ width:'100%', background: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', padding: '4px', marginBottom:'5px', fontSize:'0.8rem' }}
-                    >
+                    <select value={genreFilter} onChange={(e) => { const newGenre = e.target.value; setGenreFilter(newGenre); setArtistFilter('ALL'); let nextTrack = BGM_LIBRARY[0]; if (newGenre !== 'ALL') { const found = BGM_LIBRARY.find(t => t.genre === newGenre); if (found) nextTrack = found; } setCurrentTrack(nextTrack); }} style={{ width:'100%', background: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', padding: '4px', marginBottom:'5px', fontSize:'0.8rem' }}>
                         <option value="ALL">All Genres</option>
                         {availableGenres.map(g => <option key={g} value={g}>{g}</option>)}
                     </select>
 
-                    {/* 2. アーティスト選択 */}
-                    <select 
-                        value={artistFilter} 
-                        onChange={(e) => {
-                            const newArtist = e.target.value;
-                            setArtistFilter(newArtist);
-
-                            let nextTrack = BGM_LIBRARY[0];
-                            if (newArtist !== 'ALL') {
-                                const found = BGM_LIBRARY.find(t => 
-                                    t.artist === newArtist && 
-                                    (genreFilter === 'ALL' || t.genre === genreFilter)
-                                );
-                                if (found) nextTrack = found;
-                            } else if (genreFilter !== 'ALL') {
-                                const found = BGM_LIBRARY.find(t => t.genre === genreFilter);
-                                if (found) nextTrack = found;
-                            }
-                            setCurrentTrack(nextTrack);
-                        }}
-                        style={{ width:'100%', background: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', padding: '4px', marginBottom:'5px', fontSize:'0.8rem' }}
-                    >
+                    <select value={artistFilter} onChange={(e) => { const newArtist = e.target.value; setArtistFilter(newArtist); let nextTrack = BGM_LIBRARY[0]; if (newArtist !== 'ALL') { const found = BGM_LIBRARY.find(t => t.artist === newArtist && (genreFilter === 'ALL' || t.genre === genreFilter)); if (found) nextTrack = found; } else if (genreFilter !== 'ALL') { const found = BGM_LIBRARY.find(t => t.genre === genreFilter); if (found) nextTrack = found; } setCurrentTrack(nextTrack); }} style={{ width:'100%', background: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', padding: '4px', marginBottom:'5px', fontSize:'0.8rem' }}>
                         <option value="ALL">All Artists</option>
                         {availableArtists.map(a => <option key={a} value={a}>{a}</option>)}
                     </select>
 
-                    {/* 3. 曲選択 */}
                     <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
-                        <select 
-                            value={currentTrack.id}
-                            onChange={(e) => {
-                                const selected = BGM_LIBRARY.find(t => t.id === e.target.value);
-                                if (selected) {
-                                    setCurrentTrack(selected);
-                                    if (!isBgmOn) setIsBgmOn(true);
-                                }
-                            }}
-                            style={{ flex:1, background: '#333', color: '#00ffcc', border: '1px solid #555', borderRadius: '4px', padding: '4px', fontSize:'0.8rem' }}
-                        >
+                        <select value={currentTrack.id} onChange={(e) => { const selected = BGM_LIBRARY.find(t => t.id === e.target.value); if (selected) { setCurrentTrack(selected); if (!isBgmOn) setIsBgmOn(true); } }} style={{ flex:1, background: '#333', color: '#00ffcc', border: '1px solid #555', borderRadius: '4px', padding: '4px', fontSize:'0.8rem' }}>
                             {currentPlaylist.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
                         </select>
-                        <button 
-                            onClick={() => setLoopMode(loopMode === 'one' ? 'all' : 'one')}
-                            style={{ background: loopMode==='one'?'#00ffcc':'#333', color:loopMode==='one'?'#000':'#fff', border:'1px solid #555', borderRadius:'4px', padding:'4px 8px', cursor:'pointer' }}
-                        >
-                            {loopMode === 'one' ? '🔂' : '🔁'}
-                        </button>
+                        <button onClick={() => setLoopMode(loopMode === 'one' ? 'all' : 'one')} style={{ background: loopMode==='one'?'#00ffcc':'#333', color:loopMode==='one'?'#000':'#fff', border:'1px solid #555', borderRadius:'4px', padding:'4px 8px', cursor:'pointer' }}>{loopMode === 'one' ? '🔂' : '🔁'}</button>
                     </div>
 
                     <div style={{display:'flex', justifyContent:'center', gap:'15px'}}>
@@ -929,7 +874,7 @@ const GlobeContent = () => {
              {renderPanelContent()}
           </div>
 
-          {/* 下部コントロールバー: ここはクリック有効 */}
+          {/* 下部コントロールバー */}
           <div className="control-bar" style={{ 
             background: '#111', 
             borderBottomLeftRadius: '15px', borderBottomRightRadius: '15px',
