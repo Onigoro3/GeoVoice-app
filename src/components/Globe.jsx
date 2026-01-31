@@ -18,7 +18,7 @@ const LANGUAGES = {
   fr: { code: 'fr', name: 'French', label: '🇫🇷 Français' },
 };
 
-// ★プライバシーポリシー本文 (追加)
+// プライバシーポリシー本文
 const PRIVACY_POLICY_TEXT = `
 ## プライバシーポリシー
 
@@ -162,7 +162,6 @@ const GlobeContent = () => {
 
   const initialViewState = { longitude: 135.0, latitude: 35.0, zoom: 3.5 };
 
-  // PC版初期位置
   useEffect(() => {
     if (isPc) {
       setPopupPos({ x: window.innerWidth - 420, y: 20 });
@@ -246,15 +245,36 @@ const GlobeContent = () => {
     }
   }, [isRideMode]);
 
+  // ★修正: 1000件制限を突破して全データを取得する
   const fetchSpots = async () => {
     try {
-      const { data, error } = await supabase.from('spots').select('*');
-      if (error) throw error;
-      if (data) {
-        const formattedData = data.map(d => ({ ...d, category: d.category || 'history' }));
-        setLocations(formattedData);
-        addLog(`Loaded ${data.length} spots`);
+      let allData = [];
+      let rangeStart = 0;
+      const rangeStep = 999; 
+
+      while (true) {
+        const { data, error } = await supabase
+          .from('spots')
+          .select('*')
+          .range(rangeStart, rangeStart + rangeStep);
+
+        if (error) throw error;
+        
+        if (data && data.length > 0) {
+          allData = allData.concat(data);
+          if (data.length < rangeStep + 1) break; // 取得数が上限未満なら終了
+          rangeStart += rangeStep + 1;
+        } else {
+          break;
+        }
       }
+
+      // 座標がないデータを除外
+      const validData = allData.filter(d => d.lat !== null && d.lon !== null && d.lat !== 0 && d.lon !== 0);
+      const formattedData = validData.map(d => ({ ...d, category: d.category || 'history' }));
+      
+      setLocations(formattedData);
+      addLog(`Loaded ${formattedData.length} spots (Total scanned: ${allData.length})`);
     } catch (e) { addLog(`Fetch Error: ${e.message}`); }
   };
 
@@ -334,6 +354,10 @@ const GlobeContent = () => {
     let displayName = selectedLocation[`name${suffix}`] || selectedLocation.name;
     let displayDesc = selectedLocation[`description${suffix}`] || selectedLocation.description;
     
+    if (!selectedLocation.image_url) {
+        // 画像取得ロジック (省略)
+    }
+
     const newData = { ...selectedLocation, name: displayName, description: displayDesc, needsTranslation: currentLang === 'ja' && !/[ぁ-んァ-ン]/.test(displayName) };
     setDisplayData(newData);
     
@@ -508,10 +532,10 @@ const GlobeContent = () => {
     if (tab === 'fav') { if (user) setShowFavList(true); else setShowAuthModal(true); }
   };
 
-  // ★PCパネル開閉判定 (プライバシーポリシー追加)
+  // PCパネル開閉判定
   const isPanelOpen = isPc && (activeTab === 'explore' || activeTab === 'browse' || activeTab === 'settings' || activeTab === 'privacy');
 
-  // ★PCパネルコンテンツ: 各要素に共通のスタイルクラスを適用して黒い空白を回避
+  // ★PCパネルコンテンツ (黒い枠防止: コンテナ透明、中身に背景)
   const renderPanelContent = () => {
     const commonStyle = {
         background: '#111', 
@@ -616,7 +640,7 @@ const GlobeContent = () => {
         </div>
       );
     }
-    // ★プライバシーポリシー追加 (Settings内から遷移)
+    // ★プライバシーポリシー画面
     if (activeTab === 'privacy') {
         return (
             <div style={commonStyle}>
@@ -642,7 +666,7 @@ const GlobeContent = () => {
       {/* PC用UIコンテナ */}
       {isPc && (
         <div className="pc-ui-container" style={{ position: 'absolute', bottom: '20px', left: '20px', width: '360px', zIndex: 100, display: 'flex', flexDirection: 'column' }}>
-          {/* 上部パネル */}
+          {/* 上部パネル: コンテナは透明、中身がある時だけ可視化 */}
           <div style={{
              background: 'transparent',
              borderTopLeftRadius: '15px', borderTopRightRadius: '15px',
@@ -652,12 +676,8 @@ const GlobeContent = () => {
              overflowY: 'auto',
              transition: 'max-height 0.3s ease-in-out, opacity 0.3s',
              opacity: isPanelOpen ? 1 : 0,
-             visibility: isPanelOpen ? 'visible' : 'hidden',
-             // ★黒い空白対策: 閉じている時はボーダーもパディングも0
-             borderLeft: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
-             borderRight: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
-             borderTop: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
-             padding: isPanelOpen ? '0' : '0px',
+             visibility: isPanelOpen ? 'visible' : 'hidden', // ★これで完全に消す
+             padding: isPanelOpen ? '0 0 10px 0' : '0',
              boxSizing: 'border-box'
           }}>
              {renderPanelContent()}
@@ -737,9 +757,7 @@ const GlobeContent = () => {
       {/* ★スマホ版 操作ボタン (中層: 210px) */}
       {!isPc && activeTab === 'map' && (
         <div style={{ position: 'absolute', bottom: '210px', left: '20px', right:'20px', display:'flex', justifyContent:'space-between', zIndex:110 }}>
-            {/* 左: 現在地 */}
             <button onClick={handleCurrentLocation} style={{ width: '50px', height: '50px', background: '#222', border: '1px solid #444', borderRadius: '50%', color: '#00ffcc', fontSize: '1.5rem', boxShadow: '0 4px 10px black', cursor: 'pointer' }}>📍</button>
-            {/* 右: ライド/NEXT */}
             <div style={{display:'flex', gap:'10px'}}>
                 {isRideMode ? (
                     <>
