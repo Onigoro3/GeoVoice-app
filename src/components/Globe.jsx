@@ -18,6 +18,15 @@ const LANGUAGES = {
   fr: { code: 'fr', name: 'French', label: '🇫🇷 Français' },
 };
 
+// 年代の多言語ラベル
+const ERA_LABELS = {
+  ja: { AD: '西暦', BC: '紀元前' },
+  en: { AD: 'AD', BC: 'BC' },
+  zh: { AD: '公元', BC: '公元前' },
+  es: { AD: 'd.C.', BC: 'a.C.' },
+  fr: { AD: 'ap. J.-C.', BC: 'av. J.-C.' },
+};
+
 // プライバシーポリシー本文
 const PRIVACY_POLICY_TEXT = `
 ## プライバシーポリシー
@@ -52,12 +61,11 @@ const MAP_CONFIG = {
   terrain: { source: 'mapbox-dem', exaggeration: 1.5 }
 };
 
-// ★修正: 点を小さくする
 const LAYER_GLOW = {
   id: 'point-glow',
   type: 'circle',
   paint: {
-    'circle-radius': 3, // 6 -> 3 に縮小
+    'circle-radius': 3,
     'circle-color': [
       'match', ['get', 'category'],
       'landmark', '#ff8800',
@@ -75,7 +83,7 @@ const LAYER_GLOW = {
 const LAYER_CORE = {
   id: 'point-core',
   type: 'circle',
-  paint: { 'circle-radius': 1.5, 'circle-color': '#fff', 'circle-opacity': 1 } // 3 -> 1.5 に縮小
+  paint: { 'circle-radius': 1.5, 'circle-color': '#fff', 'circle-opacity': 1 }
 };
 
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError, padding }) => {
@@ -163,7 +171,6 @@ const GlobeContent = () => {
 
   const initialViewState = { longitude: 135.0, latitude: 35.0, zoom: 3.5 };
 
-  // PC版初期位置
   useEffect(() => {
     if (isPc) {
       setPopupPos({ x: window.innerWidth - 420, y: 20 });
@@ -247,7 +254,6 @@ const GlobeContent = () => {
     }
   }, [isRideMode]);
 
-  // 全データ取得
   const fetchSpots = async () => {
     try {
       let allData = [];
@@ -355,6 +361,10 @@ const GlobeContent = () => {
     let displayName = selectedLocation[`name${suffix}`] || selectedLocation.name;
     let displayDesc = selectedLocation[`description${suffix}`] || selectedLocation.description;
     
+    if (!selectedLocation.image_url) {
+        // 画像取得ロジック
+    }
+
     const newData = { ...selectedLocation, name: displayName, description: displayDesc, needsTranslation: currentLang === 'ja' && !/[ぁ-んァ-ン]/.test(displayName) };
     setDisplayData(newData);
     
@@ -375,6 +385,24 @@ const GlobeContent = () => {
       if (isRideModeRef.current) { rideTimeoutRef.current = setTimeout(() => { nextRideStep(); }, 3000); }
     };
     window.speechSynthesis.speak(utterance);
+  };
+
+  // ★追加: 再生/一時停止トグル
+  const togglePlay = () => {
+    if (window.speechSynthesis.speaking) {
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+        setIsPlaying(true);
+      } else {
+        window.speechSynthesis.pause();
+        setIsPlaying(false);
+      }
+    } else {
+        // 何も話していない場合は、現在のスポットの解説を再生
+        if (selectedLocation && displayData) {
+            speak(displayData.description);
+        }
+    }
   };
 
   const handleGenerate = async () => {
@@ -422,12 +450,9 @@ const GlobeContent = () => {
       return true;
     });
     if (candidates.length === 0) { alert("スポットが見つかりません"); return; }
-    
     setIsHistoryMode(false);
     if (isRideMode) setIsRideMode(false);
-    
     setActiveTab('map'); 
-    
     const nextSpot = candidates[Math.floor(Math.random() * candidates.length)];
     setSelectedLocation(nextSpot);
     mapRef.current?.flyTo({ center: [nextSpot.lon, nextSpot.lat], zoom: 6, speed: 1.2, curve: 1.5, pitch: 40, essential: true });
@@ -494,9 +519,7 @@ const GlobeContent = () => {
       const fullLocation = locationsRef.current.find(l => l.id === features[0].properties.id);
       if (fullLocation) {
         setSelectedLocation(fullLocation);
-        // ★修正: スナップ(吸い付き)処理
         const dist = Math.sqrt(Math.pow(fullLocation.lon - center.lng, 2) + Math.pow(fullLocation.lat - center.lat, 2));
-        // ループ防止のため距離判定
         if (dist > 0.0001) {
             map.easeTo({ center: [fullLocation.lon, fullLocation.lat], duration: 500 });
         }
@@ -589,7 +612,11 @@ const GlobeContent = () => {
             <h4 style={{ margin: '0 0 10px 0', color: '#ffcc00' }}>⏳ ヒストリーライド</h4>
             <div style={{ display: 'flex', gap: '5px', marginBottom: '10px' }}>
                 <input type="number" placeholder="年" value={historyYearInput} onChange={e => setHistoryYearInput(e.target.value)} style={{ flex: 1, padding: '8px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }} />
-                <select value={historyEra} onChange={e => setHistoryEra(e.target.value)} style={{ background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}><option value="AD">AD</option><option value="BC">BC</option></select>
+                {/* ★修正: AD/BCの多言語対応 */}
+                <select value={historyEra} onChange={e => setHistoryEra(e.target.value)} style={{ background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}>
+                    <option value="AD">{ERA_LABELS[currentLang].AD}</option>
+                    <option value="BC">{ERA_LABELS[currentLang].BC}</option>
+                </select>
             </div>
             <select value={historyCountry} onChange={e => setHistoryCountry(e.target.value)} style={{ width: '100%', padding: '8px', marginBottom: '15px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}>
                 <option value="ALL">全ての国</option>
@@ -645,7 +672,6 @@ const GlobeContent = () => {
         </div>
       );
     }
-    // ★プライバシーポリシー画面
     if (activeTab === 'privacy') {
         return (
             <div style={commonStyle}>
@@ -671,7 +697,7 @@ const GlobeContent = () => {
       {/* PC用UIコンテナ */}
       {isPc && (
         <div className="pc-ui-container" style={{ position: 'absolute', bottom: '20px', left: '20px', width: '360px', zIndex: 100, display: 'flex', flexDirection: 'column' }}>
-          {/* 上部パネル: コンテナは透明、中身がある時だけ可視化 */}
+          {/* 上部パネル */}
           <div style={{
              background: 'transparent',
              borderTopLeftRadius: '15px', borderTopRightRadius: '15px',
@@ -681,8 +707,12 @@ const GlobeContent = () => {
              overflowY: 'auto',
              transition: 'max-height 0.3s ease-in-out, opacity 0.3s',
              opacity: isPanelOpen ? 1 : 0,
-             visibility: isPanelOpen ? 'visible' : 'hidden', // ★これで完全に消す
-             padding: isPanelOpen ? '0 0 10px 0' : '0',
+             visibility: isPanelOpen ? 'visible' : 'hidden',
+             // ★黒い空白対策
+             borderLeft: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
+             borderRight: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
+             borderTop: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
+             padding: isPanelOpen ? '0' : '0px',
              boxSizing: 'border-box'
           }}>
              {renderPanelContent()}
@@ -701,7 +731,9 @@ const GlobeContent = () => {
           }}>
             <div style={{ padding: '15px', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ color: 'white', fontWeight: 'bold', fontSize: '1.2rem' }}>GeoVoice</div>
+              {/* ★修正: PC版 再生ボタン追加 */}
               <div style={{ display: 'flex', gap: '10px' }}>
+                <button onClick={togglePlay} style={{ background: '#333', border: 'none', color: isPlaying ? '#00ffcc' : 'white', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer', fontSize:'1rem' }}>{isPlaying ? '⏸' : '▶'}</button>
                 <button onClick={toggleRideMode} style={{ background: isRideMode?'#ff3366':'#333', border: 'none', color: 'white', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer', fontWeight:'bold', fontSize:'0.8rem' }}>{isRideMode?'🛑':'✈️'}</button>
                 <button onClick={handleCurrentLocation} style={{ background: '#333', border: 'none', color: '#00ffcc', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer', fontSize:'1rem' }}>📍</button>
               </div>
@@ -762,7 +794,13 @@ const GlobeContent = () => {
       {/* ★スマホ版 操作ボタン (中層: 210px) */}
       {!isPc && activeTab === 'map' && (
         <div style={{ position: 'absolute', bottom: '210px', left: '20px', right:'20px', display:'flex', justifyContent:'space-between', zIndex:110 }}>
-            <button onClick={handleCurrentLocation} style={{ width: '50px', height: '50px', background: '#222', border: '1px solid #444', borderRadius: '50%', color: '#00ffcc', fontSize: '1.5rem', boxShadow: '0 4px 10px black', cursor: 'pointer' }}>📍</button>
+            {/* 左: 現在地 + 再生ボタン */}
+            <div style={{display:'flex', gap:'10px'}}>
+                <button onClick={handleCurrentLocation} style={{ width: '50px', height: '50px', background: '#222', border: '1px solid #444', borderRadius: '50%', color: '#00ffcc', fontSize: '1.5rem', boxShadow: '0 4px 10px black', cursor: 'pointer' }}>📍</button>
+                <button onClick={togglePlay} style={{ width: '50px', height: '50px', background: '#222', border: '1px solid #444', borderRadius: '50%', color: isPlaying ? '#00ffcc' : 'white', fontSize: '1.2rem', boxShadow: '0 4px 10px black', cursor: 'pointer' }}>{isPlaying ? '⏸' : '▶'}</button>
+            </div>
+            
+            {/* 右: ライド/NEXT */}
             <div style={{display:'flex', gap:'10px'}}>
                 {isRideMode ? (
                     <>
