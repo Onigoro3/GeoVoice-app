@@ -86,7 +86,6 @@ const LAYER_CORE = {
 
 const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
 
-// ★修正: onClickプロップを追加
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, onClick, geoJsonData, onError, padding }) => {
   return (
     <Map
@@ -206,14 +205,10 @@ const GlobeContent = () => {
   };
   
   const handleMouseMove = useCallback((e) => {
-    if (isDragging) { 
-        e.preventDefault(); 
-        setPopupPos({ x: e.clientX - dragOffset.x, y: e.clientY - dragOffset.y }); 
-    }
+    if (isDragging) { e.preventDefault(); setPopupPos({ x: e.clientX - dragOffset.x, y: e.clientY - dragOffset.y }); }
   }, [isDragging, dragOffset]);
   
   const handleMouseUp = () => setIsDragging(false);
-  
   useEffect(() => {
     if (isDragging) { window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', handleMouseUp); }
     else { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); }
@@ -227,7 +222,6 @@ const GlobeContent = () => {
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
   useEffect(() => { visibleCategoriesRef.current = visibleCategories; }, [visibleCategories]);
 
-  // ライドモード制御
   useEffect(() => {
     isRideModeRef.current = isRideMode;
     isHistoryModeRef.current = isHistoryMode;
@@ -262,7 +256,6 @@ const GlobeContent = () => {
       let allData = [];
       let rangeStart = 0;
       const rangeStep = 999; 
-
       while (true) {
         const { data, error } = await supabase.from('spots').select('*').range(rangeStart, rangeStart + rangeStep);
         if (error) throw error;
@@ -270,9 +263,7 @@ const GlobeContent = () => {
           allData = allData.concat(data);
           if (data.length < rangeStep + 1) break; 
           rangeStart += rangeStep + 1;
-        } else {
-          break;
-        }
+        } else { break; }
       }
       const validData = allData.filter(d => d.lat !== null && d.lon !== null && d.lat !== 0 && d.lon !== 0);
       const formattedData = validData.map(d => ({ ...d, category: d.category || 'history' }));
@@ -356,15 +347,11 @@ const GlobeContent = () => {
     const suffix = currentLang === 'ja' ? '_ja' : `_${currentLang}`;
     let displayName = selectedLocation[`name${suffix}`] || selectedLocation.name;
     let displayDesc = selectedLocation[`description${suffix}`] || selectedLocation.description;
-    
-    if (!selectedLocation.image_url) {
-        // 画像取得ロジック
-    }
-
     const newData = { ...selectedLocation, name: displayName, description: displayDesc, needsTranslation: currentLang === 'ja' && !/[ぁ-んァ-ン]/.test(displayName) };
     setDisplayData(newData);
     
-    if (!newData.needsTranslation && !isRideMode) {
+    // ★スマホ版ライド中の音声バグ修正: ライド中でも翻訳不要なら再生
+    if (!newData.needsTranslation) {
       window.speechSynthesis.cancel();
       speak(newData.description);
     }
@@ -444,12 +431,9 @@ const GlobeContent = () => {
       return true;
     });
     if (candidates.length === 0) { alert("スポットが見つかりません"); return; }
-    
     setIsHistoryMode(false);
     if (isRideMode) setIsRideMode(false);
-    
     setActiveTab('map'); 
-    
     const nextSpot = candidates[Math.floor(Math.random() * candidates.length)];
     setSelectedLocation(nextSpot);
     mapRef.current?.flyTo({ center: [nextSpot.lon, nextSpot.lat], zoom: 6, speed: 1.2, curve: 1.5, pitch: 40, essential: true });
@@ -492,7 +476,10 @@ const GlobeContent = () => {
     
     const map = mapRef.current?.getMap(); if (!map) return;
     const center = map.getCenter(); 
+    const point = map.project(center);
+    if (!point) return;
     
+    // ★軽量化: 探索タブのみで周辺リスト更新
     if (activeTab === 'explore') {
       const bounds = map.getBounds();
       const ne = bounds.getNorthEast();
@@ -507,10 +494,29 @@ const GlobeContent = () => {
       });
       setNearbySpots(nearby.slice(0, 15)); 
     }
-    // ★勝手なスナップ・選択処理は削除
+
+    // ★重要変更: マップ移動完了時に「〇枠内に入った点」を自動検出して再生する (Radio Garden方式)
+    const boxSize = 60; // 判定サイズ
+    const features = map.queryRenderedFeatures([[point.x - boxSize/2, point.y - boxSize/2], [point.x + boxSize/2, point.y + boxSize/2]], { layers: ['point-core'] });
+    
+    // 〇枠内にスポットがあれば選択＆再生（移動はさせない）
+    if (features.length > 0) {
+      const spotId = features[0].properties.id;
+      // すでに選択されているスポットなら再生まではしない（連打防止）
+      if (!selectedLocationRef.current || selectedLocationRef.current.id !== spotId) {
+          const fullLocation = locationsRef.current.find(l => l.id === spotId);
+          if (fullLocation) {
+              setSelectedLocation(fullLocation);
+              // ここでは地図を動かさず、選択状態にして再生するだけ
+          }
+      }
+    } else {
+      // 枠から外れたら選択解除はしない（UX維持のため）
+      // 必要なら if (activeTab === 'map') setSelectedLocation(null); を復活させる
+    }
   }, [activeTab]);
 
-  // ★クリックで選択
+  // ★クリック時も選択・移動
   const handleMapClick = useCallback((event) => {
     if (isRideModeRef.current) return;
     const feature = event.features?.[0];
@@ -555,10 +561,8 @@ const GlobeContent = () => {
     if (tab === 'fav') { if (user) setShowFavList(true); else setShowAuthModal(true); }
   };
 
-  // PCパネル開閉判定
   const isPanelOpen = isPc && (activeTab === 'explore' || activeTab === 'browse' || activeTab === 'settings' || activeTab === 'privacy');
 
-  // ★PCパネルコンテンツ (黒い空白防止)
   const renderPanelContent = () => {
     const commonStyle = {
         background: '#111', 
@@ -691,7 +695,7 @@ const GlobeContent = () => {
       {/* PC用UIコンテナ */}
       {isPc && (
         <div className="pc-ui-container" style={{ position: 'absolute', bottom: '20px', left: '20px', width: '360px', zIndex: 100, display: 'flex', flexDirection: 'column' }}>
-          {/* 上部パネル: コンテナは透明、中身がある時だけ可視化 */}
+          {/* 上部パネル */}
           <div style={{
              background: 'transparent',
              borderTopLeftRadius: '15px', borderTopRightRadius: '15px',
@@ -701,8 +705,11 @@ const GlobeContent = () => {
              overflowY: 'auto',
              transition: 'max-height 0.3s ease-in-out, opacity 0.3s',
              opacity: isPanelOpen ? 1 : 0,
-             visibility: isPanelOpen ? 'visible' : 'hidden', // ★これで完全に消す
-             padding: isPanelOpen ? '0 0 10px 0' : '0',
+             visibility: isPanelOpen ? 'visible' : 'hidden',
+             borderLeft: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
+             borderRight: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
+             borderTop: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
+             padding: isPanelOpen ? '0' : '0px',
              boxSizing: 'border-box'
           }}>
              {renderPanelContent()}
@@ -823,7 +830,6 @@ const GlobeContent = () => {
               left: isPc ? (popupPos?.x || (window.innerWidth - 420)) : '10px', 
               top: isPc ? (popupPos?.y || 20) : 'auto', 
               right: isPc ? 'auto' : '10px',
-              // ★スマホ版余白調整: 常に下から290px
               bottom: isPc ? 'auto' : '290px', 
               transform: isPc ? 'none' : 'none', 
               background: 'rgba(10, 10, 10, 0.95)', padding: '20px', borderRadius: '20px', color: 'white', textAlign: 'center', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.2)', zIndex: 10, width: isPc ? '400px' : 'auto', maxWidth: isPc ? '360px' : 'none', maxHeight: isPc ? 'none' : '40vh', boxShadow: '0 4px 30px rgba(0,0,0,0.6)', resize: isPc ? 'both' : 'none', overflow: isPc ? 'auto' : 'hidden', display: 'flex', flexDirection: 'column', cursor: isPc ? (isDragging ? 'grabbing' : 'grab') : 'default', animation: isDragging ? 'none' : 'fadeIn 0.3s'
@@ -860,7 +866,7 @@ const GlobeContent = () => {
         mapboxAccessToken={MAPBOX_TOKEN} 
         initialViewState={initialViewState} 
         onMoveEnd={handleMoveEnd} 
-        onClick={handleMapClick}
+        onClick={handleMapClick} // ★追加: クリックイベント
         geoJsonData={filteredGeoJsonData} 
         onError={(e) => addLog(`Map Error: ${e.error.message}`)} 
         padding={isPc ? {} : { bottom: window.innerHeight * 0.4 }} 
