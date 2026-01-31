@@ -26,6 +26,9 @@ const ERA_LABELS = {
   fr: { AD: 'ap. J.-C.', BC: 'av. J.-C.' },
 };
 
+// ★追加: プレミアム限定カテゴリ定義 (エラー修正箇所)
+const PREMIUM_CATEGORIES = ['science', 'art'];
+
 const PRIVACY_POLICY_TEXT = `
 ## プライバシーポリシー
 
@@ -127,11 +130,11 @@ const GlobeContent = () => {
   const isRideModeRef = useRef(false);
   const isHistoryModeRef = useRef(false);
   const historyIndexRef = useRef(0);
-  const historySortedSpotsRef = useRef([]); // ヒストリーモード用の全件リスト
+  const historySortedSpotsRef = useRef([]);
   const rideTimeoutRef = useRef(null);
   const visibleCategoriesRef = useRef(null);
 
-  const [locations, setLocations] = useState([]); // ★ここには「画面内のスポット」だけが入る
+  const [locations, setLocations] = useState([]);
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [displayData, setDisplayData] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -180,7 +183,6 @@ const GlobeContent = () => {
   }, [isPc]);
 
   const countryList = useMemo(() => {
-    // 画面外も含めた全国のリストを取得するのは重いため、一旦主要国または表示中のものから生成
     const countries = new Set();
     locations.forEach(loc => {
       if (loc.country_ja) countries.add(loc.country_ja);
@@ -229,12 +231,23 @@ const GlobeContent = () => {
     isHistoryModeRef.current = isHistoryMode;
     if (isRideMode) {
       if (isHistoryMode) {
-        // ヒストリーモード開始時: 条件に合うデータを全件取得する(IDだけ)
-        setupHistoryRide();
-      } else {
-        // ランダムライド開始
-        nextRideStep();
+        let candidates = locationsRef.current.filter(l => l.year !== null && l.year !== undefined);
+        if (historyCountry !== "ALL") candidates = candidates.filter(l => l.country === historyCountry || l.country_ja === historyCountry);
+        if (historyYearInput && !isNaN(historyYearInput)) {
+          let targetYear = parseInt(historyYearInput);
+          if (historyEra === "BC") targetYear = -targetYear;
+          candidates.sort((a, b) => Math.abs(a.year - targetYear) - Math.abs(b.year - targetYear));
+        } else {
+          candidates.sort((a, b) => a.year - b.year);
+        }
+        if (candidates.length === 0) {
+          alert("条件に合うスポットが見つかりません");
+          setIsHistoryMode(false); setIsRideMode(false); return;
+        }
+        historySortedSpotsRef.current = candidates;
+        historyIndexRef.current = 0;
       }
+      nextRideStep();
     } else {
       window.speechSynthesis.cancel();
       setIsPlaying(false);
@@ -242,82 +255,34 @@ const GlobeContent = () => {
     }
   }, [isRideMode]);
 
-  // ヒストリーライドの準備（軽量化のためIDだけ取得）
-  const setupHistoryRide = async () => {
-    let query = supabase.from('spots').select('id, year, lat, lon');
-    
-    if (historyCountry !== "ALL") {
-        // country_ja または country で検索
-        // SupabaseのフィルタでOR検索は少し複雑なので、簡単のため country_ja を優先
-        query = query.eq('country_ja', historyCountry); 
-    }
-    
-    const { data, error } = await query;
-    if (error || !data || data.length === 0) {
-        alert("条件に合うスポットが見つかりません");
-        setIsHistoryMode(false); setIsRideMode(false); return;
-    }
-
-    let candidates = data.filter(l => l.year !== null);
-    if (historyYearInput && !isNaN(historyYearInput)) {
-        let targetYear = parseInt(historyYearInput);
-        if (historyEra === "BC") targetYear = -targetYear;
-        candidates.sort((a, b) => Math.abs(a.year - targetYear) - Math.abs(b.year - targetYear));
-    } else {
-        candidates.sort((a, b) => a.year - b.year);
-    }
-
-    historySortedSpotsRef.current = candidates;
-    historyIndexRef.current = 0;
-    nextRideStep();
-  };
-
-  // ★軽量化の要: 画面内のスポットだけを取得する
-  const fetchVisibleSpots = async () => {
-    const map = mapRef.current?.getMap();
-    if (!map) return;
-
-    const bounds = map.getBounds();
-    const ne = bounds.getNorthEast();
-    const sw = bounds.getSouthWest();
-
+  const fetchSpots = async () => {
     try {
-        // 画面範囲内のデータを取得（最大100件程度に制限して軽量化）
-        // 経度が180度をまたぐ場合の処理は簡易的に省略しています（必要なら追加）
-        const { data, error } = await supabase
-            .from('spots')
-            .select('*')
-            .gte('lat', sw.lat)
-            .lte('lat', ne.lat)
-            .gte('lon', sw.lng)
-            .lte('lon', ne.lng)
-            .limit(100); 
-
+      let allData = [];
+      let rangeStart = 0;
+      const rangeStep = 999; 
+      while (true) {
+        const { data, error } = await supabase.from('spots').select('*').range(rangeStart, rangeStart + rangeStep);
         if (error) throw error;
-        
-        if (data) {
-            const formattedData = data.map(d => ({ ...d, category: d.category || 'history' }));
-            // 既存の選択中スポットがあれば、それは消さないように結合
-            if (selectedLocation) {
-                const exists = formattedData.find(d => d.id === selectedLocation.id);
-                if (!exists) formattedData.push(selectedLocation);
-            }
-            setLocations(formattedData);
-        }
-    } catch (e) {
-        console.error("Area fetch error:", e);
-    }
+        if (data && data.length > 0) {
+          allData = allData.concat(data);
+          if (data.length < rangeStep + 1) break; 
+          rangeStart += rangeStep + 1;
+        } else { break; }
+      }
+      const validData = allData.filter(d => d.lat !== null && d.lon !== null && d.lat !== 0 && d.lon !== 0);
+      const formattedData = validData.map(d => ({ ...d, category: d.category || 'history' }));
+      setLocations(formattedData);
+      addLog(`Loaded ${formattedData.length} spots`);
+    } catch (e) { addLog(`Fetch Error: ${e.message}`); }
   };
 
-  // 初期ロード時は、とりあえず日本周辺などを取得するか、何もしない
   useEffect(() => {
-    // 初回はデフォルト位置周辺を取得
-    // fetchVisibleSpots() は mapRef がないと動かないので、onLoad で呼ぶのがベストだが
-    // ここでは単純化のため setTimeout で遅延実行、またはユーザーが動かしたときにロード
-    const timer = setTimeout(() => {
-        fetchVisibleSpots();
-    }, 1000);
-    return () => clearTimeout(timer);
+    fetchSpots();
+    supabase.auth.getSession().then(({ data: { session } }) => { if (session?.user) setupUser(session.user); });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) setupUser(session.user); else clearUser();
+    });
+    return () => subscription.unsubscribe();
   }, []);
 
   const setupUser = (u) => { setUser(u); fetchFavorites(u.id); fetchProfile(u.id, u.email); addLog(`Login: ${u.email}`); };
@@ -365,11 +330,9 @@ const GlobeContent = () => {
       const json = JSON.parse(text);
       const updateData = { [`name_${lang}`]: json.name, [`description_${lang}`]: json.description };
       await supabase.from('spots').update(updateData).eq('id', spot.id);
-      
-      // ローカルデータも更新
       const updatedLocations = locations.map(l => l.id === spot.id ? { ...l, ...updateData } : l);
       setLocations(updatedLocations);
-      
+      locationsRef.current = updatedLocations;
       if (selectedLocationRef.current && selectedLocationRef.current.id === spot.id) {
         const newData = { ...spot, ...updateData, name: json.name, description: json.description };
         setDisplayData(newData);
@@ -389,8 +352,6 @@ const GlobeContent = () => {
     let displayName = selectedLocation[`name${suffix}`] || selectedLocation.name;
     let displayDesc = selectedLocation[`description${suffix}`] || selectedLocation.description;
     
-    // 画像がない場合取得ロジック（省略）
-
     const newData = { ...selectedLocation, name: displayName, description: displayDesc, needsTranslation: currentLang === 'ja' && !/[ぁ-んァ-ン]/.test(displayName) };
     setDisplayData(newData);
     
@@ -435,8 +396,6 @@ const GlobeContent = () => {
     setIsGenerating(true);
     setStatusMessage("国名データ更新開始...");
     try {
-      // 全件取得にはループが必要だが、ここでは簡易的に実装
-      // 本格的には update_countries.js を使用推奨
       alert("ブラウザでの全件更新は負荷が高いため、scripts/update_countries.js の利用を推奨します。");
     } catch (e) {
         alert("エラー: " + e.message);
@@ -458,10 +417,7 @@ const GlobeContent = () => {
       let newSpots = JSON.parse(text.match(/\[[\s\S]*\]/)[0]);
       const insertData = newSpots.map(s => ({ ...s, name_ja: s.name, description_ja: s.description, category: 'history' }));
       await supabase.from('spots').insert(insertData);
-      
-      // 追加後に再取得
-      fetchVisibleSpots();
-      
+      fetchSpots();
       if (newSpots.length > 0) mapRef.current?.flyTo({ center: [newSpots[0].lon, newSpots[0].lat], zoom: 4 });
       setInputTheme(""); alert(`${newSpots.length}件追加！`);
     } catch (e) { alert(e.message); } finally { setIsGenerating(false); setStatusMessage(""); }
@@ -486,82 +442,46 @@ const GlobeContent = () => {
     setIsRideMode(true);
   };
 
-  const jumpToRandomSpot = async (targetCategory = null) => {
+  const jumpToRandomSpot = (targetCategory = null) => {
+    const candidates = locationsRef.current.filter(loc => {
+      const cat = loc.category || 'history';
+      if (!profile?.is_premium && !isVipUser(user?.email) && PREMIUM_CATEGORIES.includes(cat)) return false;
+      if (targetCategory && cat !== targetCategory) return false;
+      return true;
+    });
+    if (candidates.length === 0) { alert("スポットが見つかりません"); return; }
     setIsHistoryMode(false);
     if (isRideMode) setIsRideMode(false);
     setActiveTab('map'); 
-    
-    // ★修正: ローカルデータではなくDBからランダムに1件取得する (軽量化対応)
-    try {
-        // まず総数を取得（概算）
-        const { count } = await supabase.from('spots').select('*', { count: 'exact', head: true });
-        if (!count) return;
-        
-        // ランダムなオフセット
-        const randomOffset = Math.floor(Math.random() * count);
-        
-        // その位置のデータを1件取得
-        const { data, error } = await supabase.from('spots').select('*').range(randomOffset, randomOffset);
-        
-        if (error || !data || data.length === 0) {
-            alert("スポットが見つかりません"); return;
-        }
-        
-        const nextSpot = { ...data[0], category: data[0].category || 'history' };
-        
-        // 飛ぶ前にデータをセット（画面外かもしれないので）
-        setLocations(prev => [...prev, nextSpot]); 
-        setSelectedLocation(nextSpot);
-        
-        mapRef.current?.flyTo({ center: [nextSpot.lon, nextSpot.lat], zoom: 6, speed: 1.2, curve: 1.5, pitch: 40, essential: true });
-
-    } catch (e) {
-        console.error("Random jump error", e);
-    }
+    const nextSpot = candidates[Math.floor(Math.random() * candidates.length)];
+    setSelectedLocation(nextSpot);
+    mapRef.current?.flyTo({ center: [nextSpot.lon, nextSpot.lat], zoom: 6, speed: 1.2, curve: 1.5, pitch: 40, essential: true });
   };
 
-  // ライド中の次のステップ
-  const nextRideStep = async () => {
+  const nextRideStep = () => {
     if (!isRideModeRef.current) return;
-    
     let nextSpot = null;
-    
     if (isHistoryModeRef.current) {
-        // ヒストリーモード: 取得済みのリスト(IDと座標)から次へ
         const sorted = historySortedSpotsRef.current;
         let idx = historyIndexRef.current;
         if (idx >= sorted.length) idx = 0; 
-        
-        const partialSpot = sorted[idx];
+        nextSpot = sorted[idx];
         historyIndexRef.current = idx + 1;
-        
-        // 詳細データを取得
-        const { data } = await supabase.from('spots').select('*').eq('id', partialSpot.id).single();
-        if (data) nextSpot = { ...data, category: data.category || 'history' };
-        
     } else {
-        // ランダムライド: DBからランダム取得
-        const { count } = await supabase.from('spots').select('*', { count: 'exact', head: true });
-        const randomOffset = Math.floor(Math.random() * (count || 100));
-        const { data } = await supabase.from('spots').select('*').range(randomOffset, randomOffset);
-        if (data && data.length > 0) {
-            nextSpot = { ...data[0], category: data[0].category || 'history' };
-        }
-    }
-
-    if (nextSpot) {
-        setLocations(prev => {
-            // 重複チェック
-            if (prev.find(p => p.id === nextSpot.id)) return prev;
-            return [...prev, nextSpot];
+        const currentFilters = visibleCategoriesRef.current || { history: true, nature: true, modern: true, science: true, art: true };
+        const candidates = locationsRef.current.filter(loc => {
+          const cat = loc.category || 'history';
+          if (!profile?.is_premium && !isVipUser(user?.email) && PREMIUM_CATEGORIES.includes(cat)) return false;
+          return currentFilters[cat];
         });
-        setSelectedLocation(nextSpot);
-        mapRef.current?.flyTo({ center: [nextSpot.lon, nextSpot.lat], zoom: 6, speed: 0.8, curve: 1.5, pitch: 45, bearing: Math.random() * 360, essential: true });
+        if (candidates.length === 0) { setIsRideMode(false); return; }
+        nextSpot = candidates[Math.floor(Math.random() * candidates.length)];
     }
+    setSelectedLocation(nextSpot);
+    mapRef.current?.flyTo({ center: [nextSpot.lon, nextSpot.lat], zoom: 6, speed: 0.8, curve: 1.5, pitch: 45, bearing: Math.random() * 360, essential: true });
   };
 
   const filteredGeoJsonData = useMemo(() => {
-    // 画面内のlocationsだけを表示
     const filtered = locations.filter(loc => {
       const cat = loc.category || 'history';
       if (!isPremium && PREMIUM_CATEGORIES.includes(cat)) return false;
@@ -570,30 +490,28 @@ const GlobeContent = () => {
     return { type: 'FeatureCollection', features: filtered.map(loc => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [loc.lon, loc.lat] }, properties: { ...loc } })) };
   }, [locations, visibleCategories, isPremium]);
 
-  // ★重要: 地図移動終了時に「画面内のスポット」を取得する処理
   const handleMoveEnd = useCallback((evt) => {
     if (isRideModeRef.current || isGeneratingRef.current) return;
     
-    // エリアごとの読み込みを実行
-    fetchVisibleSpots();
+    const map = mapRef.current?.getMap(); if (!map) return;
+    const center = map.getCenter(); 
     
-    // 周辺リスト更新
     if (activeTab === 'explore') {
-        // ... (fetchVisibleSpotsでlocationsが更新されるので、ここでは何もしなくてよいかもだが、即時反映のため既存ロジック維持)
-        const map = mapRef.current?.getMap();
-        if (map) {
-            const center = map.getCenter();
-            const nearby = locations.slice().sort((a, b) => {
-                const distA = Math.pow(a.lat - center.lat, 2) + Math.pow(a.lon - center.lng, 2);
-                const distB = Math.pow(b.lat - center.lat, 2) + Math.pow(b.lon - center.lng, 2);
-                return distA - distB;
-            });
-            setNearbySpots(nearby.slice(0, 15));
-        }
+      const bounds = map.getBounds();
+      const ne = bounds.getNorthEast();
+      const sw = bounds.getSouthWest();
+      const nearby = locationsRef.current.filter(loc => {
+        return loc.lat >= sw.lat && loc.lat <= ne.lat && loc.lon >= sw.lng && loc.lon <= ne.lng;
+      });
+      nearby.sort((a, b) => {
+        const distA = Math.pow(a.lat - center.lat, 2) + Math.pow(a.lon - center.lng, 2);
+        const distB = Math.pow(b.lat - center.lat, 2) + Math.pow(b.lon - center.lng, 2);
+        return distA - distB;
+      });
+      setNearbySpots(nearby.slice(0, 15)); 
     }
-  }, [activeTab, locations]);
+  }, [activeTab]);
 
-  // クリックで選択
   const handleMapClick = useCallback((event) => {
     if (isRideModeRef.current) return;
     const feature = event.features?.[0];
