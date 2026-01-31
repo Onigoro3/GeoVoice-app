@@ -26,13 +26,12 @@ const ERA_LABELS = {
   fr: { AD: 'ap. J.-C.', BC: 'av. J.-C.' },
 };
 
-// ★追加: 拡張BGMライブラリ (アーティスト名を追加)
-// publicフォルダに実際のファイルを配置してください
+// ★BGMライブラリ (前回ご提示いただいた内容)
 const BGM_LIBRARY = [
-  { id: 'deafolt', title: '10℃', artist: 'しゃろう', url: '/bgm/bgm.mp3' },
+  { id: 'default', title: '10℃', artist: 'しゃろう', url: '/bgm/bgm.mp3' },
   { id: 'Ki1', title: 'かえりみち', artist: 'きまぐれ', url: '/bgm/Ki1.wav' }, 
   { id: 'Ki2', title: 'ON AIR', artist: 'きまぐれ', url: '/bgm/Ki2.wav' },
-  { id: 'jaz2', title: 'Night Jazz', artist: 'Jazz Band', url: '/bgm/jazz2.mp3' }, // 追加例
+  { id: 'jaz2', title: 'Night Jazz', artist: 'Jazz Band', url: '/bgm/jazz2.mp3' },
   { id: 'fes1', title: 'Matsuri', artist: 'Japan', url: '/bgm/matsuri.mp3' },
 ];
 
@@ -171,16 +170,12 @@ const GlobeContent = () => {
     landmark: true, history: true, nature: true, modern: true, science: true, art: true
   });
 
-  // --- 音楽プレーヤー用 State ---
   const [bgmVolume, setBgmVolume] = useState(0.5);
   const [voiceVolume, setVoiceVolume] = useState(1.0);
   const [isBgmOn, setIsBgmOn] = useState(false);
   
-  // 現在再生中の曲データ
   const [currentTrack, setCurrentTrack] = useState(BGM_LIBRARY[0]);
-  // ループモード: 'all' (全曲ループ) or 'one' (1曲リピート)
   const [loopMode, setLoopMode] = useState('all'); 
-  // アーティストフィルター: 'ALL' or アーティスト名
   const [artistFilter, setArtistFilter] = useState('ALL');
 
   const [isPc, setIsPc] = useState(window.innerWidth > 768);
@@ -208,13 +203,11 @@ const GlobeContent = () => {
     return Array.from(countries).sort();
   }, [locations]);
 
-  // ★追加: アーティストリストの生成
   const artistList = useMemo(() => {
     const artists = new Set(BGM_LIBRARY.map(track => track.artist));
     return Array.from(artists).sort();
   }, []);
 
-  // ★追加: 現在のフィルターに基づいたプレイリスト
   const currentPlaylist = useMemo(() => {
     if (artistFilter === 'ALL') return BGM_LIBRARY;
     return BGM_LIBRARY.filter(track => track.artist === artistFilter);
@@ -254,7 +247,6 @@ const GlobeContent = () => {
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
   useEffect(() => { visibleCategoriesRef.current = visibleCategories; }, [visibleCategories]);
 
-  // ライドモード制御
   useEffect(() => {
     isRideModeRef.current = isRideMode;
     isHistoryModeRef.current = isHistoryMode;
@@ -419,17 +411,14 @@ const GlobeContent = () => {
     }
   };
 
-  // ★追加: BGM制御ロジック
   const playNextTrack = () => {
     if (loopMode === 'one') {
-      // 同じ曲を頭から再生
       const audio = audioRef.current;
       if (audio) {
         audio.currentTime = 0;
         audio.play().catch(() => {});
       }
     } else {
-      // 次の曲へ (プレイリスト内ループ)
       const currentIndex = currentPlaylist.findIndex(t => t.id === currentTrack.id);
       const nextIndex = (currentIndex + 1) % currentPlaylist.length;
       setCurrentTrack(currentPlaylist[nextIndex]);
@@ -442,25 +431,20 @@ const GlobeContent = () => {
     setCurrentTrack(currentPlaylist[prevIndex]);
   };
 
-  // 曲が終わった時のイベントハンドラ
   const handleTrackEnded = () => {
     playNextTrack();
   };
 
-  // BGM再生の副作用
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
     
-    // 曲が変わったらソースを更新して再生
     if (audio.src !== window.location.origin + currentTrack.url) {
-        // srcが違う場合のみ更新（再レンダリング時の途切れ防止）
-        // ※create-react-appやViteの開発環境ではフルパス比較が必要
+        // src更新
     }
     
     if (isBgmOn) {
         audio.volume = isPlaying ? bgmVolume * 0.2 : bgmVolume;
-        // Promiseエラー防止
         const playPromise = audio.play();
         if (playPromise !== undefined) {
             playPromise.catch(error => {
@@ -730,7 +714,6 @@ const GlobeContent = () => {
                     <label style={{ display: 'flex', alignItems: 'center', gap:'8px', color: 'white' }}><input type="checkbox" checked={visibleCategories.modern} onChange={e => setVisibleCategories(prev => ({...prev, modern: e.target.checked}))} /> 🏙️ 現代</label>
                 </div>
             </div>
-            {/* ★修正: BGM・ミュージックプレーヤー設定 */}
             <div style={{ padding: '15px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', color: 'white', alignItems:'center' }}>
                     <span>BGM Player</span>
@@ -744,12 +727,25 @@ const GlobeContent = () => {
                     </div>
                     
                     <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
-                        {/* プレイリスト選択 (アーティストフィルター) */}
+                        {/* ★修正: 選択時に曲を変更する */}
                         <select 
                             value={artistFilter} 
                             onChange={(e) => {
-                                setArtistFilter(e.target.value);
-                                // フィルター変更時に最初の曲にセットしても良いが、ここでは再生継続
+                                const newFilter = e.target.value;
+                                setArtistFilter(newFilter);
+                                
+                                // 選んだアーティストの最初の曲を探す
+                                let firstTrack;
+                                if (newFilter === 'ALL') {
+                                    firstTrack = BGM_LIBRARY[0];
+                                } else {
+                                    firstTrack = BGM_LIBRARY.find(t => t.artist === newFilter);
+                                }
+                                
+                                // 見つかったらセットして再生
+                                if (firstTrack) {
+                                    setCurrentTrack(firstTrack);
+                                }
                             }}
                             style={{ flex:1, background: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', padding: '4px' }}
                         >
@@ -757,7 +753,6 @@ const GlobeContent = () => {
                             {artistList.map(a => <option key={a} value={a}>{a}</option>)}
                         </select>
                         
-                        {/* ループモード切替 */}
                         <button 
                             onClick={() => setLoopMode(loopMode === 'one' ? 'all' : 'one')}
                             style={{ background: loopMode==='one'?'#00ffcc':'#333', color:loopMode==='one'?'#000':'#fff', border:'1px solid #555', borderRadius:'4px', padding:'4px 8px', cursor:'pointer' }}
