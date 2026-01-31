@@ -26,7 +26,14 @@ const ERA_LABELS = {
   fr: { AD: 'ap. J.-C.', BC: 'av. J.-C.' },
 };
 
-// ★追加: プレミアム限定カテゴリ定義 (エラー修正箇所)
+// ★追加: BGMリスト (これらのファイルをpublicフォルダに置いてください)
+const BGM_LIST = [
+  { name: 'Default', url: '/bgm.mp3' },
+  { name: 'Piano', url: '/bgm_piano.mp3' },
+  { name: 'Jazz', url: '/bgm_jazz.mp3' },
+  { name: 'Ambient', url: '/bgm_ambient.mp3' },
+];
+
 const PREMIUM_CATEGORIES = ['science', 'art'];
 
 const PRIVACY_POLICY_TEXT = `
@@ -165,6 +172,8 @@ const GlobeContent = () => {
   const [bgmVolume, setBgmVolume] = useState(0.5);
   const [voiceVolume, setVoiceVolume] = useState(1.0);
   const [isBgmOn, setIsBgmOn] = useState(false);
+  // ★追加: 現在選択中のBGM
+  const [currentBgm, setCurrentBgm] = useState(BGM_LIST[0].url);
 
   const [isPc, setIsPc] = useState(window.innerWidth > 768);
   const [popupPos, setPopupPos] = useState({ x: 20, y: 20 });
@@ -225,7 +234,6 @@ const GlobeContent = () => {
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
   useEffect(() => { visibleCategoriesRef.current = visibleCategories; }, [visibleCategories]);
 
-  // ライドモード制御
   useEffect(() => {
     isRideModeRef.current = isRideMode;
     isHistoryModeRef.current = isHistoryMode;
@@ -540,11 +548,17 @@ const GlobeContent = () => {
     return year < 0 ? `BC ${Math.abs(year)}` : `AD ${year}`;
   };
 
+  // ★修正: BGM再生制御 (currentBgm変更時に即反映)
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    if (isBgmOn) { audio.play().catch(() => {}); audio.volume = isPlaying ? bgmVolume * 0.2 : bgmVolume; } else { audio.pause(); }
-  }, [isBgmOn, isPlaying, bgmVolume]);
+    if (isBgmOn) { 
+        audio.play().catch(() => {}); 
+        audio.volume = isPlaying ? bgmVolume * 0.2 : bgmVolume; 
+    } else { 
+        audio.pause(); 
+    }
+  }, [isBgmOn, isPlaying, bgmVolume, currentBgm]); // currentBgmを追加
 
   const handleTabChange = (tab) => {
     if (activeTab === tab) {
@@ -654,7 +668,22 @@ const GlobeContent = () => {
                 </div>
             </div>
             <div style={{ padding: '15px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', color: 'white' }}><span>BGM</span><button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: 'transparent', color: isBgmOn?'#00ffcc':'#666', border: 'none', cursor: 'pointer', fontWeight:'bold' }}>{isBgmOn ? 'ON' : 'OFF'}</button></div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', color: 'white', alignItems:'center' }}>
+                    <span>BGM</span>
+                    <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
+                        {/* ★追加: BGM選択ドロップダウン */}
+                        <select 
+                            value={currentBgm} 
+                            onChange={(e) => setCurrentBgm(e.target.value)}
+                            style={{ background: '#333', color: '#00ffcc', border: '1px solid #555', borderRadius: '4px', padding: '2px 5px', fontSize:'0.8rem' }}
+                        >
+                            {BGM_LIST.map((bgm) => (
+                                <option key={bgm.url} value={bgm.url}>{bgm.name}</option>
+                            ))}
+                        </select>
+                        <button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: 'transparent', color: isBgmOn?'#00ffcc':'#666', border: 'none', cursor: 'pointer', fontWeight:'bold' }}>{isBgmOn ? 'ON' : 'OFF'}</button>
+                    </div>
+                </div>
                 <input type="range" min="0" max="1" step="0.1" value={bgmVolume} onChange={e => setBgmVolume(parseFloat(e.target.value))} style={{ width: '100%', marginBottom:'20px', accentColor:'#00ffcc' }} />
                 <div style={{ color: 'white', marginBottom: '10px' }}>ボイス音量</div>
                 <input type="range" min="0" max="1" step="0.1" value={voiceVolume} onChange={e => setVoiceVolume(parseFloat(e.target.value))} style={{ width: '100%', accentColor:'#00ffcc' }} />
@@ -690,7 +719,7 @@ const GlobeContent = () => {
 
   return (
     <div style={{ width: "100vw", height: "100dvh", background: "black", fontFamily: 'sans-serif', position: 'fixed', top: 0, left: 0, overflow: 'hidden', touchAction: 'none', overscrollBehavior: 'none' }}>
-      <audio ref={audioRef} src="/bgm.mp3" loop />
+      <audio ref={audioRef} src={currentBgm} loop /> {/* ★修正: 選択されたBGMを再生 */}
       {isPc && <div style={{ position: 'absolute', bottom: '10px', right: '10px', zIndex: 100, background: 'rgba(0,0,0,0.7)', color: '#00ff00', fontSize: '10px', padding: '5px', borderRadius: '5px', maxWidth: '300px', pointerEvents: 'none' }}>{logs.map((log, i) => <div key={i}>{log}</div>)}</div>}
       
       {/* PC用UIコンテナ */}
