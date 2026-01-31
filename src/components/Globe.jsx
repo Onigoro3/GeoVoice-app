@@ -45,18 +45,19 @@ GeoVoice（以下「本アプリ」）は、ユーザーの個人情報の保護
 アカウント削除により、保存されたデータは消去されます。
 `;
 
-// マップ設定 (軽量化)
+// マップ設定
 const MAP_CONFIG = {
   style: "mapbox://styles/mapbox/satellite-v9",
   fog: { range: [0.5, 10], color: 'rgba(255, 255, 255, 0)', 'high-color': '#000', 'space-color': '#000', 'star-intensity': 0.6 },
   terrain: { source: 'mapbox-dem', exaggeration: 1.5 }
 };
 
+// ★修正: 点を小さくする
 const LAYER_GLOW = {
   id: 'point-glow',
   type: 'circle',
   paint: {
-    'circle-radius': 6,
+    'circle-radius': 3, // 6 -> 3 に縮小
     'circle-color': [
       'match', ['get', 'category'],
       'landmark', '#ff8800',
@@ -74,7 +75,7 @@ const LAYER_GLOW = {
 const LAYER_CORE = {
   id: 'point-core',
   type: 'circle',
-  paint: { 'circle-radius': 3, 'circle-color': '#fff', 'circle-opacity': 1 }
+  paint: { 'circle-radius': 1.5, 'circle-color': '#fff', 'circle-opacity': 1 } // 3 -> 1.5 に縮小
 };
 
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError, padding }) => {
@@ -162,6 +163,7 @@ const GlobeContent = () => {
 
   const initialViewState = { longitude: 135.0, latitude: 35.0, zoom: 3.5 };
 
+  // PC版初期位置
   useEffect(() => {
     if (isPc) {
       setPopupPos({ x: window.innerWidth - 420, y: 20 });
@@ -245,7 +247,7 @@ const GlobeContent = () => {
     }
   }, [isRideMode]);
 
-  // ★修正: 1000件制限を突破して全データを取得する
+  // 全データ取得
   const fetchSpots = async () => {
     try {
       let allData = [];
@@ -262,19 +264,18 @@ const GlobeContent = () => {
         
         if (data && data.length > 0) {
           allData = allData.concat(data);
-          if (data.length < rangeStep + 1) break; // 取得数が上限未満なら終了
+          if (data.length < rangeStep + 1) break; 
           rangeStart += rangeStep + 1;
         } else {
           break;
         }
       }
 
-      // 座標がないデータを除外
       const validData = allData.filter(d => d.lat !== null && d.lon !== null && d.lat !== 0 && d.lon !== 0);
       const formattedData = validData.map(d => ({ ...d, category: d.category || 'history' }));
       
       setLocations(formattedData);
-      addLog(`Loaded ${formattedData.length} spots (Total scanned: ${allData.length})`);
+      addLog(`Loaded ${formattedData.length} spots`);
     } catch (e) { addLog(`Fetch Error: ${e.message}`); }
   };
 
@@ -354,10 +355,6 @@ const GlobeContent = () => {
     let displayName = selectedLocation[`name${suffix}`] || selectedLocation.name;
     let displayDesc = selectedLocation[`description${suffix}`] || selectedLocation.description;
     
-    if (!selectedLocation.image_url) {
-        // 画像取得ロジック (省略)
-    }
-
     const newData = { ...selectedLocation, name: displayName, description: displayDesc, needsTranslation: currentLang === 'ja' && !/[ぁ-んァ-ン]/.test(displayName) };
     setDisplayData(newData);
     
@@ -495,7 +492,15 @@ const GlobeContent = () => {
     const features = map.queryRenderedFeatures([[point.x - boxSize/2, point.y - boxSize/2], [point.x + boxSize/2, point.y + boxSize/2]], { layers: ['point-core'] });
     if (features.length > 0) {
       const fullLocation = locationsRef.current.find(l => l.id === features[0].properties.id);
-      if (fullLocation) setSelectedLocation(fullLocation);
+      if (fullLocation) {
+        setSelectedLocation(fullLocation);
+        // ★修正: スナップ(吸い付き)処理
+        const dist = Math.sqrt(Math.pow(fullLocation.lon - center.lng, 2) + Math.pow(fullLocation.lat - center.lat, 2));
+        // ループ防止のため距離判定
+        if (dist > 0.0001) {
+            map.easeTo({ center: [fullLocation.lon, fullLocation.lat], duration: 500 });
+        }
+      }
     } else {
       if (activeTab === 'map') setSelectedLocation(null);
     }
@@ -535,7 +540,7 @@ const GlobeContent = () => {
   // PCパネル開閉判定
   const isPanelOpen = isPc && (activeTab === 'explore' || activeTab === 'browse' || activeTab === 'settings' || activeTab === 'privacy');
 
-  // ★PCパネルコンテンツ (黒い枠防止: コンテナ透明、中身に背景)
+  // PCパネルコンテンツ
   const renderPanelContent = () => {
     const commonStyle = {
         background: '#111', 
