@@ -62,22 +62,21 @@ const PREMIUM_CATEGORIES = ['science', 'art'];
 
 const PRIVACY_POLICY_TEXT = `
 ## プライバシーポリシー
-(省略: 前回の内容と同じ)
+(省略)
 `;
 
-// マップ設定 (軽量化設定)
+// マップ設定
 const MAP_CONFIG = {
   style: "mapbox://styles/mapbox/satellite-v9",
   fog: { range: [0.5, 10], color: 'rgba(255, 255, 255, 0)', 'high-color': '#000', 'space-color': '#000', 'star-intensity': 0.6 },
   terrain: { source: 'mapbox-dem', exaggeration: 1.5 }
 };
 
-// レイヤー設定
 const LAYER_GLOW = {
   id: 'point-glow',
   type: 'circle',
   paint: {
-    'circle-radius': 5, 
+    'circle-radius': 6, // さらに少し大きくしてクリックしやすく
     'circle-color': [
       'match', ['get', 'category'],
       'landmark', '#ff8800',
@@ -95,7 +94,7 @@ const LAYER_GLOW = {
 const LAYER_CORE = {
   id: 'point-core',
   type: 'circle',
-  paint: { 'circle-radius': 2.5, 'circle-color': '#fff', 'circle-opacity': 1 }
+  paint: { 'circle-radius': 3, 'circle-color': '#fff', 'circle-opacity': 1 }
 };
 
 const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
@@ -121,7 +120,7 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       touchZoomRotate={true}
       padding={padding}
       reuseMaps={true}
-      optimizeForTerrain={true} // 地形最適化ON
+      optimizeForTerrain={true} 
       interactiveLayerIds={['point-glow', 'point-core']}
     >
       <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
@@ -138,7 +137,10 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
 const GlobeContent = () => {
   const mapRef = useRef(null);
   const audioRef = useRef(null);
-  const locationsRef = useRef([]); // 軽量データのみ保持
+  
+  // ★Refの定義 (前回抜けていた部分を修正)
+  const locationsRef = useRef([]);
+  const selectedLocationRef = useRef(null);
   const isGeneratingRef = useRef(false);
   const isRideModeRef = useRef(false);
   const isHistoryModeRef = useRef(false);
@@ -148,7 +150,7 @@ const GlobeContent = () => {
   const visibleCategoriesRef = useRef(null);
 
   const [locations, setLocations] = useState([]);
-  const [selectedLocation, setSelectedLocation] = useState(null); // ここに詳細データが入る
+  const [selectedLocation, setSelectedLocation] = useState(null);
   const [displayData, setDisplayData] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isRideMode, setIsRideMode] = useState(false);
@@ -175,7 +177,7 @@ const GlobeContent = () => {
     landmark: true, history: true, nature: true, modern: true, science: true, art: true
   });
 
-  // --- 音楽プレーヤー用 State ---
+  // 音楽プレーヤー State
   const [bgmVolume, setBgmVolume] = useState(0.5);
   const [voiceVolume, setVoiceVolume] = useState(1.0);
   const [isBgmOn, setIsBgmOn] = useState(false);
@@ -184,14 +186,12 @@ const GlobeContent = () => {
   const [genreFilter, setGenreFilter] = useState('ALL');
   const [artistFilter, setArtistFilter] = useState('ALL');
 
+  // UI State
   const [isPc, setIsPc] = useState(window.innerWidth > 768);
   const [popupPos, setPopupPos] = useState({ x: 20, y: 20 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  
-  // ★修正: 初期値を null にしてメニューを閉じておく
   const [activeTab, setActiveTab] = useState(null); 
-  
   const [nearbySpots, setNearbySpots] = useState([]);
   const [cursor, setCursor] = useState('auto'); 
 
@@ -201,7 +201,7 @@ const GlobeContent = () => {
 
   const handleTabChange = (tab) => {
     if (activeTab === tab) {
-      setActiveTab(null); // 同じタブなら閉じる
+      setActiveTab(null);
       return;
     }
     setActiveTab(tab);
@@ -215,20 +215,21 @@ const GlobeContent = () => {
     }
   }, [isPc]);
 
-  useEffect(() => {
-    visibleCategoriesRef.current = visibleCategories;
-  }, [visibleCategories]);
+  // ★Refの同期
+  useEffect(() => { locationsRef.current = locations; }, [locations]);
+  useEffect(() => { selectedLocationRef.current = selectedLocation; }, [selectedLocation]);
+  useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
+  useEffect(() => { visibleCategoriesRef.current = visibleCategories; }, [visibleCategories]);
 
   const countryList = useMemo(() => {
     const countries = new Set();
     locations.forEach(loc => {
-      // 軽量データには country_ja がない場合があるのでチェック
       if (loc.country_ja) countries.add(loc.country_ja);
     });
     return Array.from(countries).sort();
   }, [locations]);
 
-  // BGMフィルターロジック
+  // BGMロジック
   const availableGenres = useMemo(() => {
     const genres = new Set(BGM_LIBRARY.map(track => track.genre));
     return Array.from(genres).sort();
@@ -283,19 +284,14 @@ const GlobeContent = () => {
 
   const addLog = (msg) => { console.log(msg); setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 5)); };
 
-  useEffect(() => { locationsRef.current = locations; }, [locations]);
-  useEffect(() => { selectedLocationRef.current = selectedLocation; }, [selectedLocation]);
-  useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
-
   // ライドモード制御
   useEffect(() => {
     isRideModeRef.current = isRideMode;
     isHistoryModeRef.current = isHistoryMode;
     if (isRideMode) {
       if (isHistoryMode) {
-        // ヒストリーモードも軽量データだけでフィルタリング
         let candidates = locationsRef.current.filter(l => l.year !== null);
-        if (historyCountry !== "ALL") candidates = candidates.filter(l => l.country_ja === historyCountry); // country_jaがある前提
+        if (historyCountry !== "ALL") candidates = candidates.filter(l => l.country_ja === historyCountry);
         if (historyYearInput && !isNaN(historyYearInput)) {
           let targetYear = parseInt(historyYearInput);
           if (historyEra === "BC") targetYear = -targetYear;
@@ -318,20 +314,17 @@ const GlobeContent = () => {
     }
   }, [isRideMode]);
 
-  // ★超重要: 初期ロードは「軽量データ」のみ取得する
   const fetchSpots = async () => {
     try {
       let allData = [];
       let rangeStart = 0;
       const rangeStep = 999; 
-      
-      // select()の中身を最小限にする（descriptionなどを除外）
-      const minimalFields = 'id, name, name_ja, lat, lon, category, country_ja, year';
+      const minimalFields = 'id, name, name_ja, lat, lon, category, country_ja, year'; // 軽量化
 
       while (true) {
         const { data, error } = await supabase
             .from('spots')
-            .select(minimalFields) // ここで軽量化
+            .select(minimalFields)
             .range(rangeStart, rangeStart + rangeStep);
             
         if (error) throw error;
@@ -342,11 +335,9 @@ const GlobeContent = () => {
         } else { break; }
       }
       const validData = allData.filter(d => d.lat !== null && d.lon !== null && d.lat !== 0 && d.lon !== 0);
-      
-      // データ整形
       const formattedData = validData.map(d => ({ ...d, category: d.category || 'history' }));
       setLocations(formattedData);
-      addLog(`Loaded ${formattedData.length} spots (Lightweight)`);
+      addLog(`Loaded ${formattedData.length} spots`);
     } catch (e) { addLog(`Fetch Error: ${e.message}`); }
   };
 
@@ -388,16 +379,14 @@ const GlobeContent = () => {
   };
 
   const handleSelectFromList = (spot) => {
-    // リストから選んだ場合も詳細をフェッチ
     fetchAndSelectSpot(spot.id);
   };
 
-  // ★詳細データを取得する関数
   const fetchAndSelectSpot = async (spotId) => {
     try {
         const { data, error } = await supabase
             .from('spots')
-            .select('*') // ここで初めて全データを取る
+            .select('*')
             .eq('id', spotId)
             .single();
             
@@ -424,7 +413,6 @@ const GlobeContent = () => {
       const updateData = { [`name_${lang}`]: json.name, [`description_${lang}`]: json.description };
       await supabase.from('spots').update(updateData).eq('id', spot.id);
       
-      // 現在のlocationsは軽量データなので、詳細データ(displayData)だけ更新すれば見た目はOK
       if (selectedLocationRef.current && selectedLocationRef.current.id === spot.id) {
         const newData = { ...spot, ...updateData, name: json.name, description: json.description };
         setDisplayData(newData);
@@ -528,6 +516,7 @@ const GlobeContent = () => {
 
   // ★重要: クリック判定 (IDから詳細をフェッチする)
   const handleMapClick = useCallback((event) => {
+    // ライドモード中でもクリックされたら、ライドを停止してそのスポットを表示する
     if (isRideModeRef.current) {
         setIsRideMode(false);
     }
@@ -549,16 +538,13 @@ const GlobeContent = () => {
     if (isRideModeRef.current || isGeneratingRef.current) return;
     const map = mapRef.current?.getMap(); if (!map) return;
     
-    // 軽量データモードなので、毎回fetchしなくて良い
     if (activeTab === 'explore') {
       const bounds = map.getBounds();
       const ne = bounds.getNorthEast();
       const sw = bounds.getSouthWest();
-      // メモリ上のlocationsからフィルタリング
       const nearby = locationsRef.current.filter(loc => {
         return loc.lat >= sw.lat && loc.lat <= ne.lat && loc.lon >= sw.lng && loc.lon <= ne.lng;
       });
-      // 近い順
       const center = map.getCenter(); 
       nearby.sort((a, b) => {
         const distA = Math.pow(a.lat - center.lat, 2) + Math.pow(a.lon - center.lng, 2);
@@ -590,10 +576,7 @@ const GlobeContent = () => {
       let newSpots = JSON.parse(text.match(/\[[\s\S]*\]/)[0]);
       const insertData = newSpots.map(s => ({ ...s, name_ja: s.name, description_ja: s.description, category: 'history' }));
       await supabase.from('spots').insert(insertData);
-      
-      // 生成後は再度fetchする（軽量）
       fetchSpots();
-      
       if (newSpots.length > 0) mapRef.current?.flyTo({ center: [newSpots[0].lon, newSpots[0].lat], zoom: 4 });
       setInputTheme(""); alert(`${newSpots.length}件追加！`);
     } catch (e) { alert(e.message); } finally { setIsGenerating(false); setStatusMessage(""); }
@@ -630,12 +613,10 @@ const GlobeContent = () => {
     setTimeout(() => { nextRideStep(); }, 100);
   };
 
-  // ★修正: ライド時のステップ（詳細取得を含む）
   const nextRideStep = async () => {
     if (!isRideModeRef.current) return;
     let nextSpot = null;
     
-    // 候補リスト（軽量データ）から次を選ぶ
     if (isHistoryModeRef.current) {
         const sorted = historySortedSpotsRef.current;
         let idx = historyIndexRef.current;
@@ -654,7 +635,6 @@ const GlobeContent = () => {
     }
     
     if (nextSpot) {
-        // 飛ぶ前に詳細データを取得する
         await fetchAndSelectSpot(nextSpot.id);
     }
   };
@@ -726,6 +706,8 @@ const GlobeContent = () => {
         </div>
       );
     }
+    // ... (他のタブの内容は変更なし) ...
+    // 長くなるため省略せず記載します
     if (activeTab === 'browse') {
       return (
         <div style={commonStyle}>
@@ -787,31 +769,37 @@ const GlobeContent = () => {
                     <span>BGM Player</span>
                     <button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: 'transparent', color: isBgmOn?'#00ffcc':'#666', border: 'none', cursor: 'pointer', fontWeight:'bold' }}>{isBgmOn ? 'ON' : 'OFF'}</button>
                 </div>
+                
                 <div style={{background:'#111', padding:'10px', borderRadius:'8px', marginBottom:'15px', border:'1px solid #444'}}>
                     <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
                         <div style={{color:'white', fontSize:'0.9rem', fontWeight:'bold'}}>{currentTrack.title}</div>
                         <div style={{color:'#888', fontSize:'0.8rem'}}>{currentTrack.artist}</div>
                     </div>
+                    
                     <select value={genreFilter} onChange={(e) => { const newGenre = e.target.value; setGenreFilter(newGenre); setArtistFilter('ALL'); let nextTrack = BGM_LIBRARY[0]; if (newGenre !== 'ALL') { const found = BGM_LIBRARY.find(t => t.genre === newGenre); if (found) nextTrack = found; } setCurrentTrack(nextTrack); }} style={{ width:'100%', background: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', padding: '4px', marginBottom:'5px', fontSize:'0.8rem' }}>
                         <option value="ALL">All Genres</option>
                         {availableGenres.map(g => <option key={g} value={g}>{g}</option>)}
                     </select>
+
                     <select value={artistFilter} onChange={(e) => { const newArtist = e.target.value; setArtistFilter(newArtist); let nextTrack = BGM_LIBRARY[0]; if (newArtist !== 'ALL') { const found = BGM_LIBRARY.find(t => t.artist === newArtist && (genreFilter === 'ALL' || t.genre === genreFilter)); if (found) nextTrack = found; } else if (genreFilter !== 'ALL') { const found = BGM_LIBRARY.find(t => t.genre === genreFilter); if (found) nextTrack = found; } setCurrentTrack(nextTrack); }} style={{ width:'100%', background: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', padding: '4px', marginBottom:'5px', fontSize:'0.8rem' }}>
                         <option value="ALL">All Artists</option>
                         {availableArtists.map(a => <option key={a} value={a}>{a}</option>)}
                     </select>
+
                     <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
                         <select value={currentTrack.id} onChange={(e) => { const selected = BGM_LIBRARY.find(t => t.id === e.target.value); if (selected) { setCurrentTrack(selected); if (!isBgmOn) setIsBgmOn(true); } }} style={{ flex:1, background: '#333', color: '#00ffcc', border: '1px solid #555', borderRadius: '4px', padding: '4px', fontSize:'0.8rem' }}>
                             {currentPlaylist.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
                         </select>
                         <button onClick={() => setLoopMode(loopMode === 'one' ? 'all' : 'one')} style={{ background: loopMode==='one'?'#00ffcc':'#333', color:loopMode==='one'?'#000':'#fff', border:'1px solid #555', borderRadius:'4px', padding:'4px 8px', cursor:'pointer' }}>{loopMode === 'one' ? '🔂' : '🔁'}</button>
                     </div>
+
                     <div style={{display:'flex', justifyContent:'center', gap:'15px'}}>
                         <button onClick={playPrevTrack} style={{background:'transparent', border:'none', color:'#fff', cursor:'pointer', fontSize:'1.2rem'}}>⏮</button>
                         <button onClick={() => isBgmOn ? setIsBgmOn(false) : setIsBgmOn(true)} style={{background:'transparent', border:'none', color:'#00ffcc', cursor:'pointer', fontSize:'1.2rem'}}>{isBgmOn ? '⏸' : '▶'}</button>
                         <button onClick={playNextTrack} style={{background:'transparent', border:'none', color:'#fff', cursor:'pointer', fontSize:'1.2rem'}}>⏭</button>
                     </div>
                 </div>
+
                 <input type="range" min="0" max="1" step="0.1" value={bgmVolume} onChange={e => setBgmVolume(parseFloat(e.target.value))} style={{ width: '100%', marginBottom:'20px', accentColor:'#00ffcc' }} />
                 <div style={{ color: 'white', marginBottom: '10px' }}>ボイス音量</div>
                 <input type="range" min="0" max="1" step="0.1" value={voiceVolume} onChange={e => setVoiceVolume(parseFloat(e.target.value))} style={{ width: '100%', accentColor:'#00ffcc' }} />
@@ -943,7 +931,7 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ★スマホ版 操作ボタン (中層) */}
+      {/* ★スマホ版 操作ボタン (中層: 210px) */}
       {!isPc && (activeTab === null || activeTab === 'map') && (
         <div style={{ position: 'absolute', bottom: '210px', left: '20px', right:'20px', display:'flex', justifyContent:'space-between', zIndex:110 }}>
             <div style={{display:'flex', gap:'10px'}}>
