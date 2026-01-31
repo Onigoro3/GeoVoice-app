@@ -18,7 +18,6 @@ const LANGUAGES = {
   fr: { code: 'fr', name: 'French', label: '🇫🇷 Français' },
 };
 
-// ★追加: 年代の多言語ラベル
 const ERA_LABELS = {
   ja: { AD: '西暦', BC: '紀元前' },
   en: { AD: 'AD', BC: 'BC' },
@@ -60,58 +59,10 @@ const MAP_CONFIG = {
   terrain: { source: 'mapbox-dem', exaggeration: 1.5 }
 };
 
-// ★軽量化: クラスタリング用のレイヤー定義
-// 1. クラスター（集合体）の円
-const LAYER_CLUSTER = {
-  id: 'clusters',
-  type: 'circle',
-  filter: ['has', 'point_count'],
-  paint: {
-    'circle-color': [
-      'step',
-      ['get', 'point_count'],
-      '#51bbd6', // 少ない時
-      20,
-      '#f1f075', // 20個以上
-      100,
-      '#f28cb1'  // 100個以上
-    ],
-    'circle-radius': [
-      'step',
-      ['get', 'point_count'],
-      15, // 半径15px
-      20,
-      20, // 半径20px
-      100,
-      25  // 半径25px
-    ],
-    'circle-opacity': 0.7,
-    'circle-stroke-width': 1,
-    'circle-stroke-color': '#fff'
-  }
-};
-
-// 2. クラスター内の数字
-const LAYER_CLUSTER_COUNT = {
-  id: 'cluster-count',
-  type: 'symbol',
-  filter: ['has', 'point_count'],
-  layout: {
-    'text-field': '{point_count_abbreviated}',
-    'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
-    'text-size': 12
-  },
-  paint: {
-    'text-color': '#000'
-  }
-};
-
-// 3. 集合していない個別の点 (既存のデザインを維持)
-// ★修正: filterを追加して、クラスター化されていないものだけを表示
-const LAYER_UNCLUSTERED_GLOW = {
+// ★修正: クラスタリング削除し、元のドット表示に戻す
+const LAYER_GLOW = {
   id: 'point-glow',
   type: 'circle',
-  filter: ['!', ['has', 'point_count']], 
   paint: {
     'circle-radius': 3, // 小さく維持
     'circle-color': [
@@ -128,13 +79,13 @@ const LAYER_UNCLUSTERED_GLOW = {
     'circle-blur': 0.4
   }
 };
-
-const LAYER_UNCLUSTERED_CORE = {
+const LAYER_CORE = {
   id: 'point-core',
   type: 'circle',
-  filter: ['!', ['has', 'point_count']],
   paint: { 'circle-radius': 1.5, 'circle-color': '#fff', 'circle-opacity': 1 }
 };
+
+const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
 
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, geoJsonData, onError, padding }) => {
   return (
@@ -147,7 +98,7 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       fog={MAP_CONFIG.fog}
       terrain={MAP_CONFIG.terrain}
       onMoveEnd={onMoveEnd}
-      style={{ width: '100%', height: '100%' }}
+      style={MAP_CONTAINER_STYLE}
       onError={onError}
       dragRotate={true}
       touchZoomRotate={true}
@@ -155,29 +106,11 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       reuseMaps={true}
       optimizeForTerrain={true}
     >
-      <Source 
-        id="mapbox-dem" 
-        type="raster-dem" 
-        url="mapbox://mapbox.mapbox-terrain-dem-v1" 
-        tileSize={512} 
-        maxzoom={14} 
-      />
+      <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
       {geoJsonData && (
-        // ★修正: cluster={true} を追加して軽量化
-        <Source 
-          id="my-locations" 
-          type="geojson" 
-          data={geoJsonData} 
-          cluster={true} 
-          clusterMaxZoom={14} // 14以上ズームするとバラバラになる
-          clusterRadius={50}  // 50px以内の点をまとめる
-        >
-          {/* クラスター表示レイヤー */}
-          <Layer {...LAYER_CLUSTER} />
-          <Layer {...LAYER_CLUSTER_COUNT} />
-          {/* 個別点表示レイヤー */}
-          <Layer {...LAYER_UNCLUSTERED_GLOW} />
-          <Layer {...LAYER_UNCLUSTERED_CORE} />
+        <Source id="my-locations" type="geojson" data={geoJsonData}>
+          <Layer {...LAYER_GLOW} />
+          <Layer {...LAYER_CORE} />
         </Source>
       )}
     </Map>
@@ -330,13 +263,8 @@ const GlobeContent = () => {
       const rangeStep = 999; 
 
       while (true) {
-        const { data, error } = await supabase
-          .from('spots')
-          .select('*')
-          .range(rangeStart, rangeStart + rangeStep);
-
+        const { data, error } = await supabase.from('spots').select('*').range(rangeStart, rangeStart + rangeStep);
         if (error) throw error;
-        
         if (data && data.length > 0) {
           allData = allData.concat(data);
           if (data.length < rangeStep + 1) break; 
@@ -345,10 +273,8 @@ const GlobeContent = () => {
           break;
         }
       }
-
       const validData = allData.filter(d => d.lat !== null && d.lon !== null && d.lat !== 0 && d.lon !== 0);
       const formattedData = validData.map(d => ({ ...d, category: d.category || 'history' }));
-      
       setLocations(formattedData);
       addLog(`Loaded ${formattedData.length} spots`);
     } catch (e) { addLog(`Fetch Error: ${e.message}`); }
@@ -430,14 +356,9 @@ const GlobeContent = () => {
     let displayName = selectedLocation[`name${suffix}`] || selectedLocation.name;
     let displayDesc = selectedLocation[`description${suffix}`] || selectedLocation.description;
     
-    if (!selectedLocation.image_url) {
-        // 画像取得
-    }
-
     const newData = { ...selectedLocation, name: displayName, description: displayDesc, needsTranslation: currentLang === 'ja' && !/[ぁ-んァ-ン]/.test(displayName) };
     setDisplayData(newData);
     
-    // ★修正: スマホ版ライドモードでも音声を再生するため、条件緩和
     if (!newData.needsTranslation) {
       window.speechSynthesis.cancel();
       speak(newData.description);
@@ -457,7 +378,6 @@ const GlobeContent = () => {
     window.speechSynthesis.speak(utterance);
   };
 
-  // ★追加: 再生/一時停止
   const togglePlay = () => {
     if (window.speechSynthesis.speaking) {
       if (window.speechSynthesis.paused) {
@@ -585,7 +505,7 @@ const GlobeContent = () => {
       setNearbySpots(nearby.slice(0, 15)); 
     }
 
-    // ★軽量化: スナップ処理 (クラスター化されていない点のみ)
+    // ★軽量化: スナップ処理 (距離チェックで間引く)
     const features = map.queryRenderedFeatures([[point.x - 30, point.y - 30], [point.x + 30, point.y + 30]], { layers: ['point-core'] });
     if (features.length > 0) {
       const fullLocation = locationsRef.current.find(l => l.id === features[0].properties.id);
@@ -684,7 +604,6 @@ const GlobeContent = () => {
             <h4 style={{ margin: '0 0 10px 0', color: '#ffcc00' }}>⏳ ヒストリーライド</h4>
             <div style={{ display: 'flex', gap: '5px', marginBottom: '10px' }}>
                 <input type="number" placeholder="年" value={historyYearInput} onChange={e => setHistoryYearInput(e.target.value)} style={{ flex: 1, padding: '8px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }} />
-                {/* ★修正: AD/BC表記 */}
                 <select value={historyEra} onChange={e => setHistoryEra(e.target.value)} style={{ background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}>
                     <option value="AD">{ERA_LABELS[currentLang].AD}</option>
                     <option value="BC">{ERA_LABELS[currentLang].BC}</option>
@@ -803,7 +722,6 @@ const GlobeContent = () => {
             <div style={{ padding: '15px', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ color: 'white', fontWeight: 'bold', fontSize: '1.2rem' }}>GeoVoice</div>
               <div style={{ display: 'flex', gap: '10px' }}>
-                {/* ★追加: 再生ボタン (PC) */}
                 <button onClick={togglePlay} style={{ background: '#333', border: 'none', color: isPlaying ? '#00ffcc' : 'white', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer', fontSize:'1rem' }}>{isPlaying ? '⏸' : '▶'}</button>
                 <button onClick={toggleRideMode} style={{ background: isRideMode?'#ff3366':'#333', border: 'none', color: 'white', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer', fontWeight:'bold', fontSize:'0.8rem' }}>{isRideMode?'🛑':'✈️'}</button>
                 <button onClick={handleCurrentLocation} style={{ background: '#333', border: 'none', color: '#00ffcc', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer', fontSize:'1rem' }}>📍</button>
@@ -862,17 +780,13 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ★スマホ版 操作ボタン (中層: 290px) */}
+      {/* ★スマホ版 操作ボタン (中層: 210px) */}
       {!isPc && activeTab === 'map' && (
-        <div style={{ position: 'absolute', bottom: '290px', left: '20px', right:'20px', display:'flex', justifyContent:'space-between', zIndex:110 }}>
-            {/* 左: 現在地 + 再生ボタン */}
+        <div style={{ position: 'absolute', bottom: '210px', left: '20px', right:'20px', display:'flex', justifyContent:'space-between', zIndex:110 }}>
             <div style={{display:'flex', gap:'10px'}}>
                 <button onClick={handleCurrentLocation} style={{ width: '50px', height: '50px', background: '#222', border: '1px solid #444', borderRadius: '50%', color: '#00ffcc', fontSize: '1.5rem', boxShadow: '0 4px 10px black', cursor: 'pointer' }}>📍</button>
-                {/* ★追加: スマホ版 再生ボタン */}
                 <button onClick={togglePlay} style={{ width: '50px', height: '50px', background: '#222', border: '1px solid #444', borderRadius: '50%', color: isPlaying ? '#00ffcc' : 'white', fontSize: '1.2rem', boxShadow: '0 4px 10px black', cursor: 'pointer' }}>{isPlaying ? '⏸' : '▶'}</button>
             </div>
-            
-            {/* 右: ライド/NEXT */}
             <div style={{display:'flex', gap:'10px'}}>
                 {isRideMode ? (
                     <>
@@ -890,7 +804,7 @@ const GlobeContent = () => {
 
       <div style={{ position: 'absolute', top: isPc ? '50%' : '30%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
 
-      {/* スポットカード (UI分割・上層: スマホは370px以上) */}
+      {/* スポットカード (UI分割・上層: スマホは290px以上) */}
       {selectedLocation && displayData && (activeTab === 'map' || isPc) && (
         <>
           {!isPc && displayData.image_url && (
@@ -909,8 +823,7 @@ const GlobeContent = () => {
               left: isPc ? (popupPos?.x || (window.innerWidth - 420)) : '10px', 
               top: isPc ? (popupPos?.y || 20) : 'auto', 
               right: isPc ? 'auto' : '10px',
-              // ★スマホ版余白調整: 常に下から370px (ボタン群290px+50px+余裕)
-              bottom: isPc ? 'auto' : '370px', 
+              bottom: isPc ? 'auto' : '290px', 
               transform: isPc ? 'none' : 'none', 
               background: 'rgba(10, 10, 10, 0.95)', padding: '20px', borderRadius: '20px', color: 'white', textAlign: 'center', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.2)', zIndex: 10, width: isPc ? '400px' : 'auto', maxWidth: isPc ? '360px' : 'none', maxHeight: isPc ? 'none' : '40vh', boxShadow: '0 4px 30px rgba(0,0,0,0.6)', resize: isPc ? 'both' : 'none', overflow: isPc ? 'auto' : 'hidden', display: 'flex', flexDirection: 'column', cursor: isPc ? (isDragging ? 'grabbing' : 'grab') : 'default', animation: isDragging ? 'none' : 'fadeIn 0.3s'
             }}>
