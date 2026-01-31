@@ -27,7 +27,6 @@ const ERA_LABELS = {
   fr: { AD: 'ap. J.-C.', BC: 'av. J.-C.' },
 };
 
-// プライバシーポリシー本文
 const PRIVACY_POLICY_TEXT = `
 ## プライバシーポリシー
 
@@ -54,18 +53,67 @@ GeoVoice（以下「本アプリ」）は、ユーザーの個人情報の保護
 アカウント削除により、保存されたデータは消去されます。
 `;
 
-// マップ設定 (軽量化)
+// マップ設定
 const MAP_CONFIG = {
   style: "mapbox://styles/mapbox/satellite-v9",
   fog: { range: [0.5, 10], color: 'rgba(255, 255, 255, 0)', 'high-color': '#000', 'space-color': '#000', 'star-intensity': 0.6 },
   terrain: { source: 'mapbox-dem', exaggeration: 1.5 }
 };
 
-const LAYER_GLOW = {
+// ★軽量化: クラスタリング用のレイヤー定義
+// 1. クラスター（集合体）の円
+const LAYER_CLUSTER = {
+  id: 'clusters',
+  type: 'circle',
+  filter: ['has', 'point_count'],
+  paint: {
+    'circle-color': [
+      'step',
+      ['get', 'point_count'],
+      '#51bbd6', // 少ない時
+      20,
+      '#f1f075', // 20個以上
+      100,
+      '#f28cb1'  // 100個以上
+    ],
+    'circle-radius': [
+      'step',
+      ['get', 'point_count'],
+      15, // 半径15px
+      20,
+      20, // 半径20px
+      100,
+      25  // 半径25px
+    ],
+    'circle-opacity': 0.7,
+    'circle-stroke-width': 1,
+    'circle-stroke-color': '#fff'
+  }
+};
+
+// 2. クラスター内の数字
+const LAYER_CLUSTER_COUNT = {
+  id: 'cluster-count',
+  type: 'symbol',
+  filter: ['has', 'point_count'],
+  layout: {
+    'text-field': '{point_count_abbreviated}',
+    'text-font': ['DIN Offc Pro Medium', 'Arial Unicode MS Bold'],
+    'text-size': 12
+  },
+  paint: {
+    'text-color': '#000'
+  }
+};
+
+// 3. 集合していない個別の点 (既存のデザインを維持)
+// ★修正: filterを追加して、クラスター化されていないものだけを表示
+const LAYER_UNCLUSTERED_GLOW = {
   id: 'point-glow',
   type: 'circle',
+  filter: ['!', ['has', 'point_count']], 
   paint: {
-    'circle-radius': 3,
+    'circle-radius': 3, // 小さく維持
     'circle-color': [
       'match', ['get', 'category'],
       'landmark', '#ff8800',
@@ -80,9 +128,11 @@ const LAYER_GLOW = {
     'circle-blur': 0.4
   }
 };
-const LAYER_CORE = {
+
+const LAYER_UNCLUSTERED_CORE = {
   id: 'point-core',
   type: 'circle',
+  filter: ['!', ['has', 'point_count']],
   paint: { 'circle-radius': 1.5, 'circle-color': '#fff', 'circle-opacity': 1 }
 };
 
@@ -105,11 +155,29 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       reuseMaps={true}
       optimizeForTerrain={true}
     >
-      <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
+      <Source 
+        id="mapbox-dem" 
+        type="raster-dem" 
+        url="mapbox://mapbox.mapbox-terrain-dem-v1" 
+        tileSize={512} 
+        maxzoom={14} 
+      />
       {geoJsonData && (
-        <Source id="my-locations" type="geojson" data={geoJsonData}>
-          <Layer {...LAYER_GLOW} />
-          <Layer {...LAYER_CORE} />
+        // ★修正: cluster={true} を追加して軽量化
+        <Source 
+          id="my-locations" 
+          type="geojson" 
+          data={geoJsonData} 
+          cluster={true} 
+          clusterMaxZoom={14} // 14以上ズームするとバラバラになる
+          clusterRadius={50}  // 50px以内の点をまとめる
+        >
+          {/* クラスター表示レイヤー */}
+          <Layer {...LAYER_CLUSTER} />
+          <Layer {...LAYER_CLUSTER_COUNT} />
+          {/* 個別点表示レイヤー */}
+          <Layer {...LAYER_UNCLUSTERED_GLOW} />
+          <Layer {...LAYER_UNCLUSTERED_CORE} />
         </Source>
       )}
     </Map>
@@ -171,7 +239,6 @@ const GlobeContent = () => {
 
   const initialViewState = { longitude: 135.0, latitude: 35.0, zoom: 3.5 };
 
-  // PC版初期位置
   useEffect(() => {
     if (isPc) {
       setPopupPos({ x: window.innerWidth - 420, y: 20 });
@@ -363,10 +430,15 @@ const GlobeContent = () => {
     let displayName = selectedLocation[`name${suffix}`] || selectedLocation.name;
     let displayDesc = selectedLocation[`description${suffix}`] || selectedLocation.description;
     
+    if (!selectedLocation.image_url) {
+        // 画像取得
+    }
+
     const newData = { ...selectedLocation, name: displayName, description: displayDesc, needsTranslation: currentLang === 'ja' && !/[ぁ-んァ-ン]/.test(displayName) };
     setDisplayData(newData);
     
-    if (!newData.needsTranslation && !isRideMode) {
+    // ★修正: スマホ版ライドモードでも音声を再生するため、条件緩和
+    if (!newData.needsTranslation) {
       window.speechSynthesis.cancel();
       speak(newData.description);
     }
@@ -385,7 +457,7 @@ const GlobeContent = () => {
     window.speechSynthesis.speak(utterance);
   };
 
-  // ★追加: 再生/一時停止トグル
+  // ★追加: 再生/一時停止
   const togglePlay = () => {
     if (window.speechSynthesis.speaking) {
       if (window.speechSynthesis.paused) {
@@ -513,8 +585,8 @@ const GlobeContent = () => {
       setNearbySpots(nearby.slice(0, 15)); 
     }
 
-    const boxSize = 60;
-    const features = map.queryRenderedFeatures([[point.x - boxSize/2, point.y - boxSize/2], [point.x + boxSize/2, point.y + boxSize/2]], { layers: ['point-core'] });
+    // ★軽量化: スナップ処理 (クラスター化されていない点のみ)
+    const features = map.queryRenderedFeatures([[point.x - 30, point.y - 30], [point.x + 30, point.y + 30]], { layers: ['point-core'] });
     if (features.length > 0) {
       const fullLocation = locationsRef.current.find(l => l.id === features[0].properties.id);
       if (fullLocation) {
@@ -612,7 +684,7 @@ const GlobeContent = () => {
             <h4 style={{ margin: '0 0 10px 0', color: '#ffcc00' }}>⏳ ヒストリーライド</h4>
             <div style={{ display: 'flex', gap: '5px', marginBottom: '10px' }}>
                 <input type="number" placeholder="年" value={historyYearInput} onChange={e => setHistoryYearInput(e.target.value)} style={{ flex: 1, padding: '8px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }} />
-                {/* ★修正: AD/BCの表記を日本語化 */}
+                {/* ★修正: AD/BC表記 */}
                 <select value={historyEra} onChange={e => setHistoryEra(e.target.value)} style={{ background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}>
                     <option value="AD">{ERA_LABELS[currentLang].AD}</option>
                     <option value="BC">{ERA_LABELS[currentLang].BC}</option>
@@ -708,7 +780,6 @@ const GlobeContent = () => {
              transition: 'max-height 0.3s ease-in-out, opacity 0.3s',
              opacity: isPanelOpen ? 1 : 0,
              visibility: isPanelOpen ? 'visible' : 'hidden',
-             // ★黒い空白対策
              borderLeft: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
              borderRight: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
              borderTop: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
@@ -732,7 +803,7 @@ const GlobeContent = () => {
             <div style={{ padding: '15px', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ color: 'white', fontWeight: 'bold', fontSize: '1.2rem' }}>GeoVoice</div>
               <div style={{ display: 'flex', gap: '10px' }}>
-                {/* ★追加: PC版 再生ボタン */}
+                {/* ★追加: 再生ボタン (PC) */}
                 <button onClick={togglePlay} style={{ background: '#333', border: 'none', color: isPlaying ? '#00ffcc' : 'white', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer', fontSize:'1rem' }}>{isPlaying ? '⏸' : '▶'}</button>
                 <button onClick={toggleRideMode} style={{ background: isRideMode?'#ff3366':'#333', border: 'none', color: 'white', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer', fontWeight:'bold', fontSize:'0.8rem' }}>{isRideMode?'🛑':'✈️'}</button>
                 <button onClick={handleCurrentLocation} style={{ background: '#333', border: 'none', color: '#00ffcc', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer', fontSize:'1rem' }}>📍</button>
@@ -791,14 +862,16 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ★スマホ版 操作ボタン (中層: 210px) */}
+      {/* ★スマホ版 操作ボタン (中層: 290px) */}
       {!isPc && activeTab === 'map' && (
-        <div style={{ position: 'absolute', bottom: '210px', left: '20px', right:'20px', display:'flex', justifyContent:'space-between', zIndex:110 }}>
+        <div style={{ position: 'absolute', bottom: '290px', left: '20px', right:'20px', display:'flex', justifyContent:'space-between', zIndex:110 }}>
             {/* 左: 現在地 + 再生ボタン */}
             <div style={{display:'flex', gap:'10px'}}>
                 <button onClick={handleCurrentLocation} style={{ width: '50px', height: '50px', background: '#222', border: '1px solid #444', borderRadius: '50%', color: '#00ffcc', fontSize: '1.5rem', boxShadow: '0 4px 10px black', cursor: 'pointer' }}>📍</button>
+                {/* ★追加: スマホ版 再生ボタン */}
                 <button onClick={togglePlay} style={{ width: '50px', height: '50px', background: '#222', border: '1px solid #444', borderRadius: '50%', color: isPlaying ? '#00ffcc' : 'white', fontSize: '1.2rem', boxShadow: '0 4px 10px black', cursor: 'pointer' }}>{isPlaying ? '⏸' : '▶'}</button>
             </div>
+            
             {/* 右: ライド/NEXT */}
             <div style={{display:'flex', gap:'10px'}}>
                 {isRideMode ? (
@@ -817,7 +890,7 @@ const GlobeContent = () => {
 
       <div style={{ position: 'absolute', top: isPc ? '50%' : '30%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
 
-      {/* スポットカード (UI分割・上層: スマホは290px以上) */}
+      {/* スポットカード (UI分割・上層: スマホは370px以上) */}
       {selectedLocation && displayData && (activeTab === 'map' || isPc) && (
         <>
           {!isPc && displayData.image_url && (
@@ -836,8 +909,8 @@ const GlobeContent = () => {
               left: isPc ? (popupPos?.x || (window.innerWidth - 420)) : '10px', 
               top: isPc ? (popupPos?.y || 20) : 'auto', 
               right: isPc ? 'auto' : '10px',
-              // ★スマホ版余白調整: 常に下から290px (ボタン群210px+50px+余裕)
-              bottom: isPc ? 'auto' : '290px', 
+              // ★スマホ版余白調整: 常に下から370px (ボタン群290px+50px+余裕)
+              bottom: isPc ? 'auto' : '370px', 
               transform: isPc ? 'none' : 'none', 
               background: 'rgba(10, 10, 10, 0.95)', padding: '20px', borderRadius: '20px', color: 'white', textAlign: 'center', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.2)', zIndex: 10, width: isPc ? '400px' : 'auto', maxWidth: isPc ? '360px' : 'none', maxHeight: isPc ? 'none' : '40vh', boxShadow: '0 4px 30px rgba(0,0,0,0.6)', resize: isPc ? 'both' : 'none', overflow: isPc ? 'auto' : 'hidden', display: 'flex', flexDirection: 'column', cursor: isPc ? (isDragging ? 'grabbing' : 'grab') : 'default', animation: isDragging ? 'none' : 'fadeIn 0.3s'
             }}>
