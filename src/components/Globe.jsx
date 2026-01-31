@@ -26,12 +26,21 @@ const ERA_LABELS = {
   fr: { AD: 'ap. J.-C.', BC: 'av. J.-C.' },
 };
 
-// ★追加: BGMリスト (これらのファイルをpublicフォルダに置いてください)
+// ★修正: WAV対応 & 日本語名対応の例
 const BGM_LIST = [
-  { name: 'Default', url: '/bgm.mp3' },
-  { name: 'Piano', url: '/bgm_piano.mp3' },
-  { name: 'Jazz', url: '/bgm_jazz.mp3' },
-  { name: 'Ambient', url: '/bgm_ambient.mp3' },
+  // 1. 基本 (MP3)
+  { name: '10℃', url: '/bgm/bgm.mp3' },
+
+  // 2. WAVファイルもOK
+  { name: 'かえりみち', url: '/bgm/1.wav' },
+
+  // 3. 【推奨】ファイル名は英語、表示名は日本語
+  // (public/bgm/jazz.mp3 を置いておく)
+  { name: 'おしゃれジャズ', url: '/bgm/jazz.mp3' },
+
+  // 4. 日本語ファイル名も一応OK (環境によってはエラーになる可能性あり)
+  // (public/bgm/祭り.mp3 を置いておく)
+  { name: '日本のお祭り', url: '/bgm/祭り.mp3' },
 ];
 
 const PREMIUM_CATEGORIES = ['science', 'art'];
