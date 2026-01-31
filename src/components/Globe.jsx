@@ -26,21 +26,14 @@ const ERA_LABELS = {
   fr: { AD: 'ap. J.-C.', BC: 'av. J.-C.' },
 };
 
-// ★修正: WAV対応 & 日本語名対応の例
-const BGM_LIST = [
-  // 1. 基本 (MP3)
-  { name: '10℃', url: '/bgm/bgm.mp3' },
-
-  // 2. WAVファイルもOK
-  { name: 'かえりみち', url: '/bgm/1.wav' },
-
-  // 3. 【推奨】ファイル名は英語、表示名は日本語
-  // (public/bgm/jazz.mp3 を置いておく)
-  { name: 'おしゃれジャズ', url: '/bgm/jazz.mp3' },
-
-  // 4. 日本語ファイル名も一応OK (環境によってはエラーになる可能性あり)
-  // (public/bgm/祭り.mp3 を置いておく)
-  { name: '日本のお祭り', url: '/bgm/祭り.mp3' },
+// ★追加: 拡張BGMライブラリ (アーティスト名を追加)
+// publicフォルダに実際のファイルを配置してください
+const BGM_LIBRARY = [
+  { id: 'def1', title: 'Default', artist: 'System', url: '/bgm/default.mp3' },
+  { id: 'pno1', title: 'Piano 1', artist: 'Classical', url: '/bgm/piano.wav' }, 
+  { id: 'jaz1', title: 'Cool Jazz', artist: 'Jazz Band', url: '/bgm/jazz.mp3' },
+  { id: 'jaz2', title: 'Night Jazz', artist: 'Jazz Band', url: '/bgm/jazz2.mp3' }, // 追加例
+  { id: 'fes1', title: 'Matsuri', artist: 'Japan', url: '/bgm/matsuri.mp3' },
 ];
 
 const PREMIUM_CATEGORIES = ['science', 'art'];
@@ -178,11 +171,17 @@ const GlobeContent = () => {
     landmark: true, history: true, nature: true, modern: true, science: true, art: true
   });
 
+  // --- 音楽プレーヤー用 State ---
   const [bgmVolume, setBgmVolume] = useState(0.5);
   const [voiceVolume, setVoiceVolume] = useState(1.0);
   const [isBgmOn, setIsBgmOn] = useState(false);
-  // ★追加: 現在選択中のBGM
-  const [currentBgm, setCurrentBgm] = useState(BGM_LIST[0].url);
+  
+  // 現在再生中の曲データ
+  const [currentTrack, setCurrentTrack] = useState(BGM_LIBRARY[0]);
+  // ループモード: 'all' (全曲ループ) or 'one' (1曲リピート)
+  const [loopMode, setLoopMode] = useState('all'); 
+  // アーティストフィルター: 'ALL' or アーティスト名
+  const [artistFilter, setArtistFilter] = useState('ALL');
 
   const [isPc, setIsPc] = useState(window.innerWidth > 768);
   const [popupPos, setPopupPos] = useState({ x: 20, y: 20 });
@@ -208,6 +207,18 @@ const GlobeContent = () => {
     });
     return Array.from(countries).sort();
   }, [locations]);
+
+  // ★追加: アーティストリストの生成
+  const artistList = useMemo(() => {
+    const artists = new Set(BGM_LIBRARY.map(track => track.artist));
+    return Array.from(artists).sort();
+  }, []);
+
+  // ★追加: 現在のフィルターに基づいたプレイリスト
+  const currentPlaylist = useMemo(() => {
+    if (artistFilter === 'ALL') return BGM_LIBRARY;
+    return BGM_LIBRARY.filter(track => track.artist === artistFilter);
+  }, [artistFilter]);
 
   useEffect(() => {
     const handleResize = () => setIsPc(window.innerWidth > 768);
@@ -243,6 +254,7 @@ const GlobeContent = () => {
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
   useEffect(() => { visibleCategoriesRef.current = visibleCategories; }, [visibleCategories]);
 
+  // ライドモード制御
   useEffect(() => {
     isRideModeRef.current = isRideMode;
     isHistoryModeRef.current = isHistoryMode;
@@ -407,6 +419,60 @@ const GlobeContent = () => {
     }
   };
 
+  // ★追加: BGM制御ロジック
+  const playNextTrack = () => {
+    if (loopMode === 'one') {
+      // 同じ曲を頭から再生
+      const audio = audioRef.current;
+      if (audio) {
+        audio.currentTime = 0;
+        audio.play().catch(() => {});
+      }
+    } else {
+      // 次の曲へ (プレイリスト内ループ)
+      const currentIndex = currentPlaylist.findIndex(t => t.id === currentTrack.id);
+      const nextIndex = (currentIndex + 1) % currentPlaylist.length;
+      setCurrentTrack(currentPlaylist[nextIndex]);
+    }
+  };
+
+  const playPrevTrack = () => {
+    const currentIndex = currentPlaylist.findIndex(t => t.id === currentTrack.id);
+    const prevIndex = (currentIndex - 1 + currentPlaylist.length) % currentPlaylist.length;
+    setCurrentTrack(currentPlaylist[prevIndex]);
+  };
+
+  // 曲が終わった時のイベントハンドラ
+  const handleTrackEnded = () => {
+    playNextTrack();
+  };
+
+  // BGM再生の副作用
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    
+    // 曲が変わったらソースを更新して再生
+    if (audio.src !== window.location.origin + currentTrack.url) {
+        // srcが違う場合のみ更新（再レンダリング時の途切れ防止）
+        // ※create-react-appやViteの開発環境ではフルパス比較が必要
+    }
+    
+    if (isBgmOn) {
+        audio.volume = isPlaying ? bgmVolume * 0.2 : bgmVolume;
+        // Promiseエラー防止
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+            playPromise.catch(error => {
+                console.log("Auto-play prevented");
+            });
+        }
+    } else {
+        audio.pause();
+    }
+  }, [isBgmOn, isPlaying, bgmVolume, currentTrack]);
+
+
   // 管理者用ツール: 全スポットの国名タグ更新
   const updateAllCountryTags = async () => {
     if (!confirm("全てのスポットの国名情報をAIで再取得しますか？\n（データ数が多い場合、時間がかかります）")) return;
@@ -557,18 +623,6 @@ const GlobeContent = () => {
     return year < 0 ? `BC ${Math.abs(year)}` : `AD ${year}`;
   };
 
-  // ★修正: BGM再生制御 (currentBgm変更時に即反映)
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (isBgmOn) { 
-        audio.play().catch(() => {}); 
-        audio.volume = isPlaying ? bgmVolume * 0.2 : bgmVolume; 
-    } else { 
-        audio.pause(); 
-    }
-  }, [isBgmOn, isPlaying, bgmVolume, currentBgm]); // currentBgmを追加
-
   const handleTabChange = (tab) => {
     if (activeTab === tab) {
       setActiveTab('map');
@@ -676,23 +730,49 @@ const GlobeContent = () => {
                     <label style={{ display: 'flex', alignItems: 'center', gap:'8px', color: 'white' }}><input type="checkbox" checked={visibleCategories.modern} onChange={e => setVisibleCategories(prev => ({...prev, modern: e.target.checked}))} /> 🏙️ 現代</label>
                 </div>
             </div>
+            {/* ★修正: BGM・ミュージックプレーヤー設定 */}
             <div style={{ padding: '15px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', color: 'white', alignItems:'center' }}>
-                    <span>BGM</span>
-                    <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
-                        {/* ★追加: BGM選択ドロップダウン */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', color: 'white', alignItems:'center' }}>
+                    <span>BGM Player</span>
+                    <button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: 'transparent', color: isBgmOn?'#00ffcc':'#666', border: 'none', cursor: 'pointer', fontWeight:'bold' }}>{isBgmOn ? 'ON' : 'OFF'}</button>
+                </div>
+                {/* プレーヤーコントローラー */}
+                <div style={{background:'#111', padding:'10px', borderRadius:'8px', marginBottom:'15px', border:'1px solid #444'}}>
+                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
+                        <div style={{color:'white', fontSize:'0.9rem', fontWeight:'bold'}}>{currentTrack.title}</div>
+                        <div style={{color:'#888', fontSize:'0.8rem'}}>{currentTrack.artist}</div>
+                    </div>
+                    
+                    <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
+                        {/* プレイリスト選択 (アーティストフィルター) */}
                         <select 
-                            value={currentBgm} 
-                            onChange={(e) => setCurrentBgm(e.target.value)}
-                            style={{ background: '#333', color: '#00ffcc', border: '1px solid #555', borderRadius: '4px', padding: '2px 5px', fontSize:'0.8rem' }}
+                            value={artistFilter} 
+                            onChange={(e) => {
+                                setArtistFilter(e.target.value);
+                                // フィルター変更時に最初の曲にセットしても良いが、ここでは再生継続
+                            }}
+                            style={{ flex:1, background: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', padding: '4px' }}
                         >
-                            {BGM_LIST.map((bgm) => (
-                                <option key={bgm.url} value={bgm.url}>{bgm.name}</option>
-                            ))}
+                            <option value="ALL">All Artists</option>
+                            {artistList.map(a => <option key={a} value={a}>{a}</option>)}
                         </select>
-                        <button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: 'transparent', color: isBgmOn?'#00ffcc':'#666', border: 'none', cursor: 'pointer', fontWeight:'bold' }}>{isBgmOn ? 'ON' : 'OFF'}</button>
+                        
+                        {/* ループモード切替 */}
+                        <button 
+                            onClick={() => setLoopMode(loopMode === 'one' ? 'all' : 'one')}
+                            style={{ background: loopMode==='one'?'#00ffcc':'#333', color:loopMode==='one'?'#000':'#fff', border:'1px solid #555', borderRadius:'4px', padding:'4px 8px', cursor:'pointer' }}
+                        >
+                            {loopMode === 'one' ? '🔂' : '🔁'}
+                        </button>
+                    </div>
+
+                    <div style={{display:'flex', justifyContent:'center', gap:'15px'}}>
+                        <button onClick={playPrevTrack} style={{background:'transparent', border:'none', color:'#fff', cursor:'pointer', fontSize:'1.2rem'}}>⏮</button>
+                        <button onClick={() => isBgmOn ? setIsBgmOn(false) : setIsBgmOn(true)} style={{background:'transparent', border:'none', color:'#00ffcc', cursor:'pointer', fontSize:'1.2rem'}}>{isBgmOn ? '⏸' : '▶'}</button>
+                        <button onClick={playNextTrack} style={{background:'transparent', border:'none', color:'#fff', cursor:'pointer', fontSize:'1.2rem'}}>⏭</button>
                     </div>
                 </div>
+
                 <input type="range" min="0" max="1" step="0.1" value={bgmVolume} onChange={e => setBgmVolume(parseFloat(e.target.value))} style={{ width: '100%', marginBottom:'20px', accentColor:'#00ffcc' }} />
                 <div style={{ color: 'white', marginBottom: '10px' }}>ボイス音量</div>
                 <input type="range" min="0" max="1" step="0.1" value={voiceVolume} onChange={e => setVoiceVolume(parseFloat(e.target.value))} style={{ width: '100%', accentColor:'#00ffcc' }} />
@@ -728,7 +808,7 @@ const GlobeContent = () => {
 
   return (
     <div style={{ width: "100vw", height: "100dvh", background: "black", fontFamily: 'sans-serif', position: 'fixed', top: 0, left: 0, overflow: 'hidden', touchAction: 'none', overscrollBehavior: 'none' }}>
-      <audio ref={audioRef} src={currentBgm} loop /> {/* ★修正: 選択されたBGMを再生 */}
+      <audio ref={audioRef} src={currentTrack.url} loop={loopMode === 'one'} onEnded={handleTrackEnded} /> 
       {isPc && <div style={{ position: 'absolute', bottom: '10px', right: '10px', zIndex: 100, background: 'rgba(0,0,0,0.7)', color: '#00ff00', fontSize: '10px', padding: '5px', borderRadius: '5px', maxWidth: '300px', pointerEvents: 'none' }}>{logs.map((log, i) => <div key={i}>{log}</div>)}</div>}
       
       {/* PC用UIコンテナ */}
