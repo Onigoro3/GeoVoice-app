@@ -28,27 +28,40 @@ const ERA_LABELS = {
 
 // ★BGMライブラリ (ジャンル・アーティスト名の大文字小文字を統一)
 const BGM_LIBRARY = [
-  { id: 'default', title: '10℃', artist: 'Japan', genre: 'Pop', url: '/bgm/Pop1.mp3' },
-  { id: 'Ki1', title: 'かえりみち', artist: 'Japan', genre: 'Chill', url: '/bgm/Chill1.mp3' }, 
-  { id: 'Ki2', title: 'ON AIR', artist: 'Japan', genre: 'Chill', url: '/bgm/Chill2.mp3' },
-  { id: 'jaz2', title: 'Bad-weather', artist: 'Japan', genre: 'Chill', url: '/bgm/Chill3.mp3' },
-  { id: 'fes1', title: 'Green park', artist: 'Japan', genre: 'Pop', url: '/bgm/Pop2.mp3' },
-  { id: 'fes1', title: 'ART-Break', artist: 'Japan', genre: 'Pop', url: '/bgm/Pop3.mp3' },
-  { id: 'fes1', title: 'Rolling Girl', artist: 'Japan', genre: 'Rock', url: '/bgm/Rock1.mp3' },
-  { id: 'fes1', title: 'Break your destiny', artist: 'Japan', genre: 'Rock', url: '/bgm/Rock2.mp3' },
-  { id: 'fes1', title: 'Sword in the Void', artist: 'Japan', genre: 'Rock', url: '/bgm/Rock3.mp3' },
-  { id: 'fes1', title: 'MECHANICAL DEATH', artist: 'Japan', genre: 'Metal', url: '/bgm/Metal1.mp3' },
-  { id: 'fes1', title: 'RADICAL GOOD SPEED', artist: 'Japan', genre: 'Metal', url: '/bgm/Metal2.mp3' },
-  { id: 'fes1', title: 'DIVINE WARRIORS', artist: 'Japan', genre: 'Metal', url: '/bgm/Metal3.mp3' },
-  { id: 'fes1', title: 'Cosmic Summer', artist: 'Japan', genre: 'EDM', url: '/bgm/EDM1.mp3' },
-  { id: 'fes1', title: 'Rogue Circuit', artist: 'Japan', genre: 'EDM', url: '/bgm/EDM2.mp3' },
-  { id: 'fes1', title: 'Guide Me to Heaven', artist: 'Japan', genre: 'EDM', url: '/bgm/EDM3.mp3' },
-  { id: 'fes1', title: 'Winter Night Street', artist: 'Japan', genre: 'JAZZ', url: '/bgm/JAZZ1.mp3' },
-  { id: 'fes1', title: 'Dive to ocean', artist: 'Japan', genre: 'JAZZ', url: '/bgm/JAZZ2.mp3' },
-  { id: 'fes1', title: 'Tea with Grace', artist: 'Japan', genre: 'JAZZ', url: '/bgm/JAZZ3.mp3' },
-  { id: 'fes1', title: 'Peaceful Town', artist: 'Japan', genre: 'Country', url: '/bgm/Country1.mp3' },
-  { id: 'fes1', title: '木立の冬支度', artist: 'Japan', genre: 'Country', url: '/bgm/Country2.mp3' },
-  { id: 'fes1', title: '秋を探しに', artist: 'Japan', genre: 'Country', url: '/bgm/Country3.mp3' },
+  // Pop
+  { id: 'pop1', title: '10℃', artist: 'Japan', genre: 'Pop', url: '/bgm/Pop1.mp3' },
+  { id: 'pop2', title: 'Green park', artist: 'Japan', genre: 'Pop', url: '/bgm/Pop2.mp3' },
+  { id: 'pop3', title: 'ART-Break', artist: 'Japan', genre: 'Pop', url: '/bgm/Pop3.mp3' },
+
+  // Chill
+  { id: 'chill1', title: 'かえりみち', artist: 'Japan', genre: 'Chill', url: '/bgm/Chill1.mp3' }, 
+  { id: 'chill2', title: 'ON AIR', artist: 'Japan', genre: 'Chill', url: '/bgm/Chill2.mp3' },
+  { id: 'chill3', title: 'Bad-weather', artist: 'Japan', genre: 'Chill', url: '/bgm/Chill3.mp3' },
+
+  // Rock
+  { id: 'rock1', title: 'Rolling Girl', artist: 'Japan', genre: 'Rock', url: '/bgm/Rock1.mp3' },
+  { id: 'rock2', title: 'Break your destiny', artist: 'Japan', genre: 'Rock', url: '/bgm/Rock2.mp3' },
+  { id: 'rock3', title: 'Sword in the Void', artist: 'Japan', genre: 'Rock', url: '/bgm/Rock3.mp3' },
+
+  // Metal
+  { id: 'metal1', title: 'MECHANICAL DEATH', artist: 'Japan', genre: 'Metal', url: '/bgm/Metal1.mp3' },
+  { id: 'metal2', title: 'RADICAL GOOD SPEED', artist: 'Japan', genre: 'Metal', url: '/bgm/Metal2.mp3' },
+  { id: 'metal3', title: 'DIVINE WARRIORS', artist: 'Japan', genre: 'Metal', url: '/bgm/Metal3.mp3' },
+
+  // EDM
+  { id: 'edm1', title: 'Cosmic Summer', artist: 'Japan', genre: 'EDM', url: '/bgm/EDM1.mp3' },
+  { id: 'edm2', title: 'Rogue Circuit', artist: 'Japan', genre: 'EDM', url: '/bgm/EDM2.mp3' },
+  { id: 'edm3', title: 'Guide Me to Heaven', artist: 'Japan', genre: 'EDM', url: '/bgm/EDM3.mp3' },
+
+  // Jazz (表示を統一するため Jazz としました)
+  { id: 'jazz1', title: 'Winter Night Street', artist: 'Japan', genre: 'Jazz', url: '/bgm/JAZZ1.mp3' },
+  { id: 'jazz2', title: 'Dive to ocean', artist: 'Japan', genre: 'Jazz', url: '/bgm/JAZZ2.mp3' },
+  { id: 'jazz3', title: 'Tea with Grace', artist: 'Japan', genre: 'Jazz', url: '/bgm/JAZZ3.mp3' },
+
+  // Country
+  { id: 'country1', title: 'Peaceful Town', artist: 'Japan', genre: 'Country', url: '/bgm/Country1.mp3' },
+  { id: 'country2', title: '木立の冬支度', artist: 'Japan', genre: 'Country', url: '/bgm/Country2.mp3' },
+  { id: 'country3', title: '秋を探しに', artist: 'Japan', genre: 'Country', url: '/bgm/Country3.mp3' },
 ];
 
 const PREMIUM_CATEGORIES = ['science', 'art'];
