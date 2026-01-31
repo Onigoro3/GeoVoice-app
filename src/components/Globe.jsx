@@ -26,13 +26,12 @@ const ERA_LABELS = {
   fr: { AD: 'ap. J.-C.', BC: 'av. J.-C.' },
 };
 
-// ★修正: ジャンル(genre)を追加したBGMライブラリ
+// ★修正: ジャンル・アーティスト表記を統一したライブラリ
 const BGM_LIBRARY = [
-  // genreを同じにするとグループ化されます
-  { id: 'default', title: '10℃', artist: 'しゃろう', genre: 'pop', url: '/bgm/bgm.mp3' },
+  { id: 'default', title: '10℃', artist: 'しゃろう', genre: 'Lo-Fi', url: '/bgm/bgm.mp3' },
   { id: 'Ki1', title: 'かえりみち', artist: 'きまぐれ', genre: 'Chill', url: '/bgm/Ki1.mp3' }, 
   { id: 'Ki2', title: 'ON AIR', artist: 'きまぐれ', genre: 'Chill', url: '/bgm/Ki2.mp3' },
-  { id: 'jaz2', title: 'Bad-weather', artist: 'きまぐれ', genre: 'chill', url: '/bgm/Ki3.mp3' },
+  { id: 'jaz2', title: 'Bad-weather', artist: 'きまぐれ', genre: 'Chill', url: '/bgm/Ki3.mp3' }, // chill -> Chill に統一
   { id: 'fes1', title: 'Matsuri', artist: 'Japan', genre: 'Traditional', url: '/bgm/matsuri.mp3' },
 ];
 
@@ -178,8 +177,10 @@ const GlobeContent = () => {
   
   const [currentTrack, setCurrentTrack] = useState(BGM_LIBRARY[0]);
   const [loopMode, setLoopMode] = useState('all'); 
-  // ★修正: ジャンルフィルターに変更
+  
+  // ★3段階フィルター用のState
   const [genreFilter, setGenreFilter] = useState('ALL');
+  const [artistFilter, setArtistFilter] = useState('ALL');
 
   const [isPc, setIsPc] = useState(window.innerWidth > 768);
   const [popupPos, setPopupPos] = useState({ x: 20, y: 20 });
@@ -206,17 +207,35 @@ const GlobeContent = () => {
     return Array.from(countries).sort();
   }, [locations]);
 
-  // ★修正: ジャンルリストの生成
-  const genreList = useMemo(() => {
+  // --- ミュージックフィルターロジック ---
+
+  // 1. 全ジャンルリスト
+  const availableGenres = useMemo(() => {
     const genres = new Set(BGM_LIBRARY.map(track => track.genre));
     return Array.from(genres).sort();
   }, []);
 
-  // ★修正: ジャンルでフィルタリング
-  const currentPlaylist = useMemo(() => {
-    if (genreFilter === 'ALL') return BGM_LIBRARY;
-    return BGM_LIBRARY.filter(track => track.genre === genreFilter);
+  // 2. 選択されたジャンルに含まれるアーティストリスト
+  const availableArtists = useMemo(() => {
+    let tracks = BGM_LIBRARY;
+    if (genreFilter !== 'ALL') {
+      tracks = tracks.filter(t => t.genre === genreFilter);
+    }
+    const artists = new Set(tracks.map(t => t.artist));
+    return Array.from(artists).sort();
   }, [genreFilter]);
+
+  // 3. 現在のフィルター条件に合う曲リスト（プレイリスト）
+  const currentPlaylist = useMemo(() => {
+    let tracks = BGM_LIBRARY;
+    if (genreFilter !== 'ALL') {
+      tracks = tracks.filter(t => t.genre === genreFilter);
+    }
+    if (artistFilter !== 'ALL') {
+      tracks = tracks.filter(t => t.artist === artistFilter);
+    }
+    return tracks;
+  }, [genreFilter, artistFilter]);
 
   useEffect(() => {
     const handleResize = () => setIsPc(window.innerWidth > 768);
@@ -425,14 +444,21 @@ const GlobeContent = () => {
       }
     } else {
       const currentIndex = currentPlaylist.findIndex(t => t.id === currentTrack.id);
-      const nextIndex = (currentIndex + 1) % currentPlaylist.length;
+      // 次の曲がない（-1）または最後の曲の場合は最初に戻る
+      let nextIndex = 0;
+      if (currentIndex !== -1) {
+          nextIndex = (currentIndex + 1) % currentPlaylist.length;
+      }
       setCurrentTrack(currentPlaylist[nextIndex]);
     }
   };
 
   const playPrevTrack = () => {
     const currentIndex = currentPlaylist.findIndex(t => t.id === currentTrack.id);
-    const prevIndex = (currentIndex - 1 + currentPlaylist.length) % currentPlaylist.length;
+    let prevIndex = 0;
+    if (currentIndex !== -1) {
+        prevIndex = (currentIndex - 1 + currentPlaylist.length) % currentPlaylist.length;
+    }
     setCurrentTrack(currentPlaylist[prevIndex]);
   };
 
@@ -719,46 +745,58 @@ const GlobeContent = () => {
                     <label style={{ display: 'flex', alignItems: 'center', gap:'8px', color: 'white' }}><input type="checkbox" checked={visibleCategories.modern} onChange={e => setVisibleCategories(prev => ({...prev, modern: e.target.checked}))} /> 🏙️ 現代</label>
                 </div>
             </div>
-            {/* ★修正: BGM・ミュージックプレーヤー設定 */}
+            
+            {/* ★修正: 3段階フィルター付きBGMプレーヤー */}
             <div style={{ padding: '15px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', color: 'white', alignItems:'center' }}>
                     <span>BGM Player</span>
                     <button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: 'transparent', color: isBgmOn?'#00ffcc':'#666', border: 'none', cursor: 'pointer', fontWeight:'bold' }}>{isBgmOn ? 'ON' : 'OFF'}</button>
                 </div>
-                {/* プレーヤーコントローラー */}
+                
                 <div style={{background:'#111', padding:'10px', borderRadius:'8px', marginBottom:'15px', border:'1px solid #444'}}>
                     <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
                         <div style={{color:'white', fontSize:'0.9rem', fontWeight:'bold'}}>{currentTrack.title}</div>
                         <div style={{color:'#888', fontSize:'0.8rem'}}>{currentTrack.artist}</div>
                     </div>
                     
+                    {/* 1. ジャンル選択 */}
+                    <select 
+                        value={genreFilter} 
+                        onChange={(e) => {
+                            setGenreFilter(e.target.value);
+                            setArtistFilter('ALL'); // アーティストリセット
+                        }}
+                        style={{ width:'100%', background: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', padding: '4px', marginBottom:'5px', fontSize:'0.8rem' }}
+                    >
+                        <option value="ALL">All Genres</option>
+                        {availableGenres.map(g => <option key={g} value={g}>{g}</option>)}
+                    </select>
+
+                    {/* 2. アーティスト選択 (ジャンルで絞り込み済み) */}
+                    <select 
+                        value={artistFilter} 
+                        onChange={(e) => setArtistFilter(e.target.value)}
+                        style={{ width:'100%', background: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', padding: '4px', marginBottom:'5px', fontSize:'0.8rem' }}
+                    >
+                        <option value="ALL">All Artists</option>
+                        {availableArtists.map(a => <option key={a} value={a}>{a}</option>)}
+                    </select>
+
+                    {/* 3. 曲選択 (アーティストで絞り込み済み) & ループボタン */}
                     <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
-                        {/* ★修正: ジャンル選択時に曲を切り替える */}
                         <select 
-                            value={genreFilter} 
+                            value={currentTrack.id}
                             onChange={(e) => {
-                                const newFilter = e.target.value;
-                                setGenreFilter(newFilter);
-                                
-                                // 選んだジャンルの最初の曲を探す
-                                let firstTrack;
-                                if (newFilter === 'ALL') {
-                                    firstTrack = BGM_LIBRARY[0];
-                                } else {
-                                    firstTrack = BGM_LIBRARY.find(t => t.genre === newFilter);
-                                }
-                                
-                                // 見つかったらセットして再生
-                                if (firstTrack) {
-                                    setCurrentTrack(firstTrack);
+                                const selected = BGM_LIBRARY.find(t => t.id === e.target.value);
+                                if (selected) {
+                                    setCurrentTrack(selected);
+                                    if (!isBgmOn) setIsBgmOn(true); // 選んだら再生
                                 }
                             }}
-                            style={{ flex:1, background: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', padding: '4px' }}
+                            style={{ flex:1, background: '#333', color: '#00ffcc', border: '1px solid #555', borderRadius: '4px', padding: '4px', fontSize:'0.8rem' }}
                         >
-                            <option value="ALL">All Genres</option>
-                            {genreList.map(g => <option key={g} value={g}>{g}</option>)}
+                            {currentPlaylist.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
                         </select>
-                        
                         <button 
                             onClick={() => setLoopMode(loopMode === 'one' ? 'all' : 'one')}
                             style={{ background: loopMode==='one'?'#00ffcc':'#333', color:loopMode==='one'?'#000':'#fff', border:'1px solid #555', borderRadius:'4px', padding:'4px 8px', cursor:'pointer' }}
