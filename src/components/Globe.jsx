@@ -26,13 +26,14 @@ const ERA_LABELS = {
   fr: { AD: 'ap. J.-C.', BC: 'av. J.-C.' },
 };
 
-// ★BGMライブラリ (前回ご提示いただいた内容)
+// ★修正: ジャンル(genre)を追加したBGMライブラリ
 const BGM_LIBRARY = [
-  { id: 'default', title: '10℃', artist: 'しゃろう', url: '/bgm/bgm.mp3' },
-  { id: 'Ki1', title: 'かえりみち', artist: 'きまぐれ', url: '/bgm/Ki1.mp3' }, 
-  { id: 'Ki2', title: 'ON AIR', artist: 'きまぐれ', url: '/bgm/Ki2.mp3' },
-  { id: 'jaz2', title: 'Night Jazz', artist: 'Jazz Band', url: '/bgm/jazz2.mp3' },
-  { id: 'fes1', title: 'Matsuri', artist: 'Japan', url: '/bgm/matsuri.mp3' },
+  // genreを同じにするとグループ化されます
+  { id: 'default', title: '10℃', artist: 'しゃろう', genre: 'pop', url: '/bgm/bgm.mp3' },
+  { id: 'Ki1', title: 'かえりみち', artist: 'きまぐれ', genre: 'Chill', url: '/bgm/Ki1.mp3' }, 
+  { id: 'Ki2', title: 'ON AIR', artist: 'きまぐれ', genre: 'Chill', url: '/bgm/Ki2.mp3' },
+  { id: 'jaz2', title: 'Bad-weather', artist: 'きまぐれ', genre: 'chill', url: '/bgm/Ki3.mp3' },
+  { id: 'fes1', title: 'Matsuri', artist: 'Japan', genre: 'Traditional', url: '/bgm/matsuri.mp3' },
 ];
 
 const PREMIUM_CATEGORIES = ['science', 'art'];
@@ -170,13 +171,15 @@ const GlobeContent = () => {
     landmark: true, history: true, nature: true, modern: true, science: true, art: true
   });
 
+  // --- 音楽プレーヤー用 State ---
   const [bgmVolume, setBgmVolume] = useState(0.5);
   const [voiceVolume, setVoiceVolume] = useState(1.0);
   const [isBgmOn, setIsBgmOn] = useState(false);
   
   const [currentTrack, setCurrentTrack] = useState(BGM_LIBRARY[0]);
   const [loopMode, setLoopMode] = useState('all'); 
-  const [artistFilter, setArtistFilter] = useState('ALL');
+  // ★修正: ジャンルフィルターに変更
+  const [genreFilter, setGenreFilter] = useState('ALL');
 
   const [isPc, setIsPc] = useState(window.innerWidth > 768);
   const [popupPos, setPopupPos] = useState({ x: 20, y: 20 });
@@ -203,15 +206,17 @@ const GlobeContent = () => {
     return Array.from(countries).sort();
   }, [locations]);
 
-  const artistList = useMemo(() => {
-    const artists = new Set(BGM_LIBRARY.map(track => track.artist));
-    return Array.from(artists).sort();
+  // ★修正: ジャンルリストの生成
+  const genreList = useMemo(() => {
+    const genres = new Set(BGM_LIBRARY.map(track => track.genre));
+    return Array.from(genres).sort();
   }, []);
 
+  // ★修正: ジャンルでフィルタリング
   const currentPlaylist = useMemo(() => {
-    if (artistFilter === 'ALL') return BGM_LIBRARY;
-    return BGM_LIBRARY.filter(track => track.artist === artistFilter);
-  }, [artistFilter]);
+    if (genreFilter === 'ALL') return BGM_LIBRARY;
+    return BGM_LIBRARY.filter(track => track.genre === genreFilter);
+  }, [genreFilter]);
 
   useEffect(() => {
     const handleResize = () => setIsPc(window.innerWidth > 768);
@@ -714,6 +719,7 @@ const GlobeContent = () => {
                     <label style={{ display: 'flex', alignItems: 'center', gap:'8px', color: 'white' }}><input type="checkbox" checked={visibleCategories.modern} onChange={e => setVisibleCategories(prev => ({...prev, modern: e.target.checked}))} /> 🏙️ 現代</label>
                 </div>
             </div>
+            {/* ★修正: BGM・ミュージックプレーヤー設定 */}
             <div style={{ padding: '15px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', color: 'white', alignItems:'center' }}>
                     <span>BGM Player</span>
@@ -727,19 +733,19 @@ const GlobeContent = () => {
                     </div>
                     
                     <div style={{display:'flex', gap:'5px', marginBottom:'10px'}}>
-                        {/* ★修正: 選択時に曲を変更する */}
+                        {/* ★修正: ジャンル選択時に曲を切り替える */}
                         <select 
-                            value={artistFilter} 
+                            value={genreFilter} 
                             onChange={(e) => {
                                 const newFilter = e.target.value;
-                                setArtistFilter(newFilter);
+                                setGenreFilter(newFilter);
                                 
-                                // 選んだアーティストの最初の曲を探す
+                                // 選んだジャンルの最初の曲を探す
                                 let firstTrack;
                                 if (newFilter === 'ALL') {
                                     firstTrack = BGM_LIBRARY[0];
                                 } else {
-                                    firstTrack = BGM_LIBRARY.find(t => t.artist === newFilter);
+                                    firstTrack = BGM_LIBRARY.find(t => t.genre === newFilter);
                                 }
                                 
                                 // 見つかったらセットして再生
@@ -749,8 +755,8 @@ const GlobeContent = () => {
                             }}
                             style={{ flex:1, background: '#333', color: '#fff', border: '1px solid #555', borderRadius: '4px', padding: '4px' }}
                         >
-                            <option value="ALL">All Artists</option>
-                            {artistList.map(a => <option key={a} value={a}>{a}</option>)}
+                            <option value="ALL">All Genres</option>
+                            {genreList.map(g => <option key={g} value={g}>{g}</option>)}
                         </select>
                         
                         <button 
