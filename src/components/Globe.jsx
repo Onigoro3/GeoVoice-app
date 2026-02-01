@@ -99,7 +99,7 @@ const LAYER_CORE = {
 
 const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
 
-// ★重要: ヘルパー関数をコンポーネントの外に移動 (ReferenceError回避)
+// ヘルパー関数
 const getCategoryDetails = (category) => {
   let tag = '世界遺産'; let color = '#ffcc00';
   if (category === 'landmark') { tag = '観光名所'; color = '#ff8800'; }
@@ -325,48 +325,45 @@ const GlobeContent = () => {
     }
   }, [isRideMode]);
 
+  // ★修正: 確実かつ軽量な全件取得ロジック
   const fetchSpots = async () => {
     try {
-      let allData = [];
-      let rangeStart = 0;
-      const rangeStep = 1999; 
+      let from = 0;
+      const batchSize = 1000; // Supabaseの標準的な制限に合わせる
       const minimalFields = 'id, name, name_ja, lat, lon, category, country_ja, year';
 
-      // 1. 初回のデータを取得して即表示
-      const { data: firstBatch, error: firstError } = await supabase
-          .from('spots')
-          .select(minimalFields)
-          .range(0, rangeStep);
-            
-      if (firstError) throw firstError;
-      
-      let currentData = firstBatch.filter(d => d.lat !== null && d.lon !== null && d.lat !== 0 && d.lon !== 0);
-      let formatted = currentData.map(d => ({ ...d, category: d.category || 'history' }));
-      setLocations(formatted);
-      addLog(`Loaded initial ${formatted.length} spots`);
+      // 最初に空にする
+      setLocations([]);
 
-      // 2. 残りをバックグラウンドで取得
-      rangeStart += rangeStep + 1;
-      
       while (true) {
+        const to = from + batchSize - 1;
         const { data, error } = await supabase
             .from('spots')
             .select(minimalFields)
-            .range(rangeStart, rangeStart + rangeStep);
+            .range(from, to);
             
-        if (error) break;
+        if (error) {
+            addLog(`Fetch Error: ${error.message}`);
+            break;
+        }
+        
         if (!data || data.length === 0) break;
 
         const validBatch = data.filter(d => d.lat !== null && d.lon !== null && d.lat !== 0 && d.lon !== 0);
-        currentData = currentData.concat(validBatch);
+        const formatted = validBatch.map(d => ({ ...d, category: d.category || 'history' }));
         
-        formatted = currentData.map(d => ({ ...d, category: d.category || 'history' }));
-        setLocations(formatted);
+        // 段階的にデータを追加して表示 (前回の配列に結合)
+        setLocations(prev => [...prev, ...formatted]);
+        addLog(`Loaded +${formatted.length} (Total: ${from + data.length})`);
+
+        // 取得数がバッチサイズより少なければ、それが最後のページ
+        if (data.length < batchSize) break;
         
-        if (data.length < rangeStep + 1) break; 
-        rangeStart += rangeStep + 1;
+        from += batchSize;
+        
+        // ★UIスレッドをブロックしないよう少し休憩
+        await new Promise(resolve => setTimeout(resolve, 50)); 
       }
-      addLog(`Total loaded: ${formatted.length} spots`);
       
     } catch (e) { addLog(`Fetch Error: ${e.message}`); }
   };
