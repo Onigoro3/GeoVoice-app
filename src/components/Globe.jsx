@@ -3,7 +3,7 @@ import Map, { Source, Layer } from 'react-map-gl';
 import { supabase } from '../supabaseClient';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import AuthModal from './AuthModal';
-import FavoritesModal from './FavoritesModal';
+// FavoritesModalは削除（パネル内に統合するため）
 import ErrorBoundary from './ErrorBoundary';
 import SplashScreen from './SplashScreen';
 import TutorialOverlay from './TutorialOverlay';
@@ -28,7 +28,6 @@ const ERA_LABELS = {
   fr: { AD: 'ap. J.-C.', BC: 'av. J.-C.' },
 };
 
-// ★BGMライブラリ
 const BGM_LIBRARY = [
   // Pop
   { id: 'pop1', title: '10℃', artist: 'Japan', genre: 'Pop', url: '/bgm/Pop1.mp3' },
@@ -60,10 +59,7 @@ const BGM_LIBRARY = [
   { id: 'country3', title: '秋を探しに', artist: 'Japan', genre: 'Country', url: '/bgm/Country3.mp3' },
 ];
 
-// ★ 無料/有料の区分定義 (自然をプレミアムへ移動)
 const PREMIUM_CATEGORIES = ['nature', 'modern', 'science', 'art'];
-
-const PRIVACY_POLICY_TEXT = `## プライバシーポリシー (省略)`;
 
 const MAP_CONFIG = {
   style: "mapbox://styles/mapbox/satellite-v9",
@@ -185,7 +181,6 @@ const GlobeContent = () => {
   const [profile, setProfile] = useState(null);
   const [isPremium, setIsPremium] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [showFavList, setShowFavList] = useState(false);
   const [favorites, setFavorites] = useState(new Set());
 
   // フォーム用State
@@ -230,7 +225,7 @@ const GlobeContent = () => {
     return locations.filter(loc => !PREMIUM_CATEGORIES.includes(loc.category || 'history')).length;
   }, [locations, isPremium, user]);
 
-  const isPanelOpen = isPc && activeTab && (activeTab === 'explore' || activeTab === 'browse' || activeTab === 'settings');
+  const isPanelOpen = isPc && activeTab && (activeTab === 'explore' || activeTab === 'browse' || activeTab === 'settings' || activeTab === 'fav');
 
   const displayData = useMemo(() => {
     if (!selectedLocation) return null;
@@ -261,11 +256,18 @@ const GlobeContent = () => {
 
   const toggleRideMode = () => setIsRideMode(prev => !prev);
 
+  // ★修正: タブ切り替え処理（リストもパネルで表示）
   const handleTabChange = (tab) => {
     if (activeTab === tab) { setActiveTab(null); return; }
+    
+    // リストが押された場合、未ログインならログイン画面へ
+    if (tab === 'fav' && !user) {
+        setShowAuthModal(true);
+        return;
+    }
+
     setActiveTab(tab);
     if (tab === 'ride') { if (!isRideMode) toggleRideMode(); }
-    if (tab === 'fav') { if (user) setShowFavList(true); else setShowAuthModal(true); }
   };
 
   useEffect(() => { if (isPc) setPopupPos({ x: window.innerWidth - 420, y: 20 }); }, [isPc]);
@@ -363,7 +365,7 @@ const GlobeContent = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  const setupUser = (u) => { setUser(u); fetchFavorites(u.id); fetchProfile(u.id, u.email); };
+  const setupUser = (u) => { setUser(u); setFormEmail(u.email || ""); fetchFavorites(u.id); fetchProfile(u.id, u.email); };
   const clearUser = () => { setUser(null); setProfile(null); setIsPremium(false); setFavorites(new Set()); };
   const fetchProfile = async (userId, email) => {
     const isVip = isVipUser(email);
@@ -542,7 +544,6 @@ const GlobeContent = () => {
     }
   }, [activeTab]);
 
-  // ★修正: バリデーション付き送信処理
   const handleContactSubmit = async () => {
     if (!formEmail.trim() || !formMessage.trim()) return alert("メールアドレスとメッセージを入力してください");
     try {
@@ -681,10 +682,43 @@ const GlobeContent = () => {
   const renderPanelContent = () => {
     const commonStyle = { background: '#111', borderRadius: '15px', padding: '20px', border: '1px solid rgba(255,255,255,0.1)', minHeight: '200px', pointerEvents: 'auto' };
 
+    // ★リストタブ (お気に入り)
+    if (activeTab === 'fav') {
+        // お気に入りリストを抽出
+        const favSpots = locations.filter(l => favorites.has(l.id));
+        
+        const content = (
+            <div>
+              <h2 style={{color:'#fff', marginTop:0, marginBottom:'5px', fontSize:'1.2rem'}}>お気に入りリスト</h2>
+              <div style={{color:'#888', fontSize:'0.8rem', marginBottom:'15px', borderBottom:'1px solid #333', paddingBottom:'10px'}}>保存したスポット</div>
+              {favSpots.length === 0 ? (
+                <div style={{color:'#666', textAlign:'center', marginTop:'30px'}}>
+                    ハートボタンを押して<br/>お気に入りに追加しよう ♥
+                </div>
+              ) : (
+                <div style={{ display:'flex', flexDirection:'column' }}>
+                  {favSpots.map(spot => (
+                    <div key={spot.id} onClick={() => handleSelectFromList(spot)} style={{ padding:'12px 5px', borderBottom:'1px solid #222', cursor:'pointer', background: selectedLocation?.id === spot.id ? 'rgba(0,255,204,0.1)' : 'transparent', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <div><div style={{color:'white', fontWeight:'bold', fontSize:'0.9rem'}}>{spot.name_ja || spot.name}</div><div style={{color:'#888', fontSize:'0.75rem', marginTop:'2px'}}>{getCategoryDetails(spot.category).tag}</div></div>
+                      <button onClick={(e) => { e.stopPropagation(); toggleFavorite(spot.id); }} style={{background:'transparent', border:'none', color: '#ff3366', fontSize:'1.2rem', cursor:'pointer'}}>♥</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+        );
+        return isPc ? <div style={commonStyle}>{content}</div> : content;
+    }
+
     if (activeTab === 'explore') {
         const content = (
             <div>
-              <h2 style={{color:'#fff', marginTop:0, marginBottom:'5px', fontSize:'1.2rem'}}>探索</h2>
+              <div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'5px'}}>
+                <h2 style={{color:'#fff', margin:0, fontSize:'1.2rem'}}>探索</h2>
+                <button onClick={() => setShowTutorial(true)} style={{ background: '#222', color: '#00ffcc', border: '1px solid #444', borderRadius: '12px', padding: '2px 8px', fontSize: '0.8rem', cursor: 'pointer' }}>
+                   🔰 チュートリアル
+                </button>
+              </div>
               <div style={{color:'#888', fontSize:'0.8rem', marginBottom:'15px', borderBottom:'1px solid #333', paddingBottom:'10px'}}>この地域のピックアップ</div>
               {nearbySpots.length === 0 ? (
                 <div style={{color:'#666', textAlign:'center', marginTop:'30px'}}>地図を動かして<br/>スポットを探そう 🌍</div>
@@ -846,6 +880,7 @@ const GlobeContent = () => {
         <div style={{ position:'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.8)', zIndex:9999, display:'flex', justifyContent:'center', alignItems:'center' }} onClick={() => setShowContactModal(false)}>
             <div style={{ width:'90%', maxWidth:'400px', background:'#222', padding:'20px', borderRadius:'15px', border:'1px solid #444' }} onClick={e => e.stopPropagation()}>
                 <h3 style={{color:'white', marginTop:0}}>📧 お問い合わせ</h3>
+                {/* ★修正: 必須表示 */}
                 <div style={{color:'white', marginBottom:'5px'}}>メールアドレス (必須)</div>
                 <input type="email" value={formEmail} onChange={e => setFormEmail(e.target.value)} style={{width:'100%', padding:'10px', marginBottom:'15px', background:'#333', border:'1px solid #555', color:'white', borderRadius:'5px'}} />
                 <div style={{color:'white', marginBottom:'5px'}}>メッセージ</div>
@@ -933,7 +968,8 @@ const GlobeContent = () => {
 
       {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== 'fav' && activeTab !== null && (
         <>
-          {activeTab === 'explore' ? (
+          {/* ★修正: スマホ用「探索」「お気に入り」だけハーフモーダル */}
+          {(activeTab === 'explore' || activeTab === 'fav') ? (
             <div style={{ 
                 position: 'fixed', bottom: '80px', left: 0, width: '100%', height: '40vh', 
                 background: 'rgba(10, 10, 10, 0.95)', zIndex: 200, overflowY: 'auto', 
@@ -999,18 +1035,19 @@ const GlobeContent = () => {
         <>
           {!isPc && displayData.image_url && !imgError && (
             <div style={{ position: 'absolute', top: '40px', left: '10px', right: '10px', height: '160px', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', zIndex: 10, pointerEvents: 'none', border: '1px solid rgba(255,255,255,0.1)', background: '#000' }}>
+              {/* ★修正: キャッシュ済なら即表示、未キャッシュならLoading */}
               {imgLoading && <div style={{width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'#666'}}>Loading...</div>}
               <img 
                 src={displayData.image_url} 
                 alt={displayData.name} 
-                style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1 }}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1, transition: 'opacity 0.2s' }}
                 onError={() => setImgError(true)}
                 onLoad={() => {
                     setImgLoading(false);
-                    imageCacheRef.current.add(displayData.image_url);
+                    imageCacheRef.current.add(displayData.image_url); // ロード完了したら即キャッシュ
                 }}
-                loading="eager"
-                fetchPriority="high"
+                loading="eager" // 即読み込み
+                fetchPriority="high" // 優先度高
               />
               <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', height: '50px', background: 'linear-gradient(to top, rgba(0,0,0,0.7), transparent)' }} />
             </div>
@@ -1025,7 +1062,7 @@ const GlobeContent = () => {
                 <img 
                     src={displayData.image_url} 
                     alt={displayData.name} 
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1 }} 
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1, transition: 'opacity 0.2s' }} 
                     onError={() => setImgError(true)}
                     onLoad={() => {
                         setImgLoading(false);
