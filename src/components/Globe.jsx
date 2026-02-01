@@ -2,7 +2,7 @@ import React, { useRef, useState, useMemo, useEffect, useCallback } from 'react'
 import Map, { Source, Layer } from 'react-map-gl';
 import { supabase } from '../supabaseClient';
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { TextToSpeech } from '@capacitor-community/text-to-speech'; // ★追加: ネイティブ音声プラグイン
+import { TextToSpeech } from '@capacitor-community/text-to-speech';
 import AuthModal from './AuthModal';
 import ErrorBoundary from './ErrorBoundary';
 import SplashScreen from './SplashScreen';
@@ -146,6 +146,7 @@ const GlobeContent = () => {
   
   const nextSpotDataRef = useRef(null);
   const imageCacheRef = useRef(new Set());
+  const isPlayingRef = useRef(false); // ★再生状態管理用Ref
 
   const [locations, setLocations] = useState([]);
   const [selectedLocation, setSelectedLocation] = useState(null);
@@ -276,6 +277,7 @@ const GlobeContent = () => {
   
   useEffect(() => { isRideModeRef.current = isRideMode; }, [isRideMode]);
   useEffect(() => { isHistoryModeRef.current = isHistoryMode; }, [isHistoryMode]);
+  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]); // Ref同期
 
   useEffect(() => {
     if (nearbySpots.length > 0) {
@@ -448,7 +450,7 @@ const GlobeContent = () => {
 
   useEffect(() => { 
     if (!displayData) { 
-        TextToSpeech.stop(); // 停止
+        TextToSpeech.stop(); 
         setIsPlaying(false); 
         setImgError(false); 
         return; 
@@ -463,26 +465,31 @@ const GlobeContent = () => {
     }
   }, [displayData]); 
 
-  // ★修正: Android対応版のspeak関数
+  // ★修正: Android用分割再生ロジック
   const speak = async (text) => { 
     if (!text) { setIsPlaying(false); return; }
     
-    // 既存の再生を停止
     await TextToSpeech.stop();
 
     try {
         setIsPlaying(true);
-        // プラグインで再生 (Promiseが返る)
-        await TextToSpeech.speak({
-            text: text,
-            lang: LANGUAGES[currentLang].ttsCode, // ja-JP, en-US など
-            rate: 1.0,
-            pitch: 1.0,
-            volume: voiceVolume,
-            category: 'ambient',
-        });
+        // 文章を句点などで分割してリスト化
+        const chunks = text.match(/[^。！？]+[。！？]+/g) || [text];
+
+        for (const chunk of chunks) {
+            // 再生が停止されていたらループを抜ける
+            if (!isPlayingRef.current) break;
+
+            await TextToSpeech.speak({
+                text: chunk,
+                lang: LANGUAGES[currentLang].ttsCode, 
+                rate: 1.0,
+                pitch: 1.0,
+                volume: voiceVolume,
+                category: 'ambient',
+            });
+        }
         
-        // 再生終了後
         setIsPlaying(false);
         if (isRideModeRef.current) {
             rideTimeoutRef.current = setTimeout(nextRideStep, 3000); 
@@ -496,8 +503,8 @@ const GlobeContent = () => {
 
   const togglePlay = async () => { 
     if (isPlaying) {
+        setIsPlaying(false); // Refも更新される
         await TextToSpeech.stop();
-        setIsPlaying(false);
     } else {
         if (selectedLocation) speak(displayData?.description);
         else findClosestSpotAndPlay();
@@ -594,7 +601,7 @@ const GlobeContent = () => {
 
   const handleNextRide = () => { 
     if (!isRideMode) return; 
-    // Web Speech APIキャンセルは不要 (TextToSpeech.stop()で対応済み)
+    if(window.speechSynthesis) window.speechSynthesis.cancel(); 
     if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current); 
     setTimeout(() => { nextRideStep(); }, 50);
   };
