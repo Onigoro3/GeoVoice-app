@@ -61,7 +61,6 @@ const BGM_LIBRARY = [
 ];
 
 // ★ 無料/有料の区分定義 (自然をプレミアムへ移動)
-const FREE_CATEGORIES = ['landmark', 'history'];
 const PREMIUM_CATEGORIES = ['nature', 'modern', 'science', 'art'];
 
 const PRIVACY_POLICY_TEXT = `## プライバシーポリシー (省略)`;
@@ -72,7 +71,7 @@ const MAP_CONFIG = {
   terrain: { source: 'mapbox-dem', exaggeration: 1.5 }
 };
 
-// 光の点レイヤー
+// ★美しい「光の点」レイヤー（クラスタリングなし）
 const LAYER_GLOW = {
   id: 'point-glow',
   type: 'circle',
@@ -137,7 +136,7 @@ const GlobeContent = () => {
   const [historyEra, setHistoryEra] = useState("AD");
   const [historyCountry, setHistoryCountry] = useState("ALL");
   
-  const [currentLang, setCurrentLang] = useState('ja');
+  const [currentLang, setCurrentLang] = useState('ja'); // 初期値
   const [inputTheme, setInputTheme] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
@@ -180,6 +179,7 @@ const GlobeContent = () => {
     return locations.filter(l => PREMIUM_CATEGORIES.includes(l.category || 'history')).length;
   }, [locations]);
 
+  // ★スプラッシュ終了後の処理
   const handleSplashFinish = () => {
     setShowSplash(false);
     const hasSeen = localStorage.getItem('hasSeenTutorial');
@@ -188,6 +188,7 @@ const GlobeContent = () => {
     }
   };
 
+  // ★チュートリアルで言語選択された時の処理
   const handleLanguageSelect = (lang) => {
     setCurrentLang(lang);
   };
@@ -209,12 +210,14 @@ const GlobeContent = () => {
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
   useEffect(() => { visibleCategoriesRef.current = visibleCategories; }, [visibleCategories]);
 
+  // 国リスト作成
   const countryList = useMemo(() => {
     const countries = new Set();
     locations.forEach(loc => { if (loc.country_ja) countries.add(loc.country_ja); });
     return Array.from(countries).sort();
   }, [locations]);
 
+  // BGMリスト制御 (省略せず既存ロジックを使用)
   const availableGenres = useMemo(() => Array.from(new Set(BGM_LIBRARY.map(t => t.genre))).sort(), []);
   const availableArtists = useMemo(() => { 
     let tracks = BGM_LIBRARY;
@@ -234,6 +237,7 @@ const GlobeContent = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // マウス操作 (省略)
   const handleMouseDown = (e) => {
     if (!isPc) return;
     if (['BUTTON', 'INPUT', 'SELECT', 'OPTION', 'A'].includes(e.target.tagName)) return;
@@ -309,8 +313,10 @@ const GlobeContent = () => {
     } catch(e) { addLog(`Fav Error: ${e.message}`); }
   };
 
+  // スポット選択時の処理
   const handleSelectFromList = (spot) => { fetchAndSelectSpot(spot.id); };
   const fetchAndSelectSpot = async (spotId) => {
+    // ★重要: プレミアムカテゴリのチェック (自然もここに追加)
     const spot = locationsRef.current.find(s => s.id === spotId);
     if (spot && PREMIUM_CATEGORIES.includes(spot.category) && !isPremium && !isVipUser(user?.email)) {
       alert("🔒 このカテゴリ（自然・現代・科学・芸術）はプレミアム会員限定です。\n設定からプレミアムに参加してください！");
@@ -327,6 +333,7 @@ const GlobeContent = () => {
     } catch (e) { console.error(e); }
   };
 
+  // 翻訳・読み上げ・BGM
   const translateAndFix = async (spot, lang) => {
     if (statusMessage.includes("生成中")) return;
     setStatusMessage("翻訳中...");
@@ -339,6 +346,7 @@ const GlobeContent = () => {
       const json = JSON.parse(text);
       const updateData = { [`name_${lang}`]: json.name, [`description_${lang}`]: json.description };
       await supabase.from('spots').update(updateData).eq('id', spot.id);
+      
       if (selectedLocationRef.current && selectedLocationRef.current.id === spot.id) {
         const newData = { ...spot, ...updateData, name: json.name, description: json.description };
         setDisplayData(newData);
@@ -407,6 +415,7 @@ const GlobeContent = () => {
     else { audio.pause(); }
   }, [isBgmOn, isPlaying, bgmVolume, currentTrack]);
 
+  // マップクリック時の処理 (光の点クリック対応)
   const handleMapClick = useCallback((event) => {
     if (isRideModeRef.current) setIsRideMode(false);
     const feature = event.features?.[0];
@@ -451,6 +460,7 @@ const GlobeContent = () => {
   
   const jumpToRandomSpot = (cat=null) => { 
     rideCategoryRef.current = cat; 
+    // ★自然(Nature)もここで制限
     if (cat && PREMIUM_CATEGORIES.includes(cat) && !isPremium && !isVipUser(user?.email)) {
         alert("🔒 プレミアム限定機能です"); return;
     }
@@ -478,10 +488,11 @@ const GlobeContent = () => {
     if (nextSpot) await fetchAndSelectSpot(nextSpot.id);
   };
 
+  // ★重要: GeoJSONデータの作成 (カテゴリフィルタ済み)
   const filteredGeoJsonData = useMemo(() => {
     const filtered = locations.filter(loc => {
       const cat = loc.category || 'history';
-      if (!isPremium && !isVipUser(user?.email) && PREMIUM_CATEGORIES.includes(cat)) return false;
+      if (!isPremium && !isVipUser(user?.email) && PREMIUM_CATEGORIES.includes(cat)) return false; // 地図からも消す
       return visibleCategories[cat];
     });
     return { 
@@ -555,6 +566,7 @@ const GlobeContent = () => {
               <div style={{ color: '#ccc', marginBottom: '20px', fontSize: '0.9rem', lineHeight: '1.8' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> 広告なしで快適に</div>
                 <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> 自然・現代・科学・芸術 カテゴリ解放</div>
+                {/* ★ここで具体的な数値を表示して訴求 */}
                 <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> <b>約{premiumSpotCount}件</b>のスポットが追加されます！</div>
                 <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> AIガイド使い放題</div>
               </div>
@@ -575,7 +587,6 @@ const GlobeContent = () => {
                   <span>BGM Player</span>
                   <button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: 'transparent', color: isBgmOn?'#00ffcc':'#666', border: 'none', cursor: 'pointer', fontWeight:'bold' }}>{isBgmOn ? 'ON' : 'OFF'}</button>
               </div>
-              {/* BGM Controls (省略なし) */}
               <div style={{background:'#111', padding:'10px', borderRadius:'8px', marginBottom:'15px', border:'1px solid #444'}}>
                   <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
                       <div style={{color:'white', fontSize:'0.9rem', fontWeight:'bold'}}>{currentTrack.title}</div>
