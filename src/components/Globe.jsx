@@ -158,12 +158,10 @@ const GlobeContent = () => {
   const rideCategoryRef = useRef(null);
   
   const nextSpotDataRef = useRef(null);
-  // ★追加: 読み込み済み画像URLを記録するキャッシュ
   const imageCacheRef = useRef(new Set());
 
   const [locations, setLocations] = useState([]);
   const [selectedLocation, setSelectedLocation] = useState(null);
-  // displayDataはuseMemoで計算するためState削除
   
   const [isPlaying, setIsPlaying] = useState(false);
   const [isRideMode, setIsRideMode] = useState(false);
@@ -225,7 +223,6 @@ const GlobeContent = () => {
 
   const isPanelOpen = isPc && activeTab && (activeTab === 'explore' || activeTab === 'browse' || activeTab === 'settings');
 
-  // ★高速化: 表示データ(displayData)をStateではなくMemoで即時計算
   const displayData = useMemo(() => {
     if (!selectedLocation) return null;
     const suffix = currentLang === 'ja' ? '_ja' : `_${currentLang}`;
@@ -419,7 +416,6 @@ const GlobeContent = () => {
       await supabase.from('spots').update(updateData).eq('id', spot.id);
       
       if (selectedLocationRef.current && selectedLocationRef.current.id === spot.id) {
-        // 注: displayDataはmemo化されているため、selectedLocationを更新する
         const newData = { ...spot, ...updateData, name: json.name, description: json.description };
         setSelectedLocation(newData);
         if (!isRideModeRef.current) speak(json.description);
@@ -427,7 +423,6 @@ const GlobeContent = () => {
     } catch (e) { addLog(`翻訳失敗: ${e.message}`); } finally { setStatusMessage(""); }
   };
 
-  // ★重要: 表示データが変わった瞬間に画像状態をセット（Effectでなく即時判定）
   useEffect(() => { 
     if (!displayData) { 
         if(window.speechSynthesis) window.speechSynthesis.cancel(); 
@@ -437,7 +432,6 @@ const GlobeContent = () => {
     }
 
     setImgError(false);
-    // ★重要: キャッシュにあるならLoadingにしない
     const isCached = displayData.image_url && imageCacheRef.current.has(displayData.image_url);
     setImgLoading(!isCached);
 
@@ -445,7 +439,7 @@ const GlobeContent = () => {
         if(window.speechSynthesis) window.speechSynthesis.cancel(); 
         speak(displayData.description); 
     }
-  }, [displayData]); // displayDataの変化だけでトリガー
+  }, [displayData]); 
 
   const speak = (text) => { 
     if (!window.speechSynthesis) return;
@@ -525,15 +519,6 @@ const GlobeContent = () => {
     }
   }, [activeTab]);
 
-  const updateAllCountryTags = async () => {
-    if (!confirm("全てのスポットの国名情報をAIで再取得しますか？\n（データ数が多い場合、時間がかかります）")) return;
-    setIsGenerating(true);
-    setStatusMessage("国名データ更新開始...");
-    try { alert("ブラウザでの全件更新は負荷が高いため、scripts/update_countries.js の利用を推奨します。"); } 
-    catch (e) { alert("エラー: " + e.message); } 
-    finally { setIsGenerating(false); setStatusMessage(""); }
-  };
-
   const handleGenerate = async () => {
     if (!inputTheme) return; setIsGenerating(true); setStatusMessage("AI生成中...");
     try {
@@ -601,7 +586,6 @@ const GlobeContent = () => {
     }
   };
 
-  // ★重要: 先読み処理（画像ダウンロード＆キャッシュ登録）
   const preloadNextSpot = async () => {
     const nextCandidate = getNextSpotCandidate();
     if (!nextCandidate) return;
@@ -612,12 +596,10 @@ const GlobeContent = () => {
             const fullSpot = { ...data, category: data.category || 'history' };
             nextSpotDataRef.current = fullSpot;
             
-            // ★キャッシュ登録付きプリロード
             if (fullSpot.image_url) {
                 const img = new Image();
                 img.src = fullSpot.image_url;
                 img.onload = () => {
-                    // 読み込み完了したらキャッシュリストに追加
                     imageCacheRef.current.add(fullSpot.image_url);
                 };
             }
@@ -789,8 +771,14 @@ const GlobeContent = () => {
               <div style={{ color: 'white', marginBottom: '10px' }}>ボイス音量</div>
               <input type="range" min="0" max="1" step="0.1" value={voiceVolume} onChange={e => setVoiceVolume(parseFloat(e.target.value))} style={{ width: '100%', accentColor:'#00ffcc' }} />
           </div>
-          <div style={{ marginTop: '20px', padding: '10px', borderTop: '1px solid #333' }}>
-            <button onClick={updateAllCountryTags} style={{ width: '100%', padding: '10px', background: '#222', color: '#ffcc00', border: '1px solid #444', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer' }}>🛠️ 全スポットの国名をAIで更新 (VSCode推奨)</button>
+          {/* お問い合わせ・追加依頼ボタン */}
+          <div style={{ marginTop: '20px', padding: '15px 0', borderTop: '1px solid #333', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <button onClick={() => window.location.href = 'mailto:support@geovoice.app'} style={{ width: '100%', padding: '12px', background: '#222', color: 'white', border: '1px solid #444', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center' }}>
+                <span style={{ marginRight: '10px', fontSize: '1.2rem' }}>📧</span> お問い合わせ
+            </button>
+            <button onClick={() => window.open('https://forms.google.com/', '_blank')} style={{ width: '100%', padding: '12px', background: '#222', color: 'white', border: '1px solid #444', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center' }}>
+                <span style={{ marginRight: '10px', fontSize: '1.2rem' }}>📍</span> 場所の追加依頼
+            </button>
           </div>
           {user && <button onClick={() => { if(confirm('Logout?')) { supabase.auth.signOut(); clearUser(); handleTabChange('map'); }}} style={{ width: '100%', padding: '15px', background: '#222', color: '#ff3366', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 'bold', marginTop:'30px' }}>ログアウト</button>}
           <div style={{ height: '50px' }}></div> 
