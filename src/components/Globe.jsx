@@ -210,18 +210,15 @@ const GlobeContent = () => {
   const [showSplash, setShowSplash] = useState(true);
   const [showTutorial, setShowTutorial] = useState(false);
 
-  // ★プレミアム会員になると増えるスポット数を計算（勧誘用）
+  // ★プレミアム会員になると増えるスポット数を計算
   const premiumSpotCount = useMemo(() => {
     return locations.filter(l => PREMIUM_CATEGORIES.includes(l.category || 'history')).length;
   }, [locations]);
 
-  // ★現在アクセス可能なスポット数を計算（左上カウンター用）
+  // ★現在アクセス可能なスポット数を計算
   const accessibleSpotCount = useMemo(() => {
     const isUserPremium = isPremium || isVipUser(user?.email);
-    if (isUserPremium) {
-      return locations.length;
-    }
-    // 無料ユーザー：プレミアムカテゴリを除外した数
+    if (isUserPremium) return locations.length;
     return locations.filter(loc => !PREMIUM_CATEGORIES.includes(loc.category || 'history')).length;
   }, [locations, isPremium, user]);
 
@@ -373,6 +370,8 @@ const GlobeContent = () => {
         if (data) {
             const fullSpot = { ...data, category: data.category || 'history' };
             setSelectedLocation(fullSpot);
+            // ★修正: 画面の中心にスポットが来るように調整
+            // PC: 中心、スマホ: 上から30%（パディング設定と連動）
             mapRef.current?.flyTo({ center: [fullSpot.lon, fullSpot.lat], zoom: 6, speed: 1.2, curve: 1 });
         }
     } catch (e) { console.error(e); }
@@ -514,7 +513,6 @@ const GlobeContent = () => {
   
   const jumpToRandomSpot = (cat=null) => { 
     rideCategoryRef.current = cat; 
-    // 自然(Nature)もここで制限
     if (cat && PREMIUM_CATEGORIES.includes(cat) && !isPremium && !isVipUser(user?.email)) {
         alert("🔒 プレミアム限定機能です"); return;
     }
@@ -542,7 +540,6 @@ const GlobeContent = () => {
     if (nextSpot) await fetchAndSelectSpot(nextSpot.id);
   };
 
-  // GeoJSONデータの作成 (カテゴリフィルタ済み)
   const filteredGeoJsonData = useMemo(() => {
     const filtered = locations.filter(loc => {
       const cat = loc.category || 'history';
@@ -588,7 +585,6 @@ const GlobeContent = () => {
             <div onClick={() => jumpToRandomSpot('landmark')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333' }}><div style={{fontSize:'1.5rem'}}>🏯</div><div style={{color:'#ff8800', fontSize:'0.8rem'}}>観光名所</div></div>
             <div onClick={() => jumpToRandomSpot('history')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333' }}><div style={{fontSize:'1.5rem'}}>🏛️</div><div style={{color:'#ffcc00', fontSize:'0.8rem'}}>歴史</div></div>
             
-            {/* プレミアムカテゴリ (ロック表示) */}
             <div onClick={() => isPremium ? jumpToRandomSpot('nature') : alert('🔒 プレミアム限定です')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isPremium ? 1 : 0.5 }}>
               <div style={{fontSize:'1.5rem'}}>{isPremium ? '🌲' : '🔒'}</div><div style={{color:'#00ff7f', fontSize:'0.8rem'}}>自然 (Pro)</div>
             </div>
@@ -611,7 +607,6 @@ const GlobeContent = () => {
         <div style={commonStyle}>
           <h2 style={{ color: 'white', marginTop: 0, fontSize:'1.5rem', marginBottom:'20px' }}>設定</h2>
           
-          {/* ★修正: プレミアムバナーを確実に表示 */}
           {(!isPremium && !isVipUser(user?.email)) && (
             <div style={{ background: '#222', borderRadius: '16px', padding: '20px', marginBottom: '25px', boxShadow: '0 4px 15px rgba(0,0,0,0.5)', border: '1px solid #333', textAlign: 'left' }}>
               <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px' }}>
@@ -629,7 +624,6 @@ const GlobeContent = () => {
             </div>
           )}
 
-          {/* ★修正: 既にプレミアム会員の場合の表示を追加 */}
           {(isPremium || isVipUser(user?.email)) && (
              <div style={{ background: 'linear-gradient(45deg, #00332a, #000)', borderRadius: '16px', padding: '20px', marginBottom: '25px', border: '1px solid #00ffcc', textAlign: 'center' }}>
                 <div style={{ color: '#00ffcc', fontWeight: 'bold', fontSize: '1.2rem', marginBottom: '5px' }}>💎 Premium Member</div>
@@ -671,7 +665,6 @@ const GlobeContent = () => {
               <input type="range" min="0" max="1" step="0.1" value={voiceVolume} onChange={e => setVoiceVolume(parseFloat(e.target.value))} style={{ width: '100%', accentColor:'#00ffcc' }} />
           </div>
           <div style={{ marginTop: '20px', padding: '10px', borderTop: '1px solid #333' }}>
-            {/* ★修正: 関数復活 */}
             <button onClick={updateAllCountryTags} style={{ width: '100%', padding: '10px', background: '#222', color: '#ffcc00', border: '1px solid #444', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer' }}>🛠️ 全スポットの国名をAIで更新 (VSCode推奨)</button>
           </div>
           {user && <button onClick={() => { if(confirm('Logout?')) { supabase.auth.signOut(); clearUser(); handleTabChange('map'); }}} style={{ width: '100%', padding: '15px', background: '#222', color: '#ff3366', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 'bold', marginTop:'30px' }}>ログアウト</button>}
@@ -689,7 +682,6 @@ const GlobeContent = () => {
       {showSplash && <SplashScreen onFinished={handleSplashFinish} />}
       {showTutorial && <TutorialOverlay onClose={() => setShowTutorial(false)} onLanguageSelect={handleLanguageSelect} />}
 
-      {/* ★修正: 左上カウンターの数値を無料版と有料版で切り替え */}
       <div style={{ position: 'absolute', top: '15px', left: '15px', zIndex: 10, color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 12px', borderRadius: '8px', fontSize: '0.8rem', pointerEvents: 'none', backdropFilter:'blur(5px)', border:'1px solid rgba(255,255,255,0.2)' }}>
         Spots: {accessibleSpotCount}
       </div>
@@ -699,6 +691,22 @@ const GlobeContent = () => {
           [ここに広告バナーが入ります]
         </div>
       )}
+
+      {/* ★復活: 中央の照準サークル (〇枠) */}
+      <div style={{ 
+          position: 'absolute', 
+          top: isPc ? '50%' : '30%', // PCは中央、スマホは上から30%（マップのpaddingと連動）
+          left: '50%', 
+          transform: 'translate(-50%, -50%)', 
+          width: '50px', 
+          height: '50px', 
+          borderRadius: '50%', 
+          zIndex: 10, 
+          pointerEvents: 'none', 
+          border: selectedLocation ? '3px solid #00ffcc' : '2px solid rgba(255, 180, 150, 0.5)', 
+          boxShadow: selectedLocation ? '0 0 20px #00ffcc' : '0 0 10px rgba(255, 100, 100, 0.3)', 
+          transition: 'all 0.3s ease-out' 
+      }} />
 
       {isPc && (
         <div className="pc-ui-container" style={{ position: 'absolute', bottom: '20px', left: '20px', width: '360px', zIndex: 100, display: 'flex', flexDirection: 'column', pointerEvents: 'none' }}>
@@ -780,6 +788,10 @@ const GlobeContent = () => {
         </div>
       )}
 
+      {statusMessage && <div style={{ position: 'absolute', top: '80px', left: '20px', zIndex: 20, color: '#00ffcc', textShadow: '0 0 5px black' }}>{statusMessage}</div>}
+
+      <div style={{ position: 'absolute', top: isPc ? '50%' : '30%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
+
       {selectedLocation && displayData && (activeTab === null || activeTab === 'map' || isPc) && (
         <>
           {!isPc && displayData.image_url && (
@@ -824,6 +836,7 @@ const GlobeContent = () => {
         onClick={handleMapClick}
         geoJsonData={filteredGeoJsonData} 
         onError={(e) => addLog(`Map Error: ${e.error.message}`)} 
+        // ★修正: スマホ版のpaddingを設定して中心を上にずらす
         padding={isPc ? {} : { bottom: window.innerHeight * 0.4 }} 
         cursor={cursor}
         onMouseEnter={onMouseEnter}
