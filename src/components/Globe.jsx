@@ -28,7 +28,6 @@ const ERA_LABELS = {
   fr: { AD: 'ap. J.-C.', BC: 'av. J.-C.' },
 };
 
-// ★BGMライブラリ
 const BGM_LIBRARY = [
   // Pop
   { id: 'pop1', title: '10℃', artist: 'Japan', genre: 'Pop', url: '/bgm/Pop1.mp3' },
@@ -187,6 +186,14 @@ const GlobeContent = () => {
   const [showFavList, setShowFavList] = useState(false);
   const [favorites, setFavorites] = useState(new Set());
 
+  // ★フォーム用State
+  const [showContactModal, setShowContactModal] = useState(false);
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [formEmail, setFormEmail] = useState("");
+  const [formMessage, setFormMessage] = useState("");
+  const [formPlaceName, setFormPlaceName] = useState("");
+  const [formPlaceDesc, setFormPlaceDesc] = useState("");
+
   const [visibleCategories, setVisibleCategories] = useState({
     landmark: true, history: true, nature: true, 
     modern: true, science: true, art: true
@@ -268,7 +275,6 @@ const GlobeContent = () => {
   useEffect(() => { isRideModeRef.current = isRideMode; }, [isRideMode]);
   useEffect(() => { isHistoryModeRef.current = isHistoryMode; }, [isHistoryMode]);
 
-  // ★周辺スポットが変わったら画像を即座に先読み
   useEffect(() => {
     if (nearbySpots.length > 0) {
         nearbySpots.forEach(spot => {
@@ -355,7 +361,7 @@ const GlobeContent = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  const setupUser = (u) => { setUser(u); fetchFavorites(u.id); fetchProfile(u.id, u.email); };
+  const setupUser = (u) => { setUser(u); setFormEmail(u.email || ""); fetchFavorites(u.id); fetchProfile(u.id, u.email); };
   const clearUser = () => { setUser(null); setProfile(null); setIsPremium(false); setFavorites(new Set()); };
   const fetchProfile = async (userId, email) => {
     const isVip = isVipUser(email);
@@ -534,13 +540,25 @@ const GlobeContent = () => {
     }
   }, [activeTab]);
 
-  const updateAllCountryTags = async () => {
-    if (!confirm("全てのスポットの国名情報をAIで再取得しますか？\n（データ数が多い場合、時間がかかります）")) return;
-    setIsGenerating(true);
-    setStatusMessage("国名データ更新開始...");
-    try { alert("ブラウザでの全件更新は負荷が高いため、scripts/update_countries.js の利用を推奨します。"); } 
-    catch (e) { alert("エラー: " + e.message); } 
-    finally { setIsGenerating(false); setStatusMessage(""); }
+  // ★追加: フォーム送信処理
+  const handleContactSubmit = async () => {
+    if (!formMessage.trim()) return alert("メッセージを入力してください");
+    try {
+        const { error } = await supabase.from('inquiries').insert({ user_id: user?.id, email: formEmail, message: formMessage });
+        if (error) throw error;
+        alert("送信しました。ありがとうございます！");
+        setFormMessage(""); setShowContactModal(false);
+    } catch(e) { alert("送信エラー: " + e.message); }
+  };
+
+  const handleRequestSubmit = async () => {
+    if (!formPlaceName.trim()) return alert("場所の名前を入力してください");
+    try {
+        const { error } = await supabase.from('place_requests').insert({ user_id: user?.id, place_name: formPlaceName, description: formPlaceDesc });
+        if (error) throw error;
+        alert("リクエストを送信しました！");
+        setFormPlaceName(""); setFormPlaceDesc(""); setShowRequestModal(false);
+    } catch(e) { alert("送信エラー: " + e.message); }
   };
 
   const handleGenerate = async () => {
@@ -662,7 +680,6 @@ const GlobeContent = () => {
     const commonStyle = { background: '#111', borderRadius: '15px', padding: '20px', border: '1px solid rgba(255,255,255,0.1)', minHeight: '200px', pointerEvents: 'auto' };
 
     if (activeTab === 'explore') {
-        // ★修正: スマホ用「探索」ハーフモーダルの中身（PCは普通に表示）
         const content = (
             <div>
               <h2 style={{color:'#fff', marginTop:0, marginBottom:'5px', fontSize:'1.2rem'}}>探索</h2>
@@ -797,17 +814,18 @@ const GlobeContent = () => {
               <div style={{ color: 'white', marginBottom: '10px' }}>ボイス音量</div>
               <input type="range" min="0" max="1" step="0.1" value={voiceVolume} onChange={e => setVoiceVolume(parseFloat(e.target.value))} style={{ width: '100%', accentColor:'#00ffcc' }} />
           </div>
-          {/* お問い合わせ・追加依頼ボタン */}
+          
           <div style={{ marginTop: '20px', padding: '15px 0', borderTop: '1px solid #333', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            <button onClick={() => window.location.href = 'mailto:support@geovoice.app'} style={{ width: '100%', padding: '12px', background: '#222', color: 'white', border: '1px solid #444', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center' }}>
+            <button onClick={() => setShowContactModal(true)} style={{ width: '100%', padding: '12px', background: '#222', color: 'white', border: '1px solid #444', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center' }}>
                 <span style={{ marginRight: '10px', fontSize: '1.2rem' }}>📧</span> お問い合わせ
             </button>
-            <button onClick={() => window.open('https://forms.google.com/', '_blank')} style={{ width: '100%', padding: '12px', background: '#222', color: 'white', border: '1px solid #444', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center' }}>
+            <button onClick={() => setShowRequestModal(true)} style={{ width: '100%', padding: '12px', background: '#222', color: 'white', border: '1px solid #444', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center' }}>
                 <span style={{ marginRight: '10px', fontSize: '1.2rem' }}>📍</span> 場所の追加依頼
             </button>
           </div>
+          
           {user && <button onClick={() => { if(confirm('Logout?')) { supabase.auth.signOut(); clearUser(); handleTabChange('map'); }}} style={{ width: '100%', padding: '15px', background: '#222', color: '#ff3366', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 'bold', marginTop:'30px' }}>ログアウト</button>}
-          <div style={{ height: '50px' }}></div> 
+          <div style={{ height: '80px' }}></div> 
         </div>
       );
     }
@@ -821,6 +839,40 @@ const GlobeContent = () => {
       {showSplash && <SplashScreen onFinished={handleSplashFinish} />}
       {showTutorial && <TutorialOverlay onClose={() => setShowTutorial(false)} onLanguageSelect={handleLanguageSelect} />}
 
+      {/* お問い合わせモーダル */}
+      {showContactModal && (
+        <div style={{ position:'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.8)', zIndex:9999, display:'flex', justifyContent:'center', alignItems:'center' }} onClick={() => setShowContactModal(false)}>
+            <div style={{ width:'90%', maxWidth:'400px', background:'#222', padding:'20px', borderRadius:'15px', border:'1px solid #444' }} onClick={e => e.stopPropagation()}>
+                <h3 style={{color:'white', marginTop:0}}>📧 お問い合わせ</h3>
+                <div style={{color:'white', marginBottom:'5px'}}>メールアドレス (任意)</div>
+                <input type="email" value={formEmail} onChange={e => setFormEmail(e.target.value)} style={{width:'100%', padding:'10px', marginBottom:'15px', background:'#333', border:'1px solid #555', color:'white', borderRadius:'5px'}} />
+                <div style={{color:'white', marginBottom:'5px'}}>メッセージ</div>
+                <textarea value={formMessage} onChange={e => setFormMessage(e.target.value)} rows={5} style={{width:'100%', padding:'10px', marginBottom:'15px', background:'#333', border:'1px solid #555', color:'white', borderRadius:'5px'}}></textarea>
+                <div style={{display:'flex', gap:'10px'}}>
+                    <button onClick={() => setShowContactModal(false)} style={{flex:1, padding:'10px', background:'#444', color:'white', border:'none', borderRadius:'5px'}}>キャンセル</button>
+                    <button onClick={handleContactSubmit} style={{flex:1, padding:'10px', background:'#00ffcc', color:'black', fontWeight:'bold', border:'none', borderRadius:'5px'}}>送信</button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* 場所追加依頼モーダル */}
+      {showRequestModal && (
+        <div style={{ position:'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.8)', zIndex:9999, display:'flex', justifyContent:'center', alignItems:'center' }} onClick={() => setShowRequestModal(false)}>
+            <div style={{ width:'90%', maxWidth:'400px', background:'#222', padding:'20px', borderRadius:'15px', border:'1px solid #444' }} onClick={e => e.stopPropagation()}>
+                <h3 style={{color:'white', marginTop:0}}>📍 場所の追加依頼</h3>
+                <div style={{color:'white', marginBottom:'5px'}}>場所の名前 / 住所</div>
+                <input type="text" value={formPlaceName} onChange={e => setFormPlaceName(e.target.value)} style={{width:'100%', padding:'10px', marginBottom:'15px', background:'#333', border:'1px solid #555', color:'white', borderRadius:'5px'}} />
+                <div style={{color:'white', marginBottom:'5px'}}>補足情報 (任意)</div>
+                <textarea value={formPlaceDesc} onChange={e => setFormPlaceDesc(e.target.value)} rows={3} style={{width:'100%', padding:'10px', marginBottom:'15px', background:'#333', border:'1px solid #555', color:'white', borderRadius:'5px'}}></textarea>
+                <div style={{display:'flex', gap:'10px'}}>
+                    <button onClick={() => setShowRequestModal(false)} style={{flex:1, padding:'10px', background:'#444', color:'white', border:'none', borderRadius:'5px'}}>キャンセル</button>
+                    <button onClick={handleRequestSubmit} style={{flex:1, padding:'10px', background:'#00ffcc', color:'black', fontWeight:'bold', border:'none', borderRadius:'5px'}}>送信</button>
+                </div>
+            </div>
+        </div>
+      )}
+
       <div style={{ position: 'absolute', top: '15px', left: '15px', zIndex: 10, color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 12px', borderRadius: '8px', fontSize: '0.8rem', pointerEvents: 'none', backdropFilter:'blur(5px)', border:'1px solid rgba(255,255,255,0.2)' }}>
         Spots: {accessibleSpotCount}
       </div>
@@ -831,7 +883,6 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* 〇枠 */}
       <div style={{ 
           position: 'absolute', 
           top: isPc ? '50%' : '30%', 
@@ -880,7 +931,6 @@ const GlobeContent = () => {
 
       {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== 'fav' && activeTab !== null && (
         <>
-          {/* ★修正: スマホ用「探索」だけ特別扱い（ハーフモーダル） */}
           {activeTab === 'explore' ? (
             <div style={{ 
                 position: 'fixed', bottom: '80px', left: 0, width: '100%', height: '40vh', 
@@ -939,15 +989,10 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {statusMessage && <div style={{ position: 'absolute', top: '80px', left: '20px', zIndex: 20, color: '#00ffcc', textShadow: '0 0 5px black' }}>{statusMessage}</div>}
-
-      <div style={{ position: 'absolute', top: isPc ? '50%' : '30%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: displayData ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: displayData ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
-
-      {displayData && (activeTab === null || activeTab === 'map' || isPc) && (
+      {selectedLocation && displayData && (activeTab === null || activeTab === 'map' || isPc) && (
         <>
           {!isPc && displayData.image_url && !imgError && (
             <div style={{ position: 'absolute', top: '40px', left: '10px', right: '10px', height: '160px', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', zIndex: 10, pointerEvents: 'none', border: '1px solid rgba(255,255,255,0.1)', background: '#000' }}>
-              {/* ★修正: 0秒表示 (transitionなし) */}
               {imgLoading && <div style={{width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'#666'}}>Loading...</div>}
               <img 
                 src={displayData.image_url} 
@@ -1003,7 +1048,6 @@ const GlobeContent = () => {
         </>
       )}
 
-      {/* メモ化マップの使用 (self-closing) */}
       <MemoizedMap 
         mapRef={mapRef} 
         mapboxAccessToken={MAPBOX_TOKEN} 
