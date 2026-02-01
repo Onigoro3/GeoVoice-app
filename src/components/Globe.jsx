@@ -5,7 +5,8 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import AuthModal from './AuthModal';
 import FavoritesModal from './FavoritesModal';
 import ErrorBoundary from './ErrorBoundary';
-import SplashScreen from './SplashScreen'; // ★追加
+import SplashScreen from './SplashScreen';
+import TutorialOverlay from './TutorialOverlay'; // ★追加
 import { isVipUser } from '../vipList';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
@@ -210,8 +211,18 @@ const GlobeContent = () => {
   const [nearbySpots, setNearbySpots] = useState([]);
   const [cursor, setCursor] = useState('auto'); 
   
-  // ★スプラッシュスクリーン用 State
+  // ★スプラッシュとチュートリアル用のState
   const [showSplash, setShowSplash] = useState(true);
+  const [showTutorial, setShowTutorial] = useState(false);
+
+  // ★スプラッシュが終わったら、チュートリアルが必要かチェック
+  const handleSplashFinish = () => {
+    setShowSplash(false);
+    const hasSeen = localStorage.getItem('hasSeenTutorial');
+    if (!hasSeen) {
+      setShowTutorial(true);
+    }
+  };
 
   const initialViewState = { longitude: 135.0, latitude: 35.0, zoom: 3.5 };
 
@@ -768,6 +779,56 @@ const GlobeContent = () => {
       return (
         <div style={commonStyle}>
           <h2 style={{ color: 'white', marginTop: 0, fontSize:'1.5rem', marginBottom:'20px' }}>設定</h2>
+          
+          {/* ★追加: プレミアム会員バナー (Radio Garden風) */}
+          <div style={{ 
+            background: '#222', 
+            borderRadius: '16px', 
+            padding: '20px', 
+            marginBottom: '25px', 
+            boxShadow: '0 4px 15px rgba(0,0,0,0.5)',
+            border: '1px solid #333',
+            textAlign: 'left'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px' }}>
+              <div style={{ fontSize: '2.5rem', marginRight: '15px' }}>🌍</div>
+              <div>
+                <div style={{ color: 'white', fontSize: '1.2rem', fontWeight: 'bold' }}>GeoVoice</div>
+                <div style={{ color: '#00ffcc', fontSize: '1.4rem', fontWeight: 'bold', letterSpacing: '1px' }}>プレミアム</div>
+              </div>
+            </div>
+            
+            <div style={{ color: '#ccc', marginBottom: '20px', fontSize: '0.9rem', lineHeight: '1.8' }}>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <span style={{ color: '#00ffcc', marginRight: '10px', fontSize: '1.2rem' }}>+</span> ビジュアル広告なし
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <span style={{ color: '#00ffcc', marginRight: '10px', fontSize: '1.2rem' }}>+</span> スリープタイマー (近日公開)
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <span style={{ color: '#00ffcc', marginRight: '10px', fontSize: '1.2rem' }}>+</span> AIガイド無制限
+              </div>
+            </div>
+
+            <button style={{ 
+              width: '100%', 
+              padding: '12px', 
+              background: '#00ffcc', 
+              color: 'black', 
+              border: 'none', 
+              borderRadius: '25px', 
+              fontWeight: 'bold', 
+              fontSize: '1rem',
+              cursor: 'pointer',
+              marginBottom: '10px'
+            }}>
+              プレミアムに参加する
+            </button>
+            <div style={{ textAlign: 'center', color: '#888', fontSize: '0.8rem', cursor: 'pointer', textDecoration: 'underline' }}>
+              購入を復元
+            </div>
+          </div>
+
           <div style={{ padding: '15px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', color: 'white', alignItems:'center' }}>
                   <span>BGM Player</span>
@@ -813,7 +874,8 @@ const GlobeContent = () => {
       <audio ref={audioRef} src={currentTrack.url} loop={loopMode === 'one'} onEnded={handleTrackEnded} /> 
       {isPc && <div style={{ position: 'absolute', bottom: '10px', right: '10px', zIndex: 100, background: 'rgba(0,0,0,0.7)', color: '#00ff00', fontSize: '10px', padding: '5px', borderRadius: '5px', maxWidth: '300px', pointerEvents: 'none' }}>{logs.map((log, i) => <div key={i}>{log}</div>)}</div>}
       
-      {showSplash && <SplashScreen onFinished={() => setShowSplash(false)} />}
+      {showSplash && <SplashScreen onFinished={handleSplashFinish} />}
+      {showTutorial && <TutorialOverlay onClose={() => setShowTutorial(false)} />}
 
       {/* 全スポット件数カウンター */}
       <div style={{ position: 'absolute', top: '15px', left: '15px', zIndex: 10, color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 12px', borderRadius: '8px', fontSize: '0.8rem', pointerEvents: 'none', backdropFilter:'blur(5px)', border:'1px solid rgba(255,255,255,0.2)' }}>
