@@ -603,7 +603,8 @@ const GlobeContent = () => {
         <div style={commonStyle}>
           <h2 style={{ color: 'white', marginTop: 0, fontSize:'1.5rem', marginBottom:'20px' }}>設定</h2>
           
-          {!isPremium && (
+          {/* ★修正: プレミアムバナーを確実に表示 */}
+          {(!isPremium && !isVipUser(user?.email)) && (
             <div style={{ background: '#222', borderRadius: '16px', padding: '20px', marginBottom: '25px', boxShadow: '0 4px 15px rgba(0,0,0,0.5)', border: '1px solid #333', textAlign: 'left' }}>
               <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px' }}>
                 <div style={{ fontSize: '2.5rem', marginRight: '15px' }}>🌍</div>
@@ -618,6 +619,14 @@ const GlobeContent = () => {
               <button style={{ width: '100%', padding: '12px', background: '#00ffcc', color: 'black', border: 'none', borderRadius: '25px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', marginBottom: '10px' }}>プレミアムに参加する</button>
               <div style={{ textAlign: 'center', color: '#888', fontSize: '0.8rem', cursor: 'pointer', textDecoration: 'underline' }}>購入を復元</div>
             </div>
+          )}
+
+          {/* ★修正: 既にプレミアム会員の場合の表示を追加 */}
+          {(isPremium || isVipUser(user?.email)) && (
+             <div style={{ background: 'linear-gradient(45deg, #00332a, #000)', borderRadius: '16px', padding: '20px', marginBottom: '25px', border: '1px solid #00ffcc', textAlign: 'center' }}>
+                <div style={{ color: '#00ffcc', fontWeight: 'bold', fontSize: '1.2rem', marginBottom: '5px' }}>💎 Premium Member</div>
+                <div style={{ color: '#ccc', fontSize: '0.9rem' }}>全ての機能が解放されています</div>
+             </div>
           )}
 
           <div style={{marginBottom: '20px'}}>
@@ -654,7 +663,7 @@ const GlobeContent = () => {
               <input type="range" min="0" max="1" step="0.1" value={voiceVolume} onChange={e => setVoiceVolume(parseFloat(e.target.value))} style={{ width: '100%', accentColor:'#00ffcc' }} />
           </div>
           <div style={{ marginTop: '20px', padding: '10px', borderTop: '1px solid #333' }}>
-            {/* ★ここが原因だった箇所：関数を復活させたので直ります */}
+            {/* ★修正: 関数復活 */}
             <button onClick={updateAllCountryTags} style={{ width: '100%', padding: '10px', background: '#222', color: '#ffcc00', border: '1px solid #444', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer' }}>🛠️ 全スポットの国名をAIで更新 (VSCode推奨)</button>
           </div>
           {user && <button onClick={() => { if(confirm('Logout?')) { supabase.auth.signOut(); clearUser(); handleTabChange('map'); }}} style={{ width: '100%', padding: '15px', background: '#222', color: '#ff3366', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 'bold', marginTop:'30px' }}>ログアウト</button>}
