@@ -60,7 +60,6 @@ const BGM_LIBRARY = [
   { id: 'country3', title: '秋を探しに', artist: 'Japan', genre: 'Country', url: '/bgm/Country3.mp3' },
 ];
 
-// ★ 無料/有料の区分定義 (自然をプレミアムへ移動)
 const PREMIUM_CATEGORIES = ['nature', 'modern', 'science', 'art'];
 
 const PRIVACY_POLICY_TEXT = `## プライバシーポリシー (省略)`;
@@ -160,6 +159,9 @@ const GlobeContent = () => {
   const rideTimeoutRef = useRef(null);
   const visibleCategoriesRef = useRef(null);
   const rideCategoryRef = useRef(null);
+  
+  // ★追加: 次のスポットの先読み用Ref
+  const nextSpotDataRef = useRef(null);
 
   const [locations, setLocations] = useState([]);
   const [selectedLocation, setSelectedLocation] = useState(null);
@@ -172,14 +174,14 @@ const GlobeContent = () => {
   const [historyEra, setHistoryEra] = useState("AD");
   const [historyCountry, setHistoryCountry] = useState("ALL");
   
-  const [currentLang, setCurrentLang] = useState('ja'); // 初期値
+  const [currentLang, setCurrentLang] = useState('ja');
   const [inputTheme, setInputTheme] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [logs, setLogs] = useState([]);
   
   const [imgError, setImgError] = useState(false); 
-  const [imgLoading, setImgLoading] = useState(true); // ★追加: 画像読み込み中フラグ
+  const [imgLoading, setImgLoading] = useState(true);
 
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -188,7 +190,6 @@ const GlobeContent = () => {
   const [showFavList, setShowFavList] = useState(false);
   const [favorites, setFavorites] = useState(new Set());
 
-  // 初期表示カテゴリ
   const [visibleCategories, setVisibleCategories] = useState({
     landmark: true, history: true, nature: true, 
     modern: true, science: true, art: true
@@ -358,19 +359,38 @@ const GlobeContent = () => {
 
   const handleSelectFromList = (spot) => { fetchAndSelectSpot(spot.id); };
   
-  const fetchAndSelectSpot = async (spotId) => {
-    const spot = locationsRef.current.find(s => s.id === spotId);
-    if (spot && PREMIUM_CATEGORIES.includes(spot.category) && !isPremium && !isVipUser(user?.email)) {
-      alert("🔒 このカテゴリ（自然・現代・科学・芸術）はプレミアム会員限定です。\n設定からプレミアムに参加してください！");
-      return;
+  const fetchAndSelectSpot = async (spotId, fromPreload=false) => {
+    // プレミアムチェック (先読み時はチェック済みと仮定)
+    if (!fromPreload) {
+        const spot = locationsRef.current.find(s => s.id === spotId);
+        if (spot && PREMIUM_CATEGORIES.includes(spot.category) && !isPremium && !isVipUser(user?.email)) {
+            alert("🔒 このカテゴリ（自然・現代・科学・芸術）はプレミアム会員限定です。\n設定からプレミアムに参加してください！");
+            return;
+        }
     }
 
     try {
-        const { data } = await supabase.from('spots').select('*').eq('id', spotId).single();
-        if (data) {
-            const fullSpot = { ...data, category: data.category || 'history' };
+        let fullSpot = null;
+        
+        // ★先読みデータがある場合はそれを使う
+        if (fromPreload && nextSpotDataRef.current && nextSpotDataRef.current.id === spotId) {
+            fullSpot = nextSpotDataRef.current;
+            nextSpotDataRef.current = null; // 使い終わったらクリア
+        } else {
+            const { data } = await supabase.from('spots').select('*').eq('id', spotId).single();
+            if (data) {
+                fullSpot = { ...data, category: data.category || 'history' };
+            }
+        }
+
+        if (fullSpot) {
             setSelectedLocation(fullSpot);
             mapRef.current?.flyTo({ center: [fullSpot.lon, fullSpot.lat], zoom: 6, speed: 2.0, curve: 1, essential: true });
+            
+            // ★ライドモード中なら、表示と同時に次のスポットを裏で準備する
+            if (isRideModeRef.current) {
+                setTimeout(preloadNextSpot, 500); 
+            }
         }
     } catch (e) { console.error(e); }
   };
@@ -402,7 +422,7 @@ const GlobeContent = () => {
         if(window.speechSynthesis) window.speechSynthesis.cancel(); 
         setIsPlaying(false); 
         setImgError(false); 
-        setImgLoading(true); // リセット
+        setImgLoading(true); 
         return; 
     }
     const suffix = currentLang === 'ja' ? '_ja' : `_${currentLang}`;
@@ -411,7 +431,7 @@ const GlobeContent = () => {
     const newData = { ...selectedLocation, name: displayName, description: displayDesc, needsTranslation: currentLang === 'ja' && !/[ぁ-んァ-ン]/.test(displayName) };
     setDisplayData(newData);
     setImgError(false); 
-    setImgLoading(true); // 画像読み込み開始
+    setImgLoading(true); 
     if (!newData.needsTranslation) { 
         if(window.speechSynthesis) window.speechSynthesis.cancel(); 
         speak(newData.description); 
@@ -528,7 +548,6 @@ const GlobeContent = () => {
 
   const handleCurrentLocation = () => { if (!navigator.geolocation) { alert("現在地機能が使えません"); return; } navigator.geolocation.getCurrentPosition((pos) => { mapRef.current?.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 9, speed: 1.5, curve: 1 }); }, () => { alert("位置情報の取得に失敗しました"); }); };
   
-  // ★修正: ヒストリーライド開始時にプレミアムチェック
   const startHistoryRide = () => { 
     if (!isPremium && !isVipUser(user?.email)) {
         alert("🔒 ヒストリーライドはプレミアム限定機能です。\n歴史の旅へ出かけるにはアップグレードが必要です！");
@@ -537,6 +556,7 @@ const GlobeContent = () => {
     setIsHistoryMode(true); 
     setIsRideMode(true); 
     setActiveTab('map'); 
+    setTimeout(() => { nextRideStep(); }, 100);
   };
   const toggleRideModeTrigger = () => { if (!isRideMode) { if(!isHistoryMode) jumpToRandomSpot(); else nextRideStep(); } else setIsRideMode(false); };
   
@@ -550,12 +570,17 @@ const GlobeContent = () => {
     setIsHistoryMode(false); setIsRideMode(true); setActiveTab('map'); setTimeout(() => { nextRideStep(); }, 100); 
   };
 
-  const nextRideStep = async () => {
-    if (!isRideModeRef.current) return; let nextSpot = null;
+  // ★重要: 次のスポットを決定するロジック（分離して再利用可能に）
+  const getNextSpotCandidate = () => {
     if (isHistoryModeRef.current) {
-        const sorted = historySortedSpotsRef.current; let idx = historyIndexRef.current; if (idx >= sorted.length) idx = 0; nextSpot = sorted[idx]; historyIndexRef.current = idx + 1;
+        const sorted = historySortedSpotsRef.current; 
+        let idx = historyIndexRef.current; 
+        if (idx >= sorted.length) idx = 0; 
+        historyIndexRef.current = idx + 1; // 副作用あり注意
+        return sorted[idx];
     } else {
-        const currentFilters = visibleCategoriesRef.current || { history: true, nature: true, modern: true, science: true, art: true }; const targetCat = rideCategoryRef.current;
+        const currentFilters = visibleCategoriesRef.current || { history: true, nature: true, modern: true, science: true, art: true }; 
+        const targetCat = rideCategoryRef.current;
         let candidates = locationsRef.current.filter(loc => {
           const cat = loc.category || 'history';
           if (!profile?.is_premium && !isVipUser(user?.email) && PREMIUM_CATEGORIES.includes(cat)) return false;
@@ -563,10 +588,46 @@ const GlobeContent = () => {
           return currentFilters[cat];
         });
         if (selectedLocationRef.current) candidates = candidates.filter(c => c.id !== selectedLocationRef.current.id);
-        if (candidates.length === 0) { setIsRideMode(false); return; }
-        nextSpot = candidates[Math.floor(Math.random() * candidates.length)];
+        if (candidates.length === 0) return null;
+        return candidates[Math.floor(Math.random() * candidates.length)];
     }
-    if (nextSpot) await fetchAndSelectSpot(nextSpot.id);
+  };
+
+  // ★重要: 先読み処理（画像ダウンロード開始）
+  const preloadNextSpot = async () => {
+    const nextCandidate = getNextSpotCandidate();
+    if (!nextCandidate) return;
+
+    try {
+        // データを取得
+        const { data } = await supabase.from('spots').select('*').eq('id', nextCandidate.id).single();
+        if (data) {
+            const fullSpot = { ...data, category: data.category || 'history' };
+            nextSpotDataRef.current = fullSpot; // Refに保存
+            
+            // 画像のバックグラウンドダウンロード (キャッシュさせる)
+            if (fullSpot.image_url) {
+                const img = new Image();
+                img.src = fullSpot.image_url;
+            }
+        }
+    } catch (e) { console.error("Preload error", e); }
+  };
+
+  const nextRideStep = async () => {
+    if (!isRideModeRef.current) return;
+    
+    // ★先読みデータがあれば即座に使用、なければ通常取得
+    if (nextSpotDataRef.current) {
+        await fetchAndSelectSpot(nextSpotDataRef.current.id, true);
+    } else {
+        const nextSpot = getNextSpotCandidate();
+        if (nextSpot) {
+            await fetchAndSelectSpot(nextSpot.id);
+        } else {
+            setIsRideMode(false);
+        }
+    }
   };
 
   const filteredGeoJsonData = useMemo(() => {
@@ -610,28 +671,29 @@ const GlobeContent = () => {
       return (
         <div style={commonStyle}>
           <h2 style={{color:'#fff', marginTop:0, fontSize:'1.5rem'}}>ブラウズ</h2>
-          {/* ★修正: ヒストリーライドのロック制御 */}
+          {/* ヒストリーライド (有料化) */}
           <div style={{ 
               background: '#222', 
               borderRadius: '12px', 
               padding: '15px', 
               marginBottom: '20px', 
               border: '1px solid #444',
-              opacity: isUserPremium ? 1 : 0.5, // 無料会員は半透明
-              position: 'relative'
+              opacity: isUserPremium ? 1 : 0.5,
+              position: 'relative',
+              pointerEvents: isUserPremium ? 'auto' : 'none' // 操作ブロック
           }}>
             {!isUserPremium && (
-                <div style={{position:'absolute', top:0, left:0, width:'100%', height:'100%', zIndex:10, display:'flex', justifyContent:'center', alignItems:'center'}}>
-                    <div style={{background:'rgba(0,0,0,0.8)', padding:'5px 15px', borderRadius:'10px', border:'1px solid #ffcc00'}}>🔒 プレミアム</div>
+                <div style={{position:'absolute', top:0, left:0, width:'100%', height:'100%', zIndex:10, display:'flex', justifyContent:'center', alignItems:'center', pointerEvents:'auto'}} onClick={() => alert("🔒 ヒストリーライドはプレミアム限定機能です")}>
+                    <div style={{background:'rgba(0,0,0,0.8)', padding:'5px 15px', borderRadius:'10px', border:'1px solid #ffcc00', color:'white', fontWeight:'bold'}}>🔒 プレミアム (History)</div>
                 </div>
             )}
             <h4 style={{ margin: '0 0 10px 0', color: '#ffcc00' }}>⏳ ヒストリーライド</h4>
             <div style={{ display: 'flex', gap: '5px', marginBottom: '10px' }}>
-                <input disabled={!isUserPremium} type="number" placeholder="年" value={historyYearInput} onChange={e => setHistoryYearInput(e.target.value)} style={{ flex: 1, padding: '8px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }} />
-                <select disabled={!isUserPremium} value={historyEra} onChange={e => setHistoryEra(e.target.value)} style={{ background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}><option value="AD">{ERA_LABELS[currentLang].AD}</option><option value="BC">{ERA_LABELS[currentLang].BC}</option></select>
+                <input type="number" placeholder="年" value={historyYearInput} onChange={e => setHistoryYearInput(e.target.value)} style={{ flex: 1, padding: '8px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }} />
+                <select value={historyEra} onChange={e => setHistoryEra(e.target.value)} style={{ background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}><option value="AD">{ERA_LABELS[currentLang].AD}</option><option value="BC">{ERA_LABELS[currentLang].BC}</option></select>
             </div>
-            <select disabled={!isUserPremium} value={historyCountry} onChange={e => setHistoryCountry(e.target.value)} style={{ width: '100%', padding: '8px', marginBottom: '15px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}><option value="ALL">全ての国</option>{countryList.map(c => <option key={c} value={c}>{c}</option>)}</select>
-            <button onClick={startHistoryRide} style={{ width: '100%', padding: '10px', borderRadius: '20px', background: isUserPremium ? '#ffcc00' : '#666', border: 'none', color: 'black', fontWeight: 'bold', cursor: isUserPremium ? 'pointer' : 'not-allowed' }}>START</button>
+            <select value={historyCountry} onChange={e => setHistoryCountry(e.target.value)} style={{ width: '100%', padding: '8px', marginBottom: '15px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}><option value="ALL">全ての国</option>{countryList.map(c => <option key={c} value={c}>{c}</option>)}</select>
+            <button onClick={startHistoryRide} style={{ width: '100%', padding: '10px', borderRadius: '20px', background: '#ffcc00', border: 'none', color: 'black', fontWeight: 'bold', cursor: 'pointer' }}>START</button>
           </div>
 
           <div style={{color:'#888', fontSize:'0.9rem', marginBottom:'15px'}}>カテゴリを選んでツアーを開始</div>
@@ -671,7 +733,7 @@ const GlobeContent = () => {
                 <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> 広告なしで快適に</div>
                 <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> 自然・現代・科学・芸術 カテゴリ解放</div>
                 <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> <b>約{premiumSpotCount}件</b>のスポットが追加されます！</div>
-                <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> AIガイド使い放題</div>
+                <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> ヒストリーライド＆AIガイド使い放題</div>
               </div>
               <button style={{ width: '100%', padding: '12px', background: '#00ffcc', color: 'black', border: 'none', borderRadius: '25px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', marginBottom: '10px' }}>プレミアムに参加する</button>
               <div style={{ textAlign: 'center', color: '#888', fontSize: '0.8rem', cursor: 'pointer', textDecoration: 'underline' }}>購入を復元</div>
@@ -792,10 +854,6 @@ const GlobeContent = () => {
           </div>
         </div>
       )}
-
-      {isPc && user && <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 50 }}>{profile && <div style={{ color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '8px', marginBottom: '5px', textAlign: 'right' }}>{profile.username}</div>}</div>}
-      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={setupUser} />}
-      {showFavList && user && <FavoritesModal userId={user.id} onClose={() => setShowFavList(false)} onSelect={handleSelectFromList} />}
 
       {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== 'fav' && activeTab !== null && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: 'calc(100% - 80px)', background: '#111', zIndex: 200, overflowY: 'auto', padding: '20px', boxSizing: 'border-box' }}>
