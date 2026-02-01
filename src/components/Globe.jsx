@@ -6,7 +6,7 @@ import AuthModal from './AuthModal';
 import FavoritesModal from './FavoritesModal';
 import ErrorBoundary from './ErrorBoundary';
 import SplashScreen from './SplashScreen';
-import TutorialOverlay from './TutorialOverlay'; // ★追加
+import TutorialOverlay from './TutorialOverlay';
 import { isVipUser } from '../vipList';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
@@ -211,11 +211,9 @@ const GlobeContent = () => {
   const [nearbySpots, setNearbySpots] = useState([]);
   const [cursor, setCursor] = useState('auto'); 
   
-  // ★スプラッシュとチュートリアル用のState
   const [showSplash, setShowSplash] = useState(true);
   const [showTutorial, setShowTutorial] = useState(false);
 
-  // ★スプラッシュが終わったら、チュートリアルが必要かチェック
   const handleSplashFinish = () => {
     setShowSplash(false);
     const hasSeen = localStorage.getItem('hasSeenTutorial');
@@ -334,7 +332,8 @@ const GlobeContent = () => {
       }
       nextRideStep();
     } else {
-      window.speechSynthesis.cancel();
+      // ★修正: 音声停止前に存在チェック
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
       setIsPlaying(false);
       if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current);
     }
@@ -460,7 +459,8 @@ const GlobeContent = () => {
   useEffect(() => {
     if (!selectedLocation) {
       setDisplayData(null);
-      window.speechSynthesis.cancel();
+      // ★修正: 音声停止前に存在チェック
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
       setIsPlaying(false);
       return;
     }
@@ -472,12 +472,16 @@ const GlobeContent = () => {
     setDisplayData(newData);
     
     if (!newData.needsTranslation) {
-      window.speechSynthesis.cancel();
+      // ★修正: 音声停止前に存在チェック
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
       speak(newData.description);
     }
   }, [selectedLocation, currentLang]);
 
   const speak = (text) => {
+    // ★修正: 音声機能がない場合は何もしない
+    if (!window.speechSynthesis) return;
+
     if (!text) { setIsPlaying(false); return; }
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = { ja: 'ja-JP', en: 'en-US', zh: 'zh-CN', es: 'es-ES', fr: 'fr-FR' }[currentLang];
@@ -491,6 +495,9 @@ const GlobeContent = () => {
   };
 
   const togglePlay = () => {
+    // ★修正: 音声機能がない場合は何もしない
+    if (!window.speechSynthesis) return;
+
     if (window.speechSynthesis.speaking) {
       if (window.speechSynthesis.paused) {
         window.speechSynthesis.resume();
@@ -636,7 +643,11 @@ const GlobeContent = () => {
     } catch (e) { alert(e.message); } finally { setIsGenerating(false); setStatusMessage(""); }
   };
 
-  const handleNextRide = () => { if (!isRideMode) return; window.speechSynthesis.cancel(); if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current); nextRideStep(); };
+  const handleNextRide = () => { if (!isRideMode) return; 
+    // ★修正: 音声停止前に存在チェック
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current); nextRideStep(); 
+  };
 
   const handleCurrentLocation = () => {
     if (!navigator.geolocation) { alert("現在地機能が使えません"); return; }
@@ -780,7 +791,6 @@ const GlobeContent = () => {
         <div style={commonStyle}>
           <h2 style={{ color: 'white', marginTop: 0, fontSize:'1.5rem', marginBottom:'20px' }}>設定</h2>
           
-          {/* ★追加: プレミアム会員バナー (Radio Garden風) */}
           <div style={{ 
             background: '#222', 
             borderRadius: '16px', 

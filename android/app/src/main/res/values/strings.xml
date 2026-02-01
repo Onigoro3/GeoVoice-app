@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">GeoVoice</string>
+    <string name="title_activity_main">GeoVoice</string>
+    <string name="package_name">com.geovoice.app</string>
+    <string name="custom_url_scheme">com.geovoice.app</string>
+</resources>

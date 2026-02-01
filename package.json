@@ -19,6 +19,10 @@
     "check:model": "node tools/check-models.js"
   },
   "dependencies": {
+    "@capacitor/android": "^8.0.2",
+    "@capacitor/cli": "^8.0.2",
+    "@capacitor/core": "^8.0.2",
+    "@capacitor/ios": "^8.0.2",
     "@google/generative-ai": "^0.24.1",
     "@supabase/supabase-js": "^2.93.2",
     "dotenv": "^17.2.3",
