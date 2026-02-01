@@ -71,7 +71,7 @@ const MAP_CONFIG = {
   terrain: { source: 'mapbox-dem', exaggeration: 1.5 }
 };
 
-// ★美しい「光の点」レイヤー（クラスタリングなし）
+// ★美しい「光の点」レイヤー
 const LAYER_GLOW = {
   id: 'point-glow',
   type: 'circle',
@@ -110,6 +110,42 @@ const getCategoryDetails = (category) => {
   return { tag, color };
 };
 
+// メモ化されたマップコンポーネント (修正済み: 内部でソースを描画)
+const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, onClick, onMouseEnter, onMouseLeave, cursor, geoJsonData, onError, padding }) => {
+  return (
+    <Map
+      ref={mapRef}
+      mapboxAccessToken={mapboxAccessToken}
+      initialViewState={initialViewState}
+      projection="globe"
+      mapStyle={MAP_CONFIG.style}
+      fog={MAP_CONFIG.fog}
+      terrain={MAP_CONFIG.terrain}
+      onMoveEnd={onMoveEnd}
+      onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      cursor={cursor} 
+      style={MAP_CONTAINER_STYLE}
+      onError={onError}
+      dragRotate={true}
+      touchZoomRotate={true}
+      padding={padding}
+      reuseMaps={true}
+      optimizeForTerrain={true} 
+      interactiveLayerIds={['point-glow', 'point-core']}
+    >
+      <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
+      {geoJsonData && (
+        <Source id="my-locations" type="geojson" data={geoJsonData}>
+          <Layer {...LAYER_GLOW} />
+          <Layer {...LAYER_CORE} />
+        </Source>
+      )}
+    </Map>
+  );
+}, (prev, next) => prev.geoJsonData === next.geoJsonData && prev.padding === next.padding && prev.cursor === next.cursor);
+
 const GlobeContent = () => {
   const mapRef = useRef(null);
   const audioRef = useRef(null);
@@ -136,7 +172,7 @@ const GlobeContent = () => {
   const [historyEra, setHistoryEra] = useState("AD");
   const [historyCountry, setHistoryCountry] = useState("ALL");
   
-  const [currentLang, setCurrentLang] = useState('ja'); // 初期値
+  const [currentLang, setCurrentLang] = useState('ja');
   const [inputTheme, setInputTheme] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
@@ -179,7 +215,6 @@ const GlobeContent = () => {
     return locations.filter(l => PREMIUM_CATEGORIES.includes(l.category || 'history')).length;
   }, [locations]);
 
-  // ★スプラッシュ終了後の処理
   const handleSplashFinish = () => {
     setShowSplash(false);
     const hasSeen = localStorage.getItem('hasSeenTutorial');
@@ -188,7 +223,6 @@ const GlobeContent = () => {
     }
   };
 
-  // ★チュートリアルで言語選択された時の処理
   const handleLanguageSelect = (lang) => {
     setCurrentLang(lang);
   };
@@ -217,7 +251,7 @@ const GlobeContent = () => {
     return Array.from(countries).sort();
   }, [locations]);
 
-  // BGMリスト制御 (省略せず既存ロジックを使用)
+  // BGMリスト制御
   const availableGenres = useMemo(() => Array.from(new Set(BGM_LIBRARY.map(t => t.genre))).sort(), []);
   const availableArtists = useMemo(() => { 
     let tracks = BGM_LIBRARY;
@@ -237,7 +271,7 @@ const GlobeContent = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // マウス操作 (省略)
+  // マウス操作
   const handleMouseDown = (e) => {
     if (!isPc) return;
     if (['BUTTON', 'INPUT', 'SELECT', 'OPTION', 'A'].includes(e.target.tagName)) return;
@@ -259,7 +293,7 @@ const GlobeContent = () => {
 
   const addLog = (msg) => { console.log(msg); setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 5)); };
 
-  // データ取得 (1000件ずつ)
+  // データ取得
   const fetchSpots = async () => {
     try {
       let from = 0; const batchSize = 1000;
@@ -316,7 +350,7 @@ const GlobeContent = () => {
   // スポット選択時の処理
   const handleSelectFromList = (spot) => { fetchAndSelectSpot(spot.id); };
   const fetchAndSelectSpot = async (spotId) => {
-    // ★重要: プレミアムカテゴリのチェック (自然もここに追加)
+    // プレミアムカテゴリのチェック
     const spot = locationsRef.current.find(s => s.id === spotId);
     if (spot && PREMIUM_CATEGORIES.includes(spot.category) && !isPremium && !isVipUser(user?.email)) {
       alert("🔒 このカテゴリ（自然・現代・科学・芸術）はプレミアム会員限定です。\n設定からプレミアムに参加してください！");
@@ -460,7 +494,7 @@ const GlobeContent = () => {
   
   const jumpToRandomSpot = (cat=null) => { 
     rideCategoryRef.current = cat; 
-    // ★自然(Nature)もここで制限
+    // 自然(Nature)もここで制限
     if (cat && PREMIUM_CATEGORIES.includes(cat) && !isPremium && !isVipUser(user?.email)) {
         alert("🔒 プレミアム限定機能です"); return;
     }
@@ -488,7 +522,7 @@ const GlobeContent = () => {
     if (nextSpot) await fetchAndSelectSpot(nextSpot.id);
   };
 
-  // ★重要: GeoJSONデータの作成 (カテゴリフィルタ済み)
+  // GeoJSONデータの作成 (カテゴリフィルタ済み)
   const filteredGeoJsonData = useMemo(() => {
     const filtered = locations.filter(loc => {
       const cat = loc.category || 'history';
@@ -566,7 +600,6 @@ const GlobeContent = () => {
               <div style={{ color: '#ccc', marginBottom: '20px', fontSize: '0.9rem', lineHeight: '1.8' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> 広告なしで快適に</div>
                 <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> 自然・現代・科学・芸術 カテゴリ解放</div>
-                {/* ★ここで具体的な数値を表示して訴求 */}
                 <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> <b>約{premiumSpotCount}件</b>のスポットが追加されます！</div>
                 <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> AIガイド使い放題</div>
               </div>
@@ -755,6 +788,7 @@ const GlobeContent = () => {
         </>
       )}
 
+      {/* メモ化マップの使用 (self-closing) */}
       <MemoizedMap 
         mapRef={mapRef} 
         mapboxAccessToken={MAPBOX_TOKEN} 
@@ -767,19 +801,7 @@ const GlobeContent = () => {
         cursor={cursor}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
-        style={MAP_CONTAINER_STYLE}
-        interactiveLayerIds={['point-glow', 'point-core']}
-      >
-        <Source
-          id="my-locations"
-          type="geojson"
-          data={filteredGeoJsonData}
-        >
-          {/* 光の点 (Glow + Core) */}
-          <Layer {...LAYER_GLOW} />
-          <Layer {...LAYER_CORE} />
-        </Source>
-      </Map>
+      />
     </div>
   );
 };
