@@ -19,6 +19,7 @@
     "check:model": "node tools/check-models.js"
   },
   "dependencies": {
+    "@capacitor-community/text-to-speech": "^8.0.0",
     "@capacitor/android": "^8.0.2",
     "@capacitor/cli": "^8.0.2",
     "@capacitor/core": "^8.0.2",

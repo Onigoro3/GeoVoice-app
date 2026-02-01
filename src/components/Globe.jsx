@@ -2,6 +2,7 @@ import React, { useRef, useState, useMemo, useEffect, useCallback } from 'react'
 import Map, { Source, Layer } from 'react-map-gl';
 import { supabase } from '../supabaseClient';
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { TextToSpeech } from '@capacitor-community/text-to-speech'; // ★追加: ネイティブ音声プラグイン
 import AuthModal from './AuthModal';
 import ErrorBoundary from './ErrorBoundary';
 import SplashScreen from './SplashScreen';
@@ -12,11 +13,11 @@ const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 const LANGUAGES = {
-  ja: { code: 'ja', name: 'Japanese', label: '🇯🇵 日本語', placeholder: '行きたい場所やテーマを入力...' },
-  en: { code: 'en', name: 'English', label: '🇺🇸 English', placeholder: 'Where do you want to go?' },
-  zh: { code: 'zh', name: 'Chinese', label: '🇨🇳 中文', placeholder: '你想去哪里？' },
-  es: { code: 'es', name: 'Spanish', label: '🇪🇸 Español', placeholder: '¿Adónde quieres ir?' },
-  fr: { code: 'fr', name: 'French', label: '🇫🇷 Français', placeholder: 'Où voulez-vous aller ?' },
+  ja: { code: 'ja', name: 'Japanese', label: '🇯🇵 日本語', placeholder: '行きたい場所やテーマを入力...', ttsCode: 'ja-JP' },
+  en: { code: 'en', name: 'English', label: '🇺🇸 English', placeholder: 'Where do you want to go?', ttsCode: 'en-US' },
+  zh: { code: 'zh', name: 'Chinese', label: '🇨🇳 中文', placeholder: '你想去哪里？', ttsCode: 'zh-CN' },
+  es: { code: 'es', name: 'Spanish', label: '🇪🇸 Español', placeholder: '¿Adónde quieres ir?', ttsCode: 'es-ES' },
+  fr: { code: 'fr', name: 'French', label: '🇫🇷 Français', placeholder: 'Où voulez-vous aller ?', ttsCode: 'fr-FR' },
 };
 
 const ERA_LABELS = {
@@ -61,7 +62,6 @@ const MAP_CONFIG = {
 
 const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
 
-// ヘルパー関数
 const getCategoryDetails = (category) => {
   let tag = '世界遺産'; let color = '#ffcc00';
   if (category === 'landmark') { tag = '観光名所'; color = '#ff8800'; }
@@ -72,7 +72,6 @@ const getCategoryDetails = (category) => {
   return { tag, color };
 };
 
-// メモ化されたマップコンポーネント
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, onClick, onMouseEnter, onMouseLeave, cursor, geoJsonData, onError, padding }) => {
   return (
     <Map
@@ -140,7 +139,7 @@ const GlobeContent = () => {
   const isRideModeRef = useRef(false);
   const isHistoryModeRef = useRef(false);
   const historyIndexRef = useRef(0);
-  const historySortedSpotsRef = useRef([]); // ★ヒストリーライド用リスト
+  const historySortedSpotsRef = useRef([]);
   const rideTimeoutRef = useRef(null);
   const visibleCategoriesRef = useRef(null);
   const rideCategoryRef = useRef(null);
@@ -183,7 +182,7 @@ const GlobeContent = () => {
 
   const [showBrowseGuide, setShowBrowseGuide] = useState(false);
   const [browseGuideStep, setBrowseGuideStep] = useState(1);
-  const [showTutorial, setShowTutorial] = useState(false); // ★探索パネルから呼ぶ用
+  const [showTutorial, setShowTutorial] = useState(false);
 
   const [visibleCategories, setVisibleCategories] = useState({
     landmark: true, history: true, nature: true, 
@@ -449,7 +448,7 @@ const GlobeContent = () => {
 
   useEffect(() => { 
     if (!displayData) { 
-        if(window.speechSynthesis) window.speechSynthesis.cancel(); 
+        TextToSpeech.stop(); // 停止
         setIsPlaying(false); 
         setImgError(false); 
         return; 
@@ -460,33 +459,49 @@ const GlobeContent = () => {
     setImgLoading(!isCached);
 
     if (!displayData.needsTranslation) { 
-        if(window.speechSynthesis) window.speechSynthesis.cancel(); 
         speak(displayData.description); 
     }
   }, [displayData]); 
 
-  const speak = (text) => { 
-    if (!window.speechSynthesis) return;
+  // ★修正: Android対応版のspeak関数
+  const speak = async (text) => { 
     if (!text) { setIsPlaying(false); return; }
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = { ja: 'ja-JP', en: 'en-US', zh: 'zh-CN', es: 'es-ES', fr: 'fr-FR' }[currentLang];
-    utterance.volume = voiceVolume;
-    utterance.onstart = () => setIsPlaying(true);
-    utterance.onend = () => { 
-        setIsPlaying(false); 
-        if(isRideModeRef.current) {
+    
+    // 既存の再生を停止
+    await TextToSpeech.stop();
+
+    try {
+        setIsPlaying(true);
+        // プラグインで再生 (Promiseが返る)
+        await TextToSpeech.speak({
+            text: text,
+            lang: LANGUAGES[currentLang].ttsCode, // ja-JP, en-US など
+            rate: 1.0,
+            pitch: 1.0,
+            volume: voiceVolume,
+            category: 'ambient',
+        });
+        
+        // 再生終了後
+        setIsPlaying(false);
+        if (isRideModeRef.current) {
             rideTimeoutRef.current = setTimeout(nextRideStep, 3000); 
         }
-    };
-    window.speechSynthesis.speak(utterance);
+
+    } catch (e) {
+        console.error("TTS Error:", e);
+        setIsPlaying(false);
+    }
   };
 
-  const togglePlay = () => { 
-    if (!window.speechSynthesis) return;
-    if (window.speechSynthesis.speaking) {
-      if (window.speechSynthesis.paused) { window.speechSynthesis.resume(); setIsPlaying(true); } 
-      else { window.speechSynthesis.pause(); setIsPlaying(false); }
-    } else { if (selectedLocation) speak(displayData?.description); else findClosestSpotAndPlay(); }
+  const togglePlay = async () => { 
+    if (isPlaying) {
+        await TextToSpeech.stop();
+        setIsPlaying(false);
+    } else {
+        if (selectedLocation) speak(displayData?.description);
+        else findClosestSpotAndPlay();
+    }
   };
 
   const findClosestSpotAndPlay = () => {
@@ -579,40 +594,34 @@ const GlobeContent = () => {
 
   const handleNextRide = () => { 
     if (!isRideMode) return; 
-    if(window.speechSynthesis) window.speechSynthesis.cancel(); 
+    // Web Speech APIキャンセルは不要 (TextToSpeech.stop()で対応済み)
     if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current); 
     setTimeout(() => { nextRideStep(); }, 50);
   };
 
   const handleCurrentLocation = () => { if (!navigator.geolocation) { alert("現在地機能が使えません"); return; } navigator.geolocation.getCurrentPosition((pos) => { mapRef.current?.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 9, speed: 1.5, curve: 1 }); }, () => { alert("位置情報の取得に失敗しました"); }); };
   
-  // ★修正: ヒストリーライド開始機能（ロジック追加）
   const startHistoryRide = () => { 
     if (!isPremium && !isVipUser(user?.email)) {
         alert("🔒 ヒストリーライドはプレミアム限定機能です。\n歴史の旅へ出かけるにはアップグレードが必要です！");
         return;
     }
 
-    // ★ロジック追加: 年代や国でフィルタリング
-    let candidates = locationsRef.current.filter(l => (l.category === 'history' || !l.category)); // 歴史カテゴリ優先
+    let candidates = locationsRef.current.filter(l => (l.category === 'history' || !l.category)); 
 
-    // 国フィルター
     if (historyCountry !== "ALL") {
         candidates = candidates.filter(l => l.country_ja === historyCountry);
     }
 
-    // 年代フィルター (入力があれば近い順にソート)
     if (historyYearInput) {
         let targetYear = parseInt(historyYearInput);
         if (historyEra === 'BC') targetYear = -targetYear;
-        
         candidates.sort((a, b) => {
             const yearA = a.year !== undefined ? a.year : 9999;
             const yearB = b.year !== undefined ? b.year : 9999;
             return Math.abs(yearA - targetYear) - Math.abs(yearB - targetYear);
         });
     } else {
-        // 年代指定なしならランダムシャッフル
         candidates.sort(() => Math.random() - 0.5);
     }
 
@@ -621,13 +630,12 @@ const GlobeContent = () => {
         return;
     }
 
-    // 結果をRefに保存してスタート
     historySortedSpotsRef.current = candidates;
     historyIndexRef.current = 0;
 
     setIsHistoryMode(true); 
     setIsRideMode(true); 
-    setActiveTab('map'); // パネルを閉じて地図へ
+    setActiveTab('map'); 
     setTimeout(() => { nextRideStep(); }, 100);
   };
 
@@ -650,7 +658,7 @@ const GlobeContent = () => {
         if (idx >= sorted.length) idx = 0; 
         
         const spot = sorted[idx];
-        historyIndexRef.current = idx + 1; // 次へ
+        historyIndexRef.current = idx + 1; 
         return spot;
     } else {
         const currentFilters = visibleCategoriesRef.current || { history: true, nature: true, modern: true, science: true, art: true }; 
@@ -1031,7 +1039,7 @@ const GlobeContent = () => {
                 <button onClick={handleCurrentLocation} style={{ background: '#333', border: 'none', color: '#00ffcc', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer', fontSize:'1rem' }}>📍</button>
               </div>
             </div>
-            {activeTab === 'search' && isPc && (
+            {activeTab === 'search' && (
                <div style={{ padding: '15px', borderBottom:'1px solid #222' }}>
                   <div style={{ display: 'flex', gap: '5px' }}>
                     <input autoFocus type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder={LANGUAGES[currentLang].placeholder} style={{ flex: 1, background: '#222', border: '1px solid #444', color: 'white', padding: '12px', borderRadius: '8px', fontSize:'1rem' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
@@ -1050,7 +1058,6 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ★修正: スマホ用ボトムシート (全メニュー共通) */}
       {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== null && (
         <div style={{ 
             position: 'fixed', bottom: '80px', left: 0, width: '100%', height: '45vh', 
