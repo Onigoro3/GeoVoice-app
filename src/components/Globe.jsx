@@ -71,7 +71,7 @@ const MAP_CONFIG = {
   terrain: { source: 'mapbox-dem', exaggeration: 1.5 }
 };
 
-// ★美しい「光の点」レイヤー（クラスタリングなし）
+// ★美しい「光の点」レイヤー
 const LAYER_GLOW = {
   id: 'point-glow',
   type: 'circle',
@@ -110,7 +110,7 @@ const getCategoryDetails = (category) => {
   return { tag, color };
 };
 
-// メモ化されたマップコンポーネント (修正済み)
+// メモ化されたマップコンポーネント
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, onClick, onMouseEnter, onMouseLeave, cursor, geoJsonData, onError, padding }) => {
   return (
     <Map
@@ -215,7 +215,7 @@ const GlobeContent = () => {
     return locations.filter(l => PREMIUM_CATEGORIES.includes(l.category || 'history')).length;
   }, [locations]);
 
-  // ★修正: 前回抜け落ちていた変数を定義
+  // ★PC用パネル開閉状態の定義
   const isPanelOpen = isPc && activeTab && (activeTab === 'explore' || activeTab === 'browse' || activeTab === 'settings');
 
   const handleSplashFinish = () => {
@@ -475,6 +475,16 @@ const GlobeContent = () => {
     }
   }, [activeTab]);
 
+  // ★復活: updateAllCountryTags 関数
+  const updateAllCountryTags = async () => {
+    if (!confirm("全てのスポットの国名情報をAIで再取得しますか？\n（データ数が多い場合、時間がかかります）")) return;
+    setIsGenerating(true);
+    setStatusMessage("国名データ更新開始...");
+    try { alert("ブラウザでの全件更新は負荷が高いため、scripts/update_countries.js の利用を推奨します。"); } 
+    catch (e) { alert("エラー: " + e.message); } 
+    finally { setIsGenerating(false); setStatusMessage(""); }
+  };
+
   const handleGenerate = async () => {
     if (!inputTheme) return; setIsGenerating(true); setStatusMessage("AI生成中...");
     try {
@@ -644,6 +654,7 @@ const GlobeContent = () => {
               <input type="range" min="0" max="1" step="0.1" value={voiceVolume} onChange={e => setVoiceVolume(parseFloat(e.target.value))} style={{ width: '100%', accentColor:'#00ffcc' }} />
           </div>
           <div style={{ marginTop: '20px', padding: '10px', borderTop: '1px solid #333' }}>
+            {/* ★ここが原因だった箇所：関数を復活させたので直ります */}
             <button onClick={updateAllCountryTags} style={{ width: '100%', padding: '10px', background: '#222', color: '#ffcc00', border: '1px solid #444', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer' }}>🛠️ 全スポットの国名をAIで更新 (VSCode推奨)</button>
           </div>
           {user && <button onClick={() => { if(confirm('Logout?')) { supabase.auth.signOut(); clearUser(); handleTabChange('map'); }}} style={{ width: '100%', padding: '15px', background: '#222', color: '#ff3366', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 'bold', marginTop:'30px' }}>ログアウト</button>}
