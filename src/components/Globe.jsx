@@ -71,7 +71,7 @@ const MAP_CONFIG = {
   terrain: { source: 'mapbox-dem', exaggeration: 1.5 }
 };
 
-// ★美しい「光の点」レイヤー
+// ★美しい「光の点」レイヤー（クラスタリングなし）
 const LAYER_GLOW = {
   id: 'point-glow',
   type: 'circle',
@@ -110,7 +110,7 @@ const getCategoryDetails = (category) => {
   return { tag, color };
 };
 
-// メモ化されたマップコンポーネント (修正済み: 内部でソースを描画)
+// メモ化されたマップコンポーネント (修正済み)
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, onClick, onMouseEnter, onMouseLeave, cursor, geoJsonData, onError, padding }) => {
   return (
     <Map
@@ -172,7 +172,7 @@ const GlobeContent = () => {
   const [historyEra, setHistoryEra] = useState("AD");
   const [historyCountry, setHistoryCountry] = useState("ALL");
   
-  const [currentLang, setCurrentLang] = useState('ja');
+  const [currentLang, setCurrentLang] = useState('ja'); // 初期値
   const [inputTheme, setInputTheme] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
@@ -214,6 +214,9 @@ const GlobeContent = () => {
   const premiumSpotCount = useMemo(() => {
     return locations.filter(l => PREMIUM_CATEGORIES.includes(l.category || 'history')).length;
   }, [locations]);
+
+  // ★修正: 前回抜け落ちていた変数を定義
+  const isPanelOpen = isPc && activeTab && (activeTab === 'explore' || activeTab === 'browse' || activeTab === 'settings');
 
   const handleSplashFinish = () => {
     setShowSplash(false);
@@ -350,7 +353,6 @@ const GlobeContent = () => {
   // スポット選択時の処理
   const handleSelectFromList = (spot) => { fetchAndSelectSpot(spot.id); };
   const fetchAndSelectSpot = async (spotId) => {
-    // プレミアムカテゴリのチェック
     const spot = locationsRef.current.find(s => s.id === spotId);
     if (spot && PREMIUM_CATEGORIES.includes(spot.category) && !isPremium && !isVipUser(user?.email)) {
       alert("🔒 このカテゴリ（自然・現代・科学・芸術）はプレミアム会員限定です。\n設定からプレミアムに参加してください！");
@@ -449,7 +451,7 @@ const GlobeContent = () => {
     else { audio.pause(); }
   }, [isBgmOn, isPlaying, bgmVolume, currentTrack]);
 
-  // マップクリック時の処理 (光の点クリック対応)
+  // マップクリック時の処理
   const handleMapClick = useCallback((event) => {
     if (isRideModeRef.current) setIsRideMode(false);
     const feature = event.features?.[0];
@@ -526,7 +528,7 @@ const GlobeContent = () => {
   const filteredGeoJsonData = useMemo(() => {
     const filtered = locations.filter(loc => {
       const cat = loc.category || 'history';
-      if (!isPremium && !isVipUser(user?.email) && PREMIUM_CATEGORIES.includes(cat)) return false; // 地図からも消す
+      if (!isPremium && !isVipUser(user?.email) && PREMIUM_CATEGORIES.includes(cat)) return false;
       return visibleCategories[cat];
     });
     return { 
@@ -801,6 +803,8 @@ const GlobeContent = () => {
         cursor={cursor}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
+        style={MAP_CONTAINER_STYLE}
+        interactiveLayerIds={['point-glow', 'point-core']}
       />
     </div>
   );
