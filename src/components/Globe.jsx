@@ -210,12 +210,21 @@ const GlobeContent = () => {
   const [showSplash, setShowSplash] = useState(true);
   const [showTutorial, setShowTutorial] = useState(false);
 
-  // ★プレミアム会員になると増えるスポット数を計算
+  // ★プレミアム会員になると増えるスポット数を計算（勧誘用）
   const premiumSpotCount = useMemo(() => {
     return locations.filter(l => PREMIUM_CATEGORIES.includes(l.category || 'history')).length;
   }, [locations]);
 
-  // ★PC用パネル開閉状態の定義
+  // ★現在アクセス可能なスポット数を計算（左上カウンター用）
+  const accessibleSpotCount = useMemo(() => {
+    const isUserPremium = isPremium || isVipUser(user?.email);
+    if (isUserPremium) {
+      return locations.length;
+    }
+    // 無料ユーザー：プレミアムカテゴリを除外した数
+    return locations.filter(loc => !PREMIUM_CATEGORIES.includes(loc.category || 'history')).length;
+  }, [locations, isPremium, user]);
+
   const isPanelOpen = isPc && activeTab && (activeTab === 'explore' || activeTab === 'browse' || activeTab === 'settings');
 
   const handleSplashFinish = () => {
@@ -475,7 +484,6 @@ const GlobeContent = () => {
     }
   }, [activeTab]);
 
-  // ★復活: updateAllCountryTags 関数
   const updateAllCountryTags = async () => {
     if (!confirm("全てのスポットの国名情報をAIで再取得しますか？\n（データ数が多い場合、時間がかかります）")) return;
     setIsGenerating(true);
@@ -681,15 +689,16 @@ const GlobeContent = () => {
       {showSplash && <SplashScreen onFinished={handleSplashFinish} />}
       {showTutorial && <TutorialOverlay onClose={() => setShowTutorial(false)} onLanguageSelect={handleLanguageSelect} />}
 
+      {/* ★修正: 左上カウンターの数値を無料版と有料版で切り替え */}
+      <div style={{ position: 'absolute', top: '15px', left: '15px', zIndex: 10, color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 12px', borderRadius: '8px', fontSize: '0.8rem', pointerEvents: 'none', backdropFilter:'blur(5px)', border:'1px solid rgba(255,255,255,0.2)' }}>
+        Spots: {accessibleSpotCount}
+      </div>
+
       {!isPremium && !isVipUser(user?.email) && (
         <div style={{ position: 'absolute', top: '50px', left: '50%', transform: 'translateX(-50%)', zIndex: 90, width: '320px', height: '50px', background: 'rgba(255,255,255,0.1)', border: '1px dashed #666', color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', pointerEvents: 'none' }}>
           [ここに広告バナーが入ります]
         </div>
       )}
-
-      <div style={{ position: 'absolute', top: '15px', left: '15px', zIndex: 10, color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 12px', borderRadius: '8px', fontSize: '0.8rem', pointerEvents: 'none', backdropFilter:'blur(5px)', border:'1px solid rgba(255,255,255,0.2)' }}>
-        Spots: {locations.length}
-      </div>
 
       {isPc && (
         <div className="pc-ui-container" style={{ position: 'absolute', bottom: '20px', left: '20px', width: '360px', zIndex: 100, display: 'flex', flexDirection: 'column', pointerEvents: 'none' }}>
@@ -770,10 +779,6 @@ const GlobeContent = () => {
             </div>
         </div>
       )}
-
-      {statusMessage && <div style={{ position: 'absolute', top: '80px', left: '20px', zIndex: 20, color: '#00ffcc', textShadow: '0 0 5px black' }}>{statusMessage}</div>}
-
-      <div style={{ position: 'absolute', top: isPc ? '50%' : '30%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
 
       {selectedLocation && displayData && (activeTab === null || activeTab === 'map' || isPc) && (
         <>
