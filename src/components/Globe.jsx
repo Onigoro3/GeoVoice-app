@@ -76,7 +76,7 @@ const LAYER_GLOW = {
   id: 'point-glow',
   type: 'circle',
   paint: {
-    'circle-radius': 5,
+    'circle-radius': 6,
     'circle-color': [
       'match', ['get', 'category'],
       'landmark', '#ff8800',
@@ -94,10 +94,26 @@ const LAYER_GLOW = {
 const LAYER_CORE = {
   id: 'point-core',
   type: 'circle',
-  paint: { 'circle-radius': 2.5, 'circle-color': '#fff', 'circle-opacity': 1 }
+  paint: { 'circle-radius': 3, 'circle-color': '#fff', 'circle-opacity': 1 }
 };
 
 const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
+
+// ★重要: ヘルパー関数をコンポーネントの外に移動 (ReferenceError回避)
+const getCategoryDetails = (category) => {
+  let tag = '世界遺産'; let color = '#ffcc00';
+  if (category === 'landmark') { tag = '観光名所'; color = '#ff8800'; }
+  if (category === 'nature') { tag = '自然遺産'; color = '#00ff7f'; }
+  if (category === 'modern') { tag = '現代建築'; color = '#00ffff'; }
+  if (category === 'science') { tag = '宇宙・科学'; color = '#d800ff'; }
+  if (category === 'art') { tag = '美術館'; color = '#ff0055'; }
+  return { tag, color };
+};
+
+const getYearLabel = (year) => {
+  if (!year) return '';
+  return year < 0 ? `BC ${Math.abs(year)}` : `AD ${year}`;
+};
 
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, onClick, onMouseEnter, onMouseLeave, cursor, geoJsonData, onError, padding }) => {
   return (
@@ -309,12 +325,11 @@ const GlobeContent = () => {
     }
   }, [isRideMode]);
 
-  // ★修正: 段階的にデータをロードして即座に表示させる
   const fetchSpots = async () => {
     try {
       let allData = [];
       let rangeStart = 0;
-      const rangeStep = 1999; // 一回の取得量を増やす
+      const rangeStep = 1999; 
       const minimalFields = 'id, name, name_ja, lat, lon, category, country_ja, year';
 
       // 1. 初回のデータを取得して即表示
@@ -322,17 +337,15 @@ const GlobeContent = () => {
           .from('spots')
           .select(minimalFields)
           .range(0, rangeStep);
-          
+            
       if (firstError) throw firstError;
       
       let currentData = firstBatch.filter(d => d.lat !== null && d.lon !== null && d.lat !== 0 && d.lon !== 0);
-      
-      // フォーマットしてセット（これで即座に点が出る）
       let formatted = currentData.map(d => ({ ...d, category: d.category || 'history' }));
       setLocations(formatted);
       addLog(`Loaded initial ${formatted.length} spots`);
 
-      // 2. 残りをバックグラウンドで取得し続ける
+      // 2. 残りをバックグラウンドで取得
       rangeStart += rangeStep + 1;
       
       while (true) {
@@ -347,7 +360,6 @@ const GlobeContent = () => {
         const validBatch = data.filter(d => d.lat !== null && d.lon !== null && d.lat !== 0 && d.lon !== 0);
         currentData = currentData.concat(validBatch);
         
-        // 段階的にStateを更新（点が増えていく）
         formatted = currentData.map(d => ({ ...d, category: d.category || 'history' }));
         setLocations(formatted);
         
@@ -717,7 +729,6 @@ const GlobeContent = () => {
     if (activeTab === 'explore') {
       return (
         <div style={commonStyle}>
-          {/* 中身は変更なし */}
           <h2 style={{color:'#fff', marginTop:0, marginBottom:'5px', fontSize:'1.2rem'}}>探索</h2>
           <div style={{color:'#888', fontSize:'0.8rem', marginBottom:'15px', borderBottom:'1px solid #333', paddingBottom:'10px'}}>この地域のピックアップ</div>
           {nearbySpots.length === 0 ? (
@@ -735,8 +746,6 @@ const GlobeContent = () => {
         </div>
       );
     }
-    // ... browse, settings, privacy ...
-    // 長すぎるので省略しませんが、上記の変更点以外のロジックはそのままです
     if (activeTab === 'browse') {
       return (
         <div style={commonStyle}>
@@ -764,14 +773,12 @@ const GlobeContent = () => {
       return (
         <div style={commonStyle}>
           <h2 style={{ color: 'white', marginTop: 0, fontSize:'1.5rem', marginBottom:'20px' }}>設定</h2>
-          {/* ... (省略) ... */}
           <div style={{ padding: '15px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', color: 'white', alignItems:'center' }}>
                   <span>BGM Player</span>
                   <button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: 'transparent', color: isBgmOn?'#00ffcc':'#666', border: 'none', cursor: 'pointer', fontWeight:'bold' }}>{isBgmOn ? 'ON' : 'OFF'}</button>
               </div>
               <div style={{background:'#111', padding:'10px', borderRadius:'8px', marginBottom:'15px', border:'1px solid #444'}}>
-                  {/* BGM Player UI */}
                   <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
                       <div style={{color:'white', fontSize:'0.9rem', fontWeight:'bold'}}>{currentTrack.title}</div>
                       <div style={{color:'#888', fontSize:'0.8rem'}}>{currentTrack.artist}</div>
@@ -793,7 +800,6 @@ const GlobeContent = () => {
               <input type="range" min="0" max="1" step="0.1" value={voiceVolume} onChange={e => setVoiceVolume(parseFloat(e.target.value))} style={{ width: '100%', accentColor:'#00ffcc' }} />
           </div>
           <div style={{ marginTop: '20px', padding: '10px', borderTop: '1px solid #333' }}>
-            <div style={{fontSize:'0.8rem', color:'#666', marginBottom:'5px'}}>管理者メニュー</div>
             <button onClick={updateAllCountryTags} style={{ width: '100%', padding: '10px', background: '#222', color: '#ffcc00', border: '1px solid #444', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer' }}>🛠️ 全スポットの国名をAIで更新 (VSCode推奨)</button>
           </div>
           {user && <button onClick={() => { if(confirm('Logout?')) { supabase.auth.signOut(); clearUser(); handleTabChange('map'); }}} style={{ width: '100%', padding: '15px', background: '#222', color: '#ff3366', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 'bold', marginTop:'30px' }}>ログアウト</button>}
@@ -812,7 +818,7 @@ const GlobeContent = () => {
       <audio ref={audioRef} src={currentTrack.url} loop={loopMode === 'one'} onEnded={handleTrackEnded} /> 
       {isPc && <div style={{ position: 'absolute', bottom: '10px', right: '10px', zIndex: 100, background: 'rgba(0,0,0,0.7)', color: '#00ff00', fontSize: '10px', padding: '5px', borderRadius: '5px', maxWidth: '300px', pointerEvents: 'none' }}>{logs.map((log, i) => <div key={i}>{log}</div>)}</div>}
       
-      {/* ★追加: 全スポット件数カウンター */}
+      {/* 全スポット件数カウンター */}
       <div style={{ position: 'absolute', top: '15px', left: '15px', zIndex: 10, color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 12px', borderRadius: '8px', fontSize: '0.8rem', pointerEvents: 'none', backdropFilter:'blur(5px)', border:'1px solid rgba(255,255,255,0.2)' }}>
         Spots: {locations.length}
       </div>
@@ -851,7 +857,6 @@ const GlobeContent = () => {
             zIndex: 101,
             pointerEvents: 'auto'
           }}>
-            {/* Control Bar Content */}
             <div style={{ padding: '15px', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ color: 'white', fontWeight: 'bold', fontSize: '1.2rem' }}>GeoVoice</div>
               <div style={{ display: 'flex', gap: '10px' }}>
@@ -881,7 +886,6 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* 以下、スマホUIやマップ部分は変更なしのため省略せず記述 */}
       {isPc && user && <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 50 }}>{profile && <div style={{ color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '8px', marginBottom: '5px', textAlign: 'right' }}>{profile.username}</div>}</div>}
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={setupUser} />}
       {showFavList && user && <FavoritesModal userId={user.id} onClose={() => setShowFavList(false)} onSelect={handleSelectFromList} />}
