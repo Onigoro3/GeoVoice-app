@@ -60,6 +60,7 @@ const BGM_LIBRARY = [
   { id: 'country3', title: '秋を探しに', artist: 'Japan', genre: 'Country', url: '/bgm/Country3.mp3' },
 ];
 
+// ★ 無料/有料の区分定義 (自然をプレミアムへ移動)
 const PREMIUM_CATEGORIES = ['nature', 'modern', 'science', 'art'];
 
 const PRIVACY_POLICY_TEXT = `## プライバシーポリシー (省略)`;
@@ -171,11 +172,12 @@ const GlobeContent = () => {
   const [historyEra, setHistoryEra] = useState("AD");
   const [historyCountry, setHistoryCountry] = useState("ALL");
   
-  const [currentLang, setCurrentLang] = useState('ja');
+  const [currentLang, setCurrentLang] = useState('ja'); // 初期値
   const [inputTheme, setInputTheme] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [logs, setLogs] = useState([]);
+  const [imgError, setImgError] = useState(false); // 画像エラー用
 
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -184,6 +186,7 @@ const GlobeContent = () => {
   const [showFavList, setShowFavList] = useState(false);
   const [favorites, setFavorites] = useState(new Set());
 
+  // 初期表示カテゴリ
   const [visibleCategories, setVisibleCategories] = useState({
     landmark: true, history: true, nature: true, 
     modern: true, science: true, art: true
@@ -208,10 +211,12 @@ const GlobeContent = () => {
   const [showSplash, setShowSplash] = useState(true);
   const [showTutorial, setShowTutorial] = useState(false);
 
+  // ★プレミアム会員になると増えるスポット数を計算
   const premiumSpotCount = useMemo(() => {
     return locations.filter(l => PREMIUM_CATEGORIES.includes(l.category || 'history')).length;
   }, [locations]);
 
+  // ★現在アクセス可能なスポット数を計算
   const accessibleSpotCount = useMemo(() => {
     const isUserPremium = isPremium || isVipUser(user?.email);
     if (isUserPremium) return locations.length;
@@ -249,7 +254,6 @@ const GlobeContent = () => {
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
   useEffect(() => { visibleCategoriesRef.current = visibleCategories; }, [visibleCategories]);
   
-  // ★追加: ライドモード状態のRef更新を確実に行う
   useEffect(() => { isRideModeRef.current = isRideMode; }, [isRideMode]);
   useEffect(() => { isHistoryModeRef.current = isHistoryMode; }, [isHistoryMode]);
 
@@ -278,6 +282,7 @@ const GlobeContent = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // マウス操作
   const handleMouseDown = (e) => {
     if (!isPc) return;
     if (['BUTTON', 'INPUT', 'SELECT', 'OPTION', 'A'].includes(e.target.tagName)) return;
@@ -299,6 +304,7 @@ const GlobeContent = () => {
 
   const addLog = (msg) => { console.log(msg); setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 5)); };
 
+  // データ取得
   const fetchSpots = async () => {
     try {
       let from = 0; const batchSize = 1000;
@@ -352,9 +358,9 @@ const GlobeContent = () => {
     } catch(e) { addLog(`Fav Error: ${e.message}`); }
   };
 
+  // スポット選択時の処理
   const handleSelectFromList = (spot) => { fetchAndSelectSpot(spot.id); };
   
-  // ★修正: リストから確実に飛ぶように修正
   const fetchAndSelectSpot = async (spotId) => {
     const spot = locationsRef.current.find(s => s.id === spotId);
     if (spot && PREMIUM_CATEGORIES.includes(spot.category) && !isPremium && !isVipUser(user?.email)) {
@@ -367,7 +373,6 @@ const GlobeContent = () => {
         if (data) {
             const fullSpot = { ...data, category: data.category || 'history' };
             setSelectedLocation(fullSpot);
-            // ★修正: essential: true を追加して強制的に移動
             mapRef.current?.flyTo({ center: [fullSpot.lon, fullSpot.lat], zoom: 6, speed: 2.0, curve: 1, essential: true });
         }
     } catch (e) { console.error(e); }
@@ -399,6 +404,7 @@ const GlobeContent = () => {
         setDisplayData(null); 
         if(window.speechSynthesis) window.speechSynthesis.cancel(); 
         setIsPlaying(false); 
+        setImgError(false); // ★リセット
         return; 
     }
     const suffix = currentLang === 'ja' ? '_ja' : `_${currentLang}`;
@@ -406,6 +412,7 @@ const GlobeContent = () => {
     let displayDesc = selectedLocation[`description${suffix}`] || selectedLocation.description;
     const newData = { ...selectedLocation, name: displayName, description: displayDesc, needsTranslation: currentLang === 'ja' && !/[ぁ-んァ-ン]/.test(displayName) };
     setDisplayData(newData);
+    setImgError(false); // ★新しい場所になったらリセット
     if (!newData.needsTranslation) { 
         if(window.speechSynthesis) window.speechSynthesis.cancel(); 
         speak(newData.description); 
@@ -419,7 +426,6 @@ const GlobeContent = () => {
     utterance.lang = { ja: 'ja-JP', en: 'en-US', zh: 'zh-CN', es: 'es-ES', fr: 'fr-FR' }[currentLang];
     utterance.volume = voiceVolume;
     utterance.onstart = () => setIsPlaying(true);
-    // ★修正: ライドモード時の自動送りを修正
     utterance.onend = () => { 
         setIsPlaying(false); 
         if(isRideModeRef.current) {
@@ -514,16 +520,11 @@ const GlobeContent = () => {
     } catch (e) { alert(e.message); } finally { setIsGenerating(false); setStatusMessage(""); }
   };
 
-  // ★修正: 「次へ」ボタンの反応改善
   const handleNextRide = () => { 
     if (!isRideMode) return; 
     if(window.speechSynthesis) window.speechSynthesis.cancel(); 
     if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current); 
-    
-    // 即時実行だと処理が被る場合があるので少しだけ待つ
-    setTimeout(() => {
-        nextRideStep(); 
-    }, 50);
+    setTimeout(() => { nextRideStep(); }, 50);
   };
 
   const handleCurrentLocation = () => { if (!navigator.geolocation) { alert("現在地機能が使えません"); return; } navigator.geolocation.getCurrentPosition((pos) => { mapRef.current?.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 9, speed: 1.5, curve: 1 }); }, () => { alert("位置情報の取得に失敗しました"); }); };
@@ -599,6 +600,17 @@ const GlobeContent = () => {
       return (
         <div style={commonStyle}>
           <h2 style={{color:'#fff', marginTop:0, fontSize:'1.5rem'}}>ブラウズ</h2>
+          {/* ★復活: ヒストリーライドUI */}
+          <div style={{ background: '#222', borderRadius: '12px', padding: '15px', marginBottom: '20px', border: '1px solid #444' }}>
+            <h4 style={{ margin: '0 0 10px 0', color: '#ffcc00' }}>⏳ ヒストリーライド</h4>
+            <div style={{ display: 'flex', gap: '5px', marginBottom: '10px' }}>
+                <input type="number" placeholder="年" value={historyYearInput} onChange={e => setHistoryYearInput(e.target.value)} style={{ flex: 1, padding: '8px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }} />
+                <select value={historyEra} onChange={e => setHistoryEra(e.target.value)} style={{ background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}><option value="AD">{ERA_LABELS[currentLang].AD}</option><option value="BC">{ERA_LABELS[currentLang].BC}</option></select>
+            </div>
+            <select value={historyCountry} onChange={e => setHistoryCountry(e.target.value)} style={{ width: '100%', padding: '8px', marginBottom: '15px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}><option value="ALL">全ての国</option>{countryList.map(c => <option key={c} value={c}>{c}</option>)}</select>
+            <button onClick={startHistoryRide} style={{ width: '100%', padding: '10px', borderRadius: '20px', background: '#ffcc00', border: 'none', color: 'black', fontWeight: 'bold', cursor: 'pointer' }}>START</button>
+          </div>
+
           <div style={{color:'#888', fontSize:'0.9rem', marginBottom:'15px'}}>カテゴリを選んでツアーを開始</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
             <div onClick={() => jumpToRandomSpot('landmark')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333' }}><div style={{fontSize:'1.5rem'}}>🏯</div><div style={{color:'#ff8800', fontSize:'0.8rem'}}>観光名所</div></div>
@@ -758,10 +770,6 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {isPc && user && <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 50 }}>{profile && <div style={{ color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '8px', marginBottom: '5px', textAlign: 'right' }}>{profile.username}</div>}</div>}
-      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={setupUser} />}
-      {showFavList && user && <FavoritesModal userId={user.id} onClose={() => setShowFavList(false)} onSelect={handleSelectFromList} />}
-
       {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== 'fav' && activeTab !== null && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: 'calc(100% - 80px)', background: '#111', zIndex: 200, overflowY: 'auto', padding: '20px', boxSizing: 'border-box' }}>
           <button onClick={() => setActiveTab(null)} style={{ position:'absolute', top:'15px', right:'15px', background:'transparent', border:'none', color:'#888', fontSize:'1.5rem', zIndex:201 }}>✕</button>
@@ -809,9 +817,16 @@ const GlobeContent = () => {
 
       {selectedLocation && displayData && (activeTab === null || activeTab === 'map' || isPc) && (
         <>
-          {!isPc && displayData.image_url && (
+          {!isPc && displayData.image_url && !imgError && (
             <div style={{ position: 'absolute', top: '40px', left: '10px', right: '10px', height: '160px', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', zIndex: 10, pointerEvents: 'none', border: '1px solid rgba(255,255,255,0.1)' }}>
-              <img src={displayData.image_url} alt={displayData.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              {/* ★修正: 画像エラーハンドリング */}
+              <img 
+                src={displayData.image_url} 
+                alt={displayData.name} 
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                onError={() => setImgError(true)}
+                loading="lazy"
+              />
               <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', height: '50px', background: 'linear-gradient(to top, rgba(0,0,0,0.7), transparent)' }} />
             </div>
           )}
@@ -819,9 +834,15 @@ const GlobeContent = () => {
               position: 'absolute', left: isPc ? (popupPos?.x || (window.innerWidth - 420)) : '10px', top: isPc ? (popupPos?.y || 20) : 'auto', right: isPc ? 'auto' : '10px', bottom: isPc ? 'auto' : '290px', transform: isPc ? 'none' : 'none', 
               background: 'rgba(10, 10, 10, 0.95)', padding: '20px', borderRadius: '20px', color: 'white', textAlign: 'center', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.2)', zIndex: 10, width: isPc ? '400px' : 'auto', maxWidth: isPc ? '360px' : 'none', maxHeight: isPc ? 'none' : '40vh', boxShadow: '0 4px 30px rgba(0,0,0,0.6)', resize: isPc ? 'both' : 'none', overflow: isPc ? 'auto' : 'hidden', display: 'flex', flexDirection: 'column', cursor: isPc ? (isDragging ? 'grabbing' : 'grab') : 'default', animation: isDragging ? 'none' : 'fadeIn 0.3s'
             }}>
-            {isPc && displayData.image_url && (
+            {isPc && displayData.image_url && !imgError && (
               <div style={{ width: '100%', height: '140px', marginBottom: '10px', borderRadius: '12px', overflow: 'hidden', position: 'relative', flexShrink: 0 }}>
-                <img src={displayData.image_url} alt={displayData.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <img 
+                    src={displayData.image_url} 
+                    alt={displayData.name} 
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                    onError={() => setImgError(true)}
+                    loading="lazy"
+                />
               </div>
             )}
             <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 5 }}>

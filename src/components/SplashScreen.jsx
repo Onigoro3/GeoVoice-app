@@ -4,14 +4,13 @@ const SplashScreen = ({ onFinished }) => {
   const [isFading, setIsFading] = useState(false);
 
   useEffect(() => {
-    // 2.5秒後にフェードアウト開始
+    // 修正: 2500ms -> 1200ms に短縮
     const timer = setTimeout(() => {
       setIsFading(true);
-      // その0.5秒後に完全に終了通知
       setTimeout(() => {
         onFinished();
       }, 500);
-    }, 2500);
+    }, 1200);
 
     return () => clearTimeout(timer);
   }, [onFinished]);
@@ -30,14 +29,14 @@ const SplashScreen = ({ onFinished }) => {
       alignItems: 'center',
       zIndex: 9999,
       opacity: isFading ? 0 : 1,
-      transition: 'opacity 0.8s ease-out',
+      transition: 'opacity 0.5s ease-out', // フェードアウトも少し早く
       pointerEvents: isFading ? 'none' : 'auto'
     }}>
       <div className="logo-container" style={{ textAlign: 'center' }}>
         <div style={{
           fontSize: '4rem',
           marginBottom: '20px',
-          animation: 'bounce 2s infinite'
+          animation: 'bounce 1s infinite' // バウンスも早く
         }}>🌍</div>
         <h1 style={{
           color: '#fff',
@@ -50,7 +49,7 @@ const SplashScreen = ({ onFinished }) => {
           backgroundClip: 'text',
           WebkitBackgroundClip: 'text',
           color: 'transparent',
-          animation: 'shine 3s linear infinite'
+          animation: 'shine 2s linear infinite' // キラキラも早く
         }}>
           GeoVoice
         </h1>
