@@ -59,33 +59,9 @@ const MAP_CONFIG = {
   terrain: { source: 'mapbox-dem', exaggeration: 1.5 }
 };
 
-const LAYER_GLOW = {
-  id: 'point-glow',
-  type: 'circle',
-  paint: {
-    'circle-radius': 6,
-    'circle-color': [
-      'match', ['get', 'category'],
-      'landmark', '#ff8800',
-      'nature', '#00ff7f',
-      'history', '#ffcc00',
-      'modern', '#00ffff',
-      'science', '#d800ff',
-      'art', '#ff0055',
-      '#ffcc00'
-    ],
-    'circle-opacity': 0.8,
-    'circle-blur': 0.4
-  }
-};
-const LAYER_CORE = {
-  id: 'point-core',
-  type: 'circle',
-  paint: { 'circle-radius': 3, 'circle-color': '#fff', 'circle-opacity': 1 }
-};
-
 const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
 
+// ヘルパー関数
 const getCategoryDetails = (category) => {
   let tag = '世界遺産'; let color = '#ffcc00';
   if (category === 'landmark') { tag = '観光名所'; color = '#ff8800'; }
@@ -96,6 +72,7 @@ const getCategoryDetails = (category) => {
   return { tag, color };
 };
 
+// メモ化されたマップコンポーネント
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, onClick, onMouseEnter, onMouseLeave, cursor, geoJsonData, onError, padding }) => {
   return (
     <Map
@@ -123,8 +100,30 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
       {geoJsonData && (
         <Source id="my-locations" type="geojson" data={geoJsonData}>
-          <Layer {...LAYER_GLOW} />
-          <Layer {...LAYER_CORE} />
+          <Layer 
+            id="point-glow"
+            type="circle"
+            paint={{
+                'circle-radius': 6,
+                'circle-color': [
+                'match', ['get', 'category'],
+                'landmark', '#ff8800',
+                'nature', '#00ff7f',
+                'history', '#ffcc00',
+                'modern', '#00ffff',
+                'science', '#d800ff',
+                'art', '#ff0055',
+                '#ffcc00'
+                ],
+                'circle-opacity': 0.8,
+                'circle-blur': 0.4
+            }}
+          />
+          <Layer 
+            id="point-core"
+            type="circle"
+            paint={{ 'circle-radius': 3, 'circle-color': '#fff', 'circle-opacity': 1 }}
+          />
         </Source>
       )}
     </Map>
@@ -141,7 +140,7 @@ const GlobeContent = () => {
   const isRideModeRef = useRef(false);
   const isHistoryModeRef = useRef(false);
   const historyIndexRef = useRef(0);
-  const historySortedSpotsRef = useRef([]);
+  const historySortedSpotsRef = useRef([]); // ★ヒストリーライド用リスト
   const rideTimeoutRef = useRef(null);
   const visibleCategoriesRef = useRef(null);
   const rideCategoryRef = useRef(null);
@@ -182,9 +181,9 @@ const GlobeContent = () => {
   const [formPlaceName, setFormPlaceName] = useState("");
   const [formPlaceDesc, setFormPlaceDesc] = useState("");
 
-  // ★ブラウズガイド用State
   const [showBrowseGuide, setShowBrowseGuide] = useState(false);
   const [browseGuideStep, setBrowseGuideStep] = useState(1);
+  const [showTutorial, setShowTutorial] = useState(false); // ★探索パネルから呼ぶ用
 
   const [visibleCategories, setVisibleCategories] = useState({
     landmark: true, history: true, nature: true, 
@@ -208,7 +207,6 @@ const GlobeContent = () => {
   const [cursor, setCursor] = useState('auto'); 
   
   const [showSplash, setShowSplash] = useState(true);
-  const [showTutorial, setShowTutorial] = useState(false);
 
   const premiumSpotCount = useMemo(() => {
     return locations.filter(l => PREMIUM_CATEGORIES.includes(l.category || 'history')).length;
@@ -259,7 +257,6 @@ const GlobeContent = () => {
         return;
     }
 
-    // ★ブラウズガイドの初回チェック
     if (tab === 'browse') {
         const hasSeen = localStorage.getItem('hasSeenBrowseGuide');
         if (!hasSeen) {
@@ -589,16 +586,51 @@ const GlobeContent = () => {
 
   const handleCurrentLocation = () => { if (!navigator.geolocation) { alert("現在地機能が使えません"); return; } navigator.geolocation.getCurrentPosition((pos) => { mapRef.current?.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 9, speed: 1.5, curve: 1 }); }, () => { alert("位置情報の取得に失敗しました"); }); };
   
+  // ★修正: ヒストリーライド開始機能（ロジック追加）
   const startHistoryRide = () => { 
     if (!isPremium && !isVipUser(user?.email)) {
         alert("🔒 ヒストリーライドはプレミアム限定機能です。\n歴史の旅へ出かけるにはアップグレードが必要です！");
         return;
     }
+
+    // ★ロジック追加: 年代や国でフィルタリング
+    let candidates = locationsRef.current.filter(l => (l.category === 'history' || !l.category)); // 歴史カテゴリ優先
+
+    // 国フィルター
+    if (historyCountry !== "ALL") {
+        candidates = candidates.filter(l => l.country_ja === historyCountry);
+    }
+
+    // 年代フィルター (入力があれば近い順にソート)
+    if (historyYearInput) {
+        let targetYear = parseInt(historyYearInput);
+        if (historyEra === 'BC') targetYear = -targetYear;
+        
+        candidates.sort((a, b) => {
+            const yearA = a.year !== undefined ? a.year : 9999;
+            const yearB = b.year !== undefined ? b.year : 9999;
+            return Math.abs(yearA - targetYear) - Math.abs(yearB - targetYear);
+        });
+    } else {
+        // 年代指定なしならランダムシャッフル
+        candidates.sort(() => Math.random() - 0.5);
+    }
+
+    if (candidates.length === 0) {
+        alert("条件に合うスポットが見つかりませんでした。");
+        return;
+    }
+
+    // 結果をRefに保存してスタート
+    historySortedSpotsRef.current = candidates;
+    historyIndexRef.current = 0;
+
     setIsHistoryMode(true); 
     setIsRideMode(true); 
-    setActiveTab('map'); 
+    setActiveTab('map'); // パネルを閉じて地図へ
     setTimeout(() => { nextRideStep(); }, 100);
   };
+
   const toggleRideModeTrigger = () => { if (!isRideMode) { if(!isHistoryMode) jumpToRandomSpot(); else nextRideStep(); } else setIsRideMode(false); };
   
   const jumpToRandomSpot = (cat=null) => { 
@@ -616,8 +648,10 @@ const GlobeContent = () => {
         const sorted = historySortedSpotsRef.current; 
         let idx = historyIndexRef.current; 
         if (idx >= sorted.length) idx = 0; 
-        historyIndexRef.current = idx + 1; 
-        return sorted[idx];
+        
+        const spot = sorted[idx];
+        historyIndexRef.current = idx + 1; // 次へ
+        return spot;
     } else {
         const currentFilters = visibleCategoriesRef.current || { history: true, nature: true, modern: true, science: true, art: true }; 
         const targetCat = rideCategoryRef.current;
@@ -681,7 +715,6 @@ const GlobeContent = () => {
     };
   }, [locations, visibleCategories, isPremium, user]);
 
-  // ★ブラウズガイド完了時の処理
   const handleBrowseGuideFinish = () => {
     setShowBrowseGuide(false);
     localStorage.setItem('hasSeenBrowseGuide', 'true');
@@ -760,7 +793,6 @@ const GlobeContent = () => {
       const isUserPremium = isPremium || isVipUser(user?.email);
       const content = (
         <div style={{ position: 'relative' }}>
-          {/* ブラウズガイド (オーバーレイ) */}
           {showBrowseGuide && (
             <div style={{
                 position:'absolute', top:0, left:0, width:'100%', height:'100%', zIndex:20, 
@@ -931,6 +963,7 @@ const GlobeContent = () => {
         <div style={{ position:'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.8)', zIndex:9999, display:'flex', justifyContent:'center', alignItems:'center' }} onClick={() => setShowContactModal(false)}>
             <div style={{ width:'90%', maxWidth:'400px', background:'#222', padding:'20px', borderRadius:'15px', border:'1px solid #444' }} onClick={e => e.stopPropagation()}>
                 <h3 style={{color:'white', marginTop:0}}>📧 お問い合わせ</h3>
+                {/* ★修正: 必須表示 */}
                 <div style={{color:'white', marginBottom:'5px'}}>メールアドレス (必須)</div>
                 <input type="email" value={formEmail} onChange={e => setFormEmail(e.target.value)} style={{width:'100%', padding:'10px', marginBottom:'15px', background:'#333', border:'1px solid #555', color:'white', borderRadius:'5px'}} />
                 <div style={{color:'white', marginBottom:'5px'}}>メッセージ</div>
@@ -998,7 +1031,7 @@ const GlobeContent = () => {
                 <button onClick={handleCurrentLocation} style={{ background: '#333', border: 'none', color: '#00ffcc', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer', fontSize:'1rem' }}>📍</button>
               </div>
             </div>
-            {activeTab === 'search' && (
+            {activeTab === 'search' && isPc && (
                <div style={{ padding: '15px', borderBottom:'1px solid #222' }}>
                   <div style={{ display: 'flex', gap: '5px' }}>
                     <input autoFocus type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder={LANGUAGES[currentLang].placeholder} style={{ flex: 1, background: '#222', border: '1px solid #444', color: 'white', padding: '12px', borderRadius: '8px', fontSize:'1rem' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
@@ -1017,10 +1050,7 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {isPc && user && <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 50 }}>{profile && <div style={{ color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '8px', marginBottom: '5px', textAlign: 'right' }}>{profile.username}</div>}</div>}
-      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={setupUser} />}
-      {/* FavModalは削除済み */}
-
+      {/* ★修正: スマホ用ボトムシート (全メニュー共通) */}
       {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== null && (
         <div style={{ 
             position: 'fixed', bottom: '80px', left: 0, width: '100%', height: '45vh', 
@@ -1072,18 +1102,19 @@ const GlobeContent = () => {
         <>
           {!isPc && displayData.image_url && !imgError && (
             <div style={{ position: 'absolute', top: '40px', left: '10px', right: '10px', height: '160px', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', zIndex: 10, pointerEvents: 'none', border: '1px solid rgba(255,255,255,0.1)', background: '#000' }}>
+              {/* ★修正: キャッシュ済なら即表示、未キャッシュならLoading */}
               {imgLoading && <div style={{width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'#666'}}>Loading...</div>}
               <img 
                 src={displayData.image_url} 
                 alt={displayData.name} 
-                style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1 }}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1, transition: 'opacity 0.2s' }}
                 onError={() => setImgError(true)}
                 onLoad={() => {
                     setImgLoading(false);
-                    imageCacheRef.current.add(displayData.image_url);
+                    imageCacheRef.current.add(displayData.image_url); // ロード完了したら即キャッシュ
                 }}
-                loading="eager"
-                fetchPriority="high"
+                loading="eager" // 即読み込み
+                fetchPriority="high" // 優先度高
               />
               <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', height: '50px', background: 'linear-gradient(to top, rgba(0,0,0,0.7), transparent)' }} />
             </div>
@@ -1098,7 +1129,7 @@ const GlobeContent = () => {
                 <img 
                     src={displayData.image_url} 
                     alt={displayData.name} 
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1 }} 
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1, transition: 'opacity 0.2s' }} 
                     onError={() => setImgError(true)}
                     onLoad={() => {
                         setImgLoading(false);
@@ -1127,6 +1158,7 @@ const GlobeContent = () => {
         </>
       )}
 
+      {/* メモ化マップの使用 (self-closing) */}
       <MemoizedMap 
         mapRef={mapRef} 
         mapboxAccessToken={MAPBOX_TOKEN} 
