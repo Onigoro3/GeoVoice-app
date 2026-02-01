@@ -5,6 +5,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import AuthModal from './AuthModal';
 import FavoritesModal from './FavoritesModal';
 import ErrorBoundary from './ErrorBoundary';
+import SplashScreen from './SplashScreen'; // ★追加
 import { isVipUser } from '../vipList';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
@@ -208,6 +209,9 @@ const GlobeContent = () => {
   const [activeTab, setActiveTab] = useState(null); 
   const [nearbySpots, setNearbySpots] = useState([]);
   const [cursor, setCursor] = useState('auto'); 
+  
+  // ★スプラッシュスクリーン用 State
+  const [showSplash, setShowSplash] = useState(true);
 
   const initialViewState = { longitude: 135.0, latitude: 35.0, zoom: 3.5 };
 
@@ -325,14 +329,12 @@ const GlobeContent = () => {
     }
   }, [isRideMode]);
 
-  // ★修正: 確実かつ軽量な全件取得ロジック
   const fetchSpots = async () => {
     try {
       let from = 0;
-      const batchSize = 1000; // Supabaseの標準的な制限に合わせる
+      const batchSize = 1000;
       const minimalFields = 'id, name, name_ja, lat, lon, category, country_ja, year';
 
-      // 最初に空にする
       setLocations([]);
 
       while (true) {
@@ -352,16 +354,12 @@ const GlobeContent = () => {
         const validBatch = data.filter(d => d.lat !== null && d.lon !== null && d.lat !== 0 && d.lon !== 0);
         const formatted = validBatch.map(d => ({ ...d, category: d.category || 'history' }));
         
-        // 段階的にデータを追加して表示 (前回の配列に結合)
         setLocations(prev => [...prev, ...formatted]);
         addLog(`Loaded +${formatted.length} (Total: ${from + data.length})`);
 
-        // 取得数がバッチサイズより少なければ、それが最後のページ
         if (data.length < batchSize) break;
         
         from += batchSize;
-        
-        // ★UIスレッドをブロックしないよう少し休憩
         await new Promise(resolve => setTimeout(resolve, 50)); 
       }
       
@@ -815,6 +813,8 @@ const GlobeContent = () => {
       <audio ref={audioRef} src={currentTrack.url} loop={loopMode === 'one'} onEnded={handleTrackEnded} /> 
       {isPc && <div style={{ position: 'absolute', bottom: '10px', right: '10px', zIndex: 100, background: 'rgba(0,0,0,0.7)', color: '#00ff00', fontSize: '10px', padding: '5px', borderRadius: '5px', maxWidth: '300px', pointerEvents: 'none' }}>{logs.map((log, i) => <div key={i}>{log}</div>)}</div>}
       
+      {showSplash && <SplashScreen onFinished={() => setShowSplash(false)} />}
+
       {/* 全スポット件数カウンター */}
       <div style={{ position: 'absolute', top: '15px', left: '15px', zIndex: 10, color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 12px', borderRadius: '8px', fontSize: '0.8rem', pointerEvents: 'none', backdropFilter:'blur(5px)', border:'1px solid rgba(255,255,255,0.2)' }}>
         Spots: {locations.length}

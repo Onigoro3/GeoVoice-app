@@ -1,32 +1,21 @@
-// vite.config.js
-
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate', // これだけだと弱い場合がある
-      
-      // ★追加: 積極的な更新設定
-      workbox: {
-        cleanupOutdatedCaches: true, // 古いキャッシュを削除
-        skipWaiting: true,           // 待機せずに新しいSWを適用
-        clientsClaim: true,          // 即座にページを制御
-      },
-
-      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
+      registerType: 'autoUpdate',
+      includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
       manifest: {
-        name: 'GeoVoice',
+        name: 'GeoVoice - 地球儀ガイド',
         short_name: 'GeoVoice',
-        description: 'AIと音声で巡る、地球儀の旅',
+        description: '世界中のあらゆる場所をAIがガイドする地球儀アプリ',
         theme_color: '#000000',
         background_color: '#000000',
         display: 'standalone',
-        scope: '/',
-        start_url: '/',
         orientation: 'portrait',
         icons: [
           {
@@ -38,6 +27,12 @@ export default defineConfig({
             src: 'pwa-512x512.png',
             sizes: '512x512',
             type: 'image/png'
+          },
+          {
+            src: 'pwa-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'any maskable'
           }
         ]
       }
