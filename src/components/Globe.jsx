@@ -182,6 +182,10 @@ const GlobeContent = () => {
   const [formPlaceName, setFormPlaceName] = useState("");
   const [formPlaceDesc, setFormPlaceDesc] = useState("");
 
+  // ★ブラウズガイド用State
+  const [showBrowseGuide, setShowBrowseGuide] = useState(false);
+  const [browseGuideStep, setBrowseGuideStep] = useState(1);
+
   const [visibleCategories, setVisibleCategories] = useState({
     landmark: true, history: true, nature: true, 
     modern: true, science: true, art: true
@@ -253,6 +257,15 @@ const GlobeContent = () => {
     if (tab === 'fav' && !user) {
         setShowAuthModal(true);
         return;
+    }
+
+    // ★ブラウズガイドの初回チェック
+    if (tab === 'browse') {
+        const hasSeen = localStorage.getItem('hasSeenBrowseGuide');
+        if (!hasSeen) {
+            setShowBrowseGuide(true);
+            setBrowseGuideStep(1);
+        }
     }
 
     setActiveTab(tab);
@@ -668,10 +681,15 @@ const GlobeContent = () => {
     };
   }, [locations, visibleCategories, isPremium, user]);
 
+  // ★ブラウズガイド完了時の処理
+  const handleBrowseGuideFinish = () => {
+    setShowBrowseGuide(false);
+    localStorage.setItem('hasSeenBrowseGuide', 'true');
+  };
+
   const renderPanelContent = () => {
     const commonStyle = { background: '#111', borderRadius: '15px', padding: '20px', border: '1px solid rgba(255,255,255,0.1)', minHeight: '200px', pointerEvents: 'auto' };
 
-    // ★リストタブ (お気に入り)
     if (activeTab === 'fav') {
         const favSpots = locations.filter(l => favorites.has(l.id));
         const content = (
@@ -724,7 +742,6 @@ const GlobeContent = () => {
         return isPc ? <div style={commonStyle}>{content}</div> : content;
     }
     
-    // ★検索タブ (統一してここに移動)
     if (activeTab === 'search') {
         const content = (
             <div>
@@ -742,7 +759,37 @@ const GlobeContent = () => {
     if (activeTab === 'browse') {
       const isUserPremium = isPremium || isVipUser(user?.email);
       const content = (
-        <div>
+        <div style={{ position: 'relative' }}>
+          {/* ブラウズガイド (オーバーレイ) */}
+          {showBrowseGuide && (
+            <div style={{
+                position:'absolute', top:0, left:0, width:'100%', height:'100%', zIndex:20, 
+                background:'rgba(0,0,0,0.85)', borderRadius:'12px', padding:'20px', 
+                display:'flex', flexDirection:'column', justifyContent:'center', alignItems:'center', textAlign:'center',
+                animation: 'fadeIn 0.5s'
+            }}>
+                {browseGuideStep === 1 ? (
+                    <>
+                        <div style={{fontSize:'3rem', marginBottom:'10px'}}>⏳</div>
+                        <h3 style={{color:'#ffcc00', margin:'0 0 10px 0'}}>ヒストリーライド</h3>
+                        <p style={{color:'#ddd', fontSize:'0.9rem', lineHeight:'1.5'}}>
+                            行きたい時代（年）を入力すると、<br/>その時代の歴史スポットへタイムスリップ！<br/>(プレミアム限定)
+                        </p>
+                        <button onClick={() => setBrowseGuideStep(2)} style={{marginTop:'15px', padding:'10px 30px', background:'white', color:'black', border:'none', borderRadius:'20px', fontWeight:'bold'}}>次へ</button>
+                    </>
+                ) : (
+                    <>
+                        <div style={{fontSize:'3rem', marginBottom:'10px'}}>🎲</div>
+                        <h3 style={{color:'#00ffcc', margin:'0 0 10px 0'}}>カテゴリツアー</h3>
+                        <p style={{color:'#ddd', fontSize:'0.9rem', lineHeight:'1.5'}}>
+                            好きなジャンルをタップするだけで、<br/>ランダムに世界中のスポットへ飛びます。<br/>偶然の出会いを楽しもう！
+                        </p>
+                        <button onClick={handleBrowseGuideFinish} style={{marginTop:'15px', padding:'10px 30px', background:'#00ffcc', color:'black', border:'none', borderRadius:'20px', fontWeight:'bold'}}>始める！</button>
+                    </>
+                )}
+            </div>
+          )}
+
           <h2 style={{color:'#fff', marginTop:0, fontSize:'1.5rem'}}>ブラウズ</h2>
           <div style={{ 
               background: '#222', 
@@ -923,6 +970,7 @@ const GlobeContent = () => {
         </div>
       )}
 
+      {/* 〇枠 */}
       <div style={{ 
           position: 'absolute', 
           top: isPc ? '50%' : '30%', 
@@ -950,7 +998,7 @@ const GlobeContent = () => {
                 <button onClick={handleCurrentLocation} style={{ background: '#333', border: 'none', color: '#00ffcc', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer', fontSize:'1rem' }}>📍</button>
               </div>
             </div>
-            {activeTab === 'search' && isPc && (
+            {activeTab === 'search' && (
                <div style={{ padding: '15px', borderBottom:'1px solid #222' }}>
                   <div style={{ display: 'flex', gap: '5px' }}>
                     <input autoFocus type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder={LANGUAGES[currentLang].placeholder} style={{ flex: 1, background: '#222', border: '1px solid #444', color: 'white', padding: '12px', borderRadius: '8px', fontSize:'1rem' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
@@ -969,7 +1017,10 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ★修正: スマホ用ボトムシート (全メニュー共通) */}
+      {isPc && user && <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 50 }}>{profile && <div style={{ color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '8px', marginBottom: '5px', textAlign: 'right' }}>{profile.username}</div>}</div>}
+      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={setupUser} />}
+      {/* FavModalは削除済み */}
+
       {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== null && (
         <div style={{ 
             position: 'fixed', bottom: '80px', left: 0, width: '100%', height: '45vh', 
@@ -1025,7 +1076,7 @@ const GlobeContent = () => {
               <img 
                 src={displayData.image_url} 
                 alt={displayData.name} 
-                style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1, transition: 'opacity 0.2s' }}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1 }}
                 onError={() => setImgError(true)}
                 onLoad={() => {
                     setImgLoading(false);
@@ -1047,7 +1098,7 @@ const GlobeContent = () => {
                 <img 
                     src={displayData.image_url} 
                     alt={displayData.name} 
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1, transition: 'opacity 0.2s' }} 
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1 }} 
                     onError={() => setImgError(true)}
                     onLoad={() => {
                         setImgLoading(false);
