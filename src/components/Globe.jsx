@@ -13,11 +13,11 @@ const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 const LANGUAGES = {
-  ja: { code: 'ja', name: 'Japanese', label: '🇯🇵 日本語' },
-  en: { code: 'en', name: 'English', label: '🇺🇸 English' },
-  zh: { code: 'zh', name: 'Chinese', label: '🇨🇳 中文' },
-  es: { code: 'es', name: 'Spanish', label: '🇪🇸 Español' },
-  fr: { code: 'fr', name: 'French', label: '🇫🇷 Français' },
+  ja: { code: 'ja', name: 'Japanese', label: '🇯🇵 日本語', placeholder: '行きたい場所やテーマを入力...' },
+  en: { code: 'en', name: 'English', label: '🇺🇸 English', placeholder: 'Where do you want to go?' },
+  zh: { code: 'zh', name: 'Chinese', label: '🇨🇳 中文', placeholder: '你想去哪里？' },
+  es: { code: 'es', name: 'Spanish', label: '🇪🇸 Español', placeholder: '¿Adónde quieres ir?' },
+  fr: { code: 'fr', name: 'French', label: '🇫🇷 Français', placeholder: 'Où voulez-vous aller ?' },
 };
 
 const ERA_LABELS = {
@@ -60,20 +60,19 @@ const BGM_LIBRARY = [
   { id: 'country3', title: '秋を探しに', artist: 'Japan', genre: 'Country', url: '/bgm/Country3.mp3' },
 ];
 
-const PREMIUM_CATEGORIES = ['science', 'art'];
+// ★ 無料/有料の区分定義 (自然をプレミアムへ移動)
+const FREE_CATEGORIES = ['landmark', 'history'];
+const PREMIUM_CATEGORIES = ['nature', 'modern', 'science', 'art'];
 
-const PRIVACY_POLICY_TEXT = `
-## プライバシーポリシー
-(省略)
-`;
+const PRIVACY_POLICY_TEXT = `## プライバシーポリシー (省略)`;
 
-// マップ設定
 const MAP_CONFIG = {
   style: "mapbox://styles/mapbox/satellite-v9",
   fog: { range: [0.5, 10], color: 'rgba(255, 255, 255, 0)', 'high-color': '#000', 'space-color': '#000', 'star-intensity': 0.6 },
   terrain: { source: 'mapbox-dem', exaggeration: 1.5 }
 };
 
+// 光の点レイヤー
 const LAYER_GLOW = {
   id: 'point-glow',
   type: 'circle',
@@ -111,46 +110,6 @@ const getCategoryDetails = (category) => {
   if (category === 'art') { tag = '美術館'; color = '#ff0055'; }
   return { tag, color };
 };
-
-const getYearLabel = (year) => {
-  if (!year) return '';
-  return year < 0 ? `BC ${Math.abs(year)}` : `AD ${year}`;
-};
-
-const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, onClick, onMouseEnter, onMouseLeave, cursor, geoJsonData, onError, padding }) => {
-  return (
-    <Map
-      ref={mapRef}
-      mapboxAccessToken={mapboxAccessToken}
-      initialViewState={initialViewState}
-      projection="globe"
-      mapStyle={MAP_CONFIG.style}
-      fog={MAP_CONFIG.fog}
-      terrain={MAP_CONFIG.terrain}
-      onMoveEnd={onMoveEnd}
-      onClick={onClick}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      cursor={cursor} 
-      style={MAP_CONTAINER_STYLE}
-      onError={onError}
-      dragRotate={true}
-      touchZoomRotate={true}
-      padding={padding}
-      reuseMaps={true}
-      optimizeForTerrain={true} 
-      interactiveLayerIds={['point-glow', 'point-core']}
-    >
-      <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
-      {geoJsonData && (
-        <Source id="my-locations" type="geojson" data={geoJsonData}>
-          <Layer {...LAYER_GLOW} />
-          <Layer {...LAYER_CORE} />
-        </Source>
-      )}
-    </Map>
-  );
-}, (prev, next) => prev.geoJsonData === next.geoJsonData && prev.padding === next.padding && prev.cursor === next.cursor);
 
 const GlobeContent = () => {
   const mapRef = useRef(null);
@@ -191,8 +150,10 @@ const GlobeContent = () => {
   const [showFavList, setShowFavList] = useState(false);
   const [favorites, setFavorites] = useState(new Set());
 
+  // 初期表示カテゴリ
   const [visibleCategories, setVisibleCategories] = useState({
-    landmark: true, history: true, nature: true, modern: true, science: true, art: true
+    landmark: true, history: true, nature: true, 
+    modern: true, science: true, art: true
   });
 
   const [bgmVolume, setBgmVolume] = useState(0.5);
@@ -214,6 +175,11 @@ const GlobeContent = () => {
   const [showSplash, setShowSplash] = useState(true);
   const [showTutorial, setShowTutorial] = useState(false);
 
+  // ★プレミアム会員になると増えるスポット数を計算
+  const premiumSpotCount = useMemo(() => {
+    return locations.filter(l => PREMIUM_CATEGORIES.includes(l.category || 'history')).length;
+  }, [locations]);
+
   const handleSplashFinish = () => {
     setShowSplash(false);
     const hasSeen = localStorage.getItem('hasSeenTutorial');
@@ -222,26 +188,22 @@ const GlobeContent = () => {
     }
   };
 
+  const handleLanguageSelect = (lang) => {
+    setCurrentLang(lang);
+  };
+
   const initialViewState = { longitude: 135.0, latitude: 35.0, zoom: 3.5 };
 
   const toggleRideMode = () => setIsRideMode(prev => !prev);
 
   const handleTabChange = (tab) => {
-    if (activeTab === tab) {
-      setActiveTab(null);
-      return;
-    }
+    if (activeTab === tab) { setActiveTab(null); return; }
     setActiveTab(tab);
     if (tab === 'ride') { if (!isRideMode) toggleRideMode(); }
     if (tab === 'fav') { if (user) setShowFavList(true); else setShowAuthModal(true); }
   };
 
-  useEffect(() => {
-    if (isPc) {
-      setPopupPos({ x: window.innerWidth - 420, y: 20 });
-    }
-  }, [isPc]);
-
+  useEffect(() => { if (isPc) setPopupPos({ x: window.innerWidth - 420, y: 20 }); }, [isPc]);
   useEffect(() => { locationsRef.current = locations; }, [locations]);
   useEffect(() => { selectedLocationRef.current = selectedLocation; }, [selectedLocation]);
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
@@ -249,35 +211,21 @@ const GlobeContent = () => {
 
   const countryList = useMemo(() => {
     const countries = new Set();
-    locations.forEach(loc => {
-      if (loc.country_ja) countries.add(loc.country_ja);
-    });
+    locations.forEach(loc => { if (loc.country_ja) countries.add(loc.country_ja); });
     return Array.from(countries).sort();
   }, [locations]);
 
-  const availableGenres = useMemo(() => {
-    const genres = new Set(BGM_LIBRARY.map(track => track.genre));
-    return Array.from(genres).sort();
-  }, []);
-
-  const availableArtists = useMemo(() => {
+  const availableGenres = useMemo(() => Array.from(new Set(BGM_LIBRARY.map(t => t.genre))).sort(), []);
+  const availableArtists = useMemo(() => { 
     let tracks = BGM_LIBRARY;
-    if (genreFilter !== 'ALL') {
-      tracks = tracks.filter(t => t.genre === genreFilter);
-    }
-    const artists = new Set(tracks.map(t => t.artist));
-    return Array.from(artists).sort();
+    if (genreFilter !== 'ALL') tracks = tracks.filter(t => t.genre === genreFilter);
+    return Array.from(new Set(tracks.map(t => t.artist))).sort(); 
   }, [genreFilter]);
-
-  const currentPlaylist = useMemo(() => {
+  const currentPlaylist = useMemo(() => { 
     let tracks = BGM_LIBRARY;
-    if (genreFilter !== 'ALL') {
-      tracks = tracks.filter(t => t.genre === genreFilter);
-    }
-    if (artistFilter !== 'ALL') {
-      tracks = tracks.filter(t => t.artist === artistFilter);
-    }
-    return tracks;
+    if (genreFilter !== 'ALL') tracks = tracks.filter(t => t.genre === genreFilter);
+    if (artistFilter !== 'ALL') tracks = tracks.filter(t => t.artist === artistFilter);
+    return tracks; 
   }, [genreFilter, artistFilter]);
 
   useEffect(() => {
@@ -295,11 +243,9 @@ const GlobeContent = () => {
     const startY = popupPos ? popupPos.y : 20;
     setDragOffset({ x: e.clientX - startX, y: e.clientY - startY });
   };
-  
   const handleMouseMove = useCallback((e) => {
     if (isDragging) { e.preventDefault(); setPopupPos({ x: e.clientX - dragOffset.x, y: e.clientY - dragOffset.y }); }
   }, [isDragging, dragOffset]);
-  
   const handleMouseUp = () => setIsDragging(false);
   useEffect(() => {
     if (isDragging) { window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', handleMouseUp); }
@@ -309,70 +255,21 @@ const GlobeContent = () => {
 
   const addLog = (msg) => { console.log(msg); setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 5)); };
 
-  useEffect(() => {
-    isRideModeRef.current = isRideMode;
-    isHistoryModeRef.current = isHistoryMode;
-    if (isRideMode) {
-      if (isHistoryMode) {
-        let candidates = locationsRef.current.filter(l => l.year !== null);
-        if (historyCountry !== "ALL") candidates = candidates.filter(l => l.country_ja === historyCountry);
-        if (historyYearInput && !isNaN(historyYearInput)) {
-          let targetYear = parseInt(historyYearInput);
-          if (historyEra === "BC") targetYear = -targetYear;
-          candidates.sort((a, b) => Math.abs(a.year - targetYear) - Math.abs(b.year - targetYear));
-        } else {
-          candidates.sort((a, b) => a.year - b.year);
-        }
-        if (candidates.length === 0) {
-          alert("条件に合うスポットが見つかりません");
-          setIsHistoryMode(false); setIsRideMode(false); return;
-        }
-        historySortedSpotsRef.current = candidates;
-        historyIndexRef.current = 0;
-      }
-      nextRideStep();
-    } else {
-      // ★修正: 音声停止前に存在チェック
-      if (window.speechSynthesis) window.speechSynthesis.cancel();
-      setIsPlaying(false);
-      if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current);
-    }
-  }, [isRideMode]);
-
+  // データ取得 (1000件ずつ)
   const fetchSpots = async () => {
     try {
-      let from = 0;
-      const batchSize = 1000;
+      let from = 0; const batchSize = 1000;
       const minimalFields = 'id, name, name_ja, lat, lon, category, country_ja, year';
-
       setLocations([]);
-
       while (true) {
-        const to = from + batchSize - 1;
-        const { data, error } = await supabase
-            .from('spots')
-            .select(minimalFields)
-            .range(from, to);
-            
-        if (error) {
-            addLog(`Fetch Error: ${error.message}`);
-            break;
-        }
-        
-        if (!data || data.length === 0) break;
-
-        const validBatch = data.filter(d => d.lat !== null && d.lon !== null && d.lat !== 0 && d.lon !== 0);
-        const formatted = validBatch.map(d => ({ ...d, category: d.category || 'history' }));
-        
-        setLocations(prev => [...prev, ...formatted]);
-        addLog(`Loaded +${formatted.length} (Total: ${from + data.length})`);
-
+        const { data, error } = await supabase.from('spots').select(minimalFields).range(from, from + batchSize - 1);
+        if (error || !data || data.length === 0) break;
+        const validBatch = data.filter(d => d.lat && d.lon).map(d => ({ ...d, category: d.category || 'history' }));
+        setLocations(prev => [...prev, ...validBatch]);
         if (data.length < batchSize) break;
-        
         from += batchSize;
         await new Promise(resolve => setTimeout(resolve, 50)); 
       }
-      
     } catch (e) { addLog(`Fetch Error: ${e.message}`); }
   };
 
@@ -385,7 +282,7 @@ const GlobeContent = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  const setupUser = (u) => { setUser(u); fetchFavorites(u.id); fetchProfile(u.id, u.email); addLog(`Login: ${u.email}`); };
+  const setupUser = (u) => { setUser(u); fetchFavorites(u.id); fetchProfile(u.id, u.email); };
   const clearUser = () => { setUser(null); setProfile(null); setIsPremium(false); setFavorites(new Set()); };
   const fetchProfile = async (userId, email) => {
     const isVip = isVipUser(email);
@@ -396,7 +293,6 @@ const GlobeContent = () => {
     const { data } = await supabase.from('favorites').select('spot_id').eq('user_id', userId);
     if (data) setFavorites(new Set(data.map(f => f.spot_id)));
   };
-
   const toggleFavorite = async (targetId) => {
     if (!user) { setShowAuthModal(true); return; }
     const id = targetId || selectedLocation?.id;
@@ -413,26 +309,22 @@ const GlobeContent = () => {
     } catch(e) { addLog(`Fav Error: ${e.message}`); }
   };
 
-  const handleSelectFromList = (spot) => {
-    fetchAndSelectSpot(spot.id);
-  };
-
+  const handleSelectFromList = (spot) => { fetchAndSelectSpot(spot.id); };
   const fetchAndSelectSpot = async (spotId) => {
+    const spot = locationsRef.current.find(s => s.id === spotId);
+    if (spot && PREMIUM_CATEGORIES.includes(spot.category) && !isPremium && !isVipUser(user?.email)) {
+      alert("🔒 このカテゴリ（自然・現代・科学・芸術）はプレミアム会員限定です。\n設定からプレミアムに参加してください！");
+      return;
+    }
+
     try {
-        const { data, error } = await supabase
-            .from('spots')
-            .select('*')
-            .eq('id', spotId)
-            .single();
-            
+        const { data } = await supabase.from('spots').select('*').eq('id', spotId).single();
         if (data) {
             const fullSpot = { ...data, category: data.category || 'history' };
             setSelectedLocation(fullSpot);
             mapRef.current?.flyTo({ center: [fullSpot.lon, fullSpot.lat], zoom: 6, speed: 1.2, curve: 1 });
         }
-    } catch (e) {
-        console.error("Detail fetch error", e);
-    }
+    } catch (e) { console.error(e); }
   };
 
   const translateAndFix = async (spot, lang) => {
@@ -447,7 +339,6 @@ const GlobeContent = () => {
       const json = JSON.parse(text);
       const updateData = { [`name_${lang}`]: json.name, [`description_${lang}`]: json.description };
       await supabase.from('spots').update(updateData).eq('id', spot.id);
-      
       if (selectedLocationRef.current && selectedLocationRef.current.id === spot.id) {
         const newData = { ...spot, ...updateData, name: json.name, description: json.description };
         setDisplayData(newData);
@@ -456,139 +347,71 @@ const GlobeContent = () => {
     } catch (e) { addLog(`翻訳失敗: ${e.message}`); } finally { setStatusMessage(""); }
   };
 
-  useEffect(() => {
-    if (!selectedLocation) {
-      setDisplayData(null);
-      // ★修正: 音声停止前に存在チェック
-      if (window.speechSynthesis) window.speechSynthesis.cancel();
-      setIsPlaying(false);
-      return;
-    }
+  useEffect(() => { 
+    if (!selectedLocation) { setDisplayData(null); if(window.speechSynthesis) window.speechSynthesis.cancel(); setIsPlaying(false); return; }
     const suffix = currentLang === 'ja' ? '_ja' : `_${currentLang}`;
     let displayName = selectedLocation[`name${suffix}`] || selectedLocation.name;
     let displayDesc = selectedLocation[`description${suffix}`] || selectedLocation.description;
-    
     const newData = { ...selectedLocation, name: displayName, description: displayDesc, needsTranslation: currentLang === 'ja' && !/[ぁ-んァ-ン]/.test(displayName) };
     setDisplayData(newData);
-    
-    if (!newData.needsTranslation) {
-      // ★修正: 音声停止前に存在チェック
-      if (window.speechSynthesis) window.speechSynthesis.cancel();
-      speak(newData.description);
-    }
+    if (!newData.needsTranslation) { if(window.speechSynthesis) window.speechSynthesis.cancel(); speak(newData.description); }
   }, [selectedLocation, currentLang]);
 
-  const speak = (text) => {
-    // ★修正: 音声機能がない場合は何もしない
+  const speak = (text) => { 
     if (!window.speechSynthesis) return;
-
     if (!text) { setIsPlaying(false); return; }
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = { ja: 'ja-JP', en: 'en-US', zh: 'zh-CN', es: 'es-ES', fr: 'fr-FR' }[currentLang];
     utterance.volume = voiceVolume;
     utterance.onstart = () => setIsPlaying(true);
-    utterance.onend = () => {
-      setIsPlaying(false);
-      if (isRideModeRef.current) { rideTimeoutRef.current = setTimeout(() => { nextRideStep(); }, 3000); }
-    };
+    utterance.onend = () => { setIsPlaying(false); if(isRideModeRef.current) rideTimeoutRef.current = setTimeout(nextRideStep, 3000); };
     window.speechSynthesis.speak(utterance);
   };
 
-  const togglePlay = () => {
-    // ★修正: 音声機能がない場合は何もしない
+  const togglePlay = () => { 
     if (!window.speechSynthesis) return;
-
     if (window.speechSynthesis.speaking) {
-      if (window.speechSynthesis.paused) {
-        window.speechSynthesis.resume();
-        setIsPlaying(true);
-      } else {
-        window.speechSynthesis.pause();
-        setIsPlaying(false);
-      }
-    } else {
-        if (selectedLocation) {
-            speak(displayData?.description);
-        } else {
-            findClosestSpotAndPlay();
-        }
-    }
+      if (window.speechSynthesis.paused) { window.speechSynthesis.resume(); setIsPlaying(true); } 
+      else { window.speechSynthesis.pause(); setIsPlaying(false); }
+    } else { if (selectedLocation) speak(displayData?.description); else findClosestSpotAndPlay(); }
   };
 
   const findClosestSpotAndPlay = () => {
-    const map = mapRef.current?.getMap();
-    if (!map) return;
-    
-    const center = map.getCenter();
-    let closestSpot = null;
-    let minDistance = Infinity;
-
+    const map = mapRef.current?.getMap(); if (!map) return;
+    const center = map.getCenter(); let closestSpot = null; let minDistance = Infinity;
     locationsRef.current.forEach(loc => {
         const dist = Math.pow(loc.lat - center.lat, 2) + Math.pow(loc.lon - center.lng, 2);
-        if (dist < minDistance) {
-            minDistance = dist;
-            closestSpot = loc;
-        }
+        if (dist < minDistance) { minDistance = dist; closestSpot = loc; }
     });
-
-    if (closestSpot) {
-        fetchAndSelectSpot(closestSpot.id);
-    }
+    if (closestSpot) fetchAndSelectSpot(closestSpot.id);
   };
 
   const playNextTrack = () => {
-    if (loopMode === 'one') {
-      const audio = audioRef.current;
-      if (audio) {
-        audio.currentTime = 0;
-        audio.play().catch(() => {});
-      }
-    } else {
+    if (loopMode === 'one') { audioRef.current.currentTime = 0; audioRef.current.play().catch(()=>{}); } 
+    else {
       const currentIndex = currentPlaylist.findIndex(t => t.id === currentTrack.id);
-      let nextIndex = 0;
-      if (currentIndex !== -1) {
-          nextIndex = (currentIndex + 1) % currentPlaylist.length;
-      }
+      let nextIndex = (currentIndex + 1) % currentPlaylist.length;
       setCurrentTrack(currentPlaylist[nextIndex]);
     }
   };
-
   const playPrevTrack = () => {
     const currentIndex = currentPlaylist.findIndex(t => t.id === currentTrack.id);
-    let prevIndex = 0;
-    if (currentIndex !== -1) {
-        prevIndex = (currentIndex - 1 + currentPlaylist.length) % currentPlaylist.length;
-    }
+    let prevIndex = (currentIndex - 1 + currentPlaylist.length) % currentPlaylist.length;
     setCurrentTrack(currentPlaylist[prevIndex]);
   };
-
-  const handleTrackEnded = () => {
-    playNextTrack();
-  };
+  const handleTrackEnded = () => { playNextTrack(); };
 
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (isBgmOn) {
-        audio.volume = isPlaying ? bgmVolume * 0.2 : bgmVolume;
-        const playPromise = audio.play();
-        if (playPromise !== undefined) {
-            playPromise.catch(error => { console.log("Auto-play prevented"); });
-        }
-    } else {
-        audio.pause();
-    }
+    const audio = audioRef.current; if (!audio) return;
+    if (isBgmOn) { audio.volume = isPlaying ? bgmVolume * 0.2 : bgmVolume; audio.play().catch(e => console.log("Auto-play prevented")); } 
+    else { audio.pause(); }
   }, [isBgmOn, isPlaying, bgmVolume, currentTrack]);
 
   const handleMapClick = useCallback((event) => {
-    if (isRideModeRef.current) {
-        setIsRideMode(false);
-    }
-    
+    if (isRideModeRef.current) setIsRideMode(false);
     const feature = event.features?.[0];
     if (feature && (feature.layer.id === 'point-glow' || feature.layer.id === 'point-core')) {
-        const spotId = feature.properties.id;
-        fetchAndSelectSpot(spotId);
+        fetchAndSelectSpot(feature.properties.id);
     }
   }, []);
 
@@ -598,245 +421,153 @@ const GlobeContent = () => {
   const handleMoveEnd = useCallback((evt) => {
     if (isRideModeRef.current || isGeneratingRef.current) return;
     const map = mapRef.current?.getMap(); if (!map) return;
-    
     if (activeTab === 'explore') {
-      const bounds = map.getBounds();
-      const ne = bounds.getNorthEast();
-      const sw = bounds.getSouthWest();
-      const nearby = locationsRef.current.filter(loc => {
-        return loc.lat >= sw.lat && loc.lat <= ne.lat && loc.lon >= sw.lng && loc.lon <= ne.lng;
-      });
+      const bounds = map.getBounds(); const ne = bounds.getNorthEast(); const sw = bounds.getSouthWest();
+      const nearby = locationsRef.current.filter(loc => loc.lat >= sw.lat && loc.lat <= ne.lat && loc.lon >= sw.lng && loc.lon <= ne.lng);
       const center = map.getCenter(); 
-      nearby.sort((a, b) => {
-        const distA = Math.pow(a.lat - center.lat, 2) + Math.pow(a.lon - center.lng, 2);
-        const distB = Math.pow(b.lat - center.lat, 2) + Math.pow(b.lon - center.lng, 2);
-        return distA - distB;
-      });
+      nearby.sort((a, b) => (Math.pow(a.lat - center.lat, 2) + Math.pow(a.lon - center.lng, 2)) - (Math.pow(b.lat - center.lat, 2) + Math.pow(b.lon - center.lng, 2)));
       setNearbySpots(nearby.slice(0, 15)); 
     }
   }, [activeTab]);
 
-  const updateAllCountryTags = async () => {
-    if (!confirm("全てのスポットの国名情報をAIで再取得しますか？\n（データ数が多い場合、時間がかかります）")) return;
-    setIsGenerating(true);
-    setStatusMessage("国名データ更新開始...");
-    try { alert("ブラウザでの全件更新は負荷が高いため、scripts/update_countries.js の利用を推奨します。"); } 
-    catch (e) { alert("エラー: " + e.message); } 
-    finally { setIsGenerating(false); setStatusMessage(""); }
-  };
-
   const handleGenerate = async () => {
-    if (!inputTheme) return;
-    setIsGenerating(true); setStatusMessage("AI生成中...");
+    if (!inputTheme) return; setIsGenerating(true); setStatusMessage("AI生成中...");
     try {
-      const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-      const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+      const genAI = new GoogleGenerativeAI(GEMINI_API_KEY); const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
       const prompt = `歴史ガイドとして「${inputTheme}」のスポットを3つ選んで。言語: ${LANGUAGES[currentLang].label}。出力(JSON): [{"name":"名称 #タグ","lat":0,"lon":0,"description":"解説"}]`;
-      const result = await model.generateContent(prompt);
-      const text = result.response.text().replace(/```json/g, "").replace(/```/g, "").trim();
+      const result = await model.generateContent(prompt); const text = result.response.text().replace(/```json/g, "").replace(/```/g, "").trim();
       let newSpots = JSON.parse(text.match(/\[[\s\S]*\]/)[0]);
       const insertData = newSpots.map(s => ({ ...s, name_ja: s.name, description_ja: s.description, category: 'history' }));
-      await supabase.from('spots').insert(insertData);
-      fetchSpots();
+      await supabase.from('spots').insert(insertData); fetchSpots();
       if (newSpots.length > 0) mapRef.current?.flyTo({ center: [newSpots[0].lon, newSpots[0].lat], zoom: 4 });
       setInputTheme(""); alert(`${newSpots.length}件追加！`);
     } catch (e) { alert(e.message); } finally { setIsGenerating(false); setStatusMessage(""); }
   };
 
-  const handleNextRide = () => { if (!isRideMode) return; 
-    // ★修正: 音声停止前に存在チェック
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
-    if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current); nextRideStep(); 
-  };
-
-  const handleCurrentLocation = () => {
-    if (!navigator.geolocation) { alert("現在地機能が使えません"); return; }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { longitude, latitude } = pos.coords;
-        mapRef.current?.flyTo({ center: [longitude, latitude], zoom: 9, speed: 1.5, curve: 1 });
-      },
-      () => { alert("位置情報の取得に失敗しました"); }
-    );
-  };
-
-  const startHistoryRide = () => {
-    setIsHistoryMode(true);
-    setIsRideMode(true);
-    setActiveTab('map'); 
-  };
-
-  const jumpToRandomSpot = (targetCategory = null) => {
-    rideCategoryRef.current = targetCategory; 
-    
-    if (targetCategory) {
-        const newFilters = { landmark: false, history: false, nature: false, modern: false, science: false, art: false };
-        newFilters[targetCategory] = true;
-        setVisibleCategories(newFilters);
-    } else {
-        setVisibleCategories({ landmark: true, history: true, nature: true, modern: true, science: true, art: true });
+  const handleNextRide = () => { if (!isRideMode) return; if(window.speechSynthesis) window.speechSynthesis.cancel(); if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current); nextRideStep(); };
+  const handleCurrentLocation = () => { if (!navigator.geolocation) { alert("現在地機能が使えません"); return; } navigator.geolocation.getCurrentPosition((pos) => { mapRef.current?.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 9, speed: 1.5, curve: 1 }); }, () => { alert("位置情報の取得に失敗しました"); }); };
+  const startHistoryRide = () => { setIsHistoryMode(true); setIsRideMode(true); setActiveTab('map'); };
+  const toggleRideModeTrigger = () => { if (!isRideMode) { if(!isHistoryMode) jumpToRandomSpot(); else nextRideStep(); } else setIsRideMode(false); };
+  
+  const jumpToRandomSpot = (cat=null) => { 
+    rideCategoryRef.current = cat; 
+    if (cat && PREMIUM_CATEGORIES.includes(cat) && !isPremium && !isVipUser(user?.email)) {
+        alert("🔒 プレミアム限定機能です"); return;
     }
-    setIsHistoryMode(false);
-    setIsRideMode(true);
-    setActiveTab('map'); 
-    setTimeout(() => { nextRideStep(); }, 100);
+    if (cat) { const newFilters = { landmark: false, history: false, nature: false, modern: false, science: false, art: false }; newFilters[cat] = true; setVisibleCategories(newFilters); } 
+    else { setVisibleCategories({ landmark: true, history: true, nature: true, modern: true, science: true, art: true }); }
+    setIsHistoryMode(false); setIsRideMode(true); setActiveTab('map'); setTimeout(() => { nextRideStep(); }, 100); 
   };
 
   const nextRideStep = async () => {
-    if (!isRideModeRef.current) return;
-    let nextSpot = null;
-    
+    if (!isRideModeRef.current) return; let nextSpot = null;
     if (isHistoryModeRef.current) {
-        const sorted = historySortedSpotsRef.current;
-        let idx = historyIndexRef.current;
-        if (idx >= sorted.length) idx = 0; 
-        nextSpot = sorted[idx];
-        historyIndexRef.current = idx + 1;
+        const sorted = historySortedSpotsRef.current; let idx = historyIndexRef.current; if (idx >= sorted.length) idx = 0; nextSpot = sorted[idx]; historyIndexRef.current = idx + 1;
     } else {
-        const currentFilters = visibleCategoriesRef.current || { history: true, nature: true, modern: true, science: true, art: true };
-        const targetCat = rideCategoryRef.current;
-        
+        const currentFilters = visibleCategoriesRef.current || { history: true, nature: true, modern: true, science: true, art: true }; const targetCat = rideCategoryRef.current;
         let candidates = locationsRef.current.filter(loc => {
           const cat = loc.category || 'history';
           if (!profile?.is_premium && !isVipUser(user?.email) && PREMIUM_CATEGORIES.includes(cat)) return false;
-          
-          if (targetCat) {
-              return cat === targetCat;
-          }
+          if (targetCat) return cat === targetCat;
           return currentFilters[cat];
         });
-
-        if (selectedLocationRef.current) {
-            candidates = candidates.filter(c => c.id !== selectedLocationRef.current.id);
-        }
-
-        if (candidates.length === 0) { 
-            setIsRideMode(false); 
-            return; 
-        }
+        if (selectedLocationRef.current) candidates = candidates.filter(c => c.id !== selectedLocationRef.current.id);
+        if (candidates.length === 0) { setIsRideMode(false); return; }
         nextSpot = candidates[Math.floor(Math.random() * candidates.length)];
     }
-    
-    if (nextSpot) {
-        await fetchAndSelectSpot(nextSpot.id);
-    }
+    if (nextSpot) await fetchAndSelectSpot(nextSpot.id);
   };
 
   const filteredGeoJsonData = useMemo(() => {
     const filtered = locations.filter(loc => {
       const cat = loc.category || 'history';
-      if (!isPremium && PREMIUM_CATEGORIES.includes(cat)) return false;
+      if (!isPremium && !isVipUser(user?.email) && PREMIUM_CATEGORIES.includes(cat)) return false;
       return visibleCategories[cat];
     });
-    return { type: 'FeatureCollection', features: filtered.map(loc => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [loc.lon, loc.lat] }, properties: { ...loc } })) };
-  }, [locations, visibleCategories, isPremium]);
-
-  const isPanelOpen = isPc && activeTab && (activeTab === 'explore' || activeTab === 'browse' || activeTab === 'settings' || activeTab === 'privacy');
+    return { 
+      type: 'FeatureCollection', 
+      features: filtered.map(loc => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [loc.lon, loc.lat] }, properties: { ...loc } })) 
+    };
+  }, [locations, visibleCategories, isPremium, user]);
 
   const renderPanelContent = () => {
-    const commonStyle = {
-        background: '#111', 
-        borderRadius: '15px', 
-        padding: '20px', 
-        border: '1px solid rgba(255,255,255,0.1)',
-        minHeight: '200px',
-        pointerEvents: 'auto'
-    };
+    const commonStyle = { background: '#111', borderRadius: '15px', padding: '20px', border: '1px solid rgba(255,255,255,0.1)', minHeight: '200px', pointerEvents: 'auto' };
 
     if (activeTab === 'explore') {
-      return (
-        <div style={commonStyle}>
-          <h2 style={{color:'#fff', marginTop:0, marginBottom:'5px', fontSize:'1.2rem'}}>探索</h2>
-          <div style={{color:'#888', fontSize:'0.8rem', marginBottom:'15px', borderBottom:'1px solid #333', paddingBottom:'10px'}}>この地域のピックアップ</div>
-          {nearbySpots.length === 0 ? (
-            <div style={{color:'#666', textAlign:'center', marginTop:'30px'}}>地図を動かして<br/>スポットを探そう 🌍</div>
-          ) : (
-            <div style={{ display:'flex', flexDirection:'column' }}>
-              {nearbySpots.map(spot => (
-                <div key={spot.id} onClick={() => handleSelectFromList(spot)} style={{ padding:'12px 5px', borderBottom:'1px solid #222', cursor:'pointer', background: selectedLocation?.id === spot.id ? 'rgba(0,255,204,0.1)' : 'transparent', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                  <div><div style={{color:'white', fontWeight:'bold', fontSize:'0.9rem'}}>{spot.name_ja || spot.name}</div><div style={{color:'#888', fontSize:'0.75rem', marginTop:'2px'}}>{getCategoryDetails(spot.category).tag}</div></div>
-                  <button onClick={(e) => { e.stopPropagation(); toggleFavorite(spot.id); }} style={{background:'transparent', border:'none', color: favorites.has(spot.id)?'#ff3366':'#444', fontSize:'1.2rem', cursor:'pointer'}}>♥</button>
+        return (
+            <div style={commonStyle}>
+              <h2 style={{color:'#fff', marginTop:0, marginBottom:'5px', fontSize:'1.2rem'}}>探索</h2>
+              <div style={{color:'#888', fontSize:'0.8rem', marginBottom:'15px', borderBottom:'1px solid #333', paddingBottom:'10px'}}>この地域のピックアップ</div>
+              {nearbySpots.length === 0 ? (
+                <div style={{color:'#666', textAlign:'center', marginTop:'30px'}}>地図を動かして<br/>スポットを探そう 🌍</div>
+              ) : (
+                <div style={{ display:'flex', flexDirection:'column' }}>
+                  {nearbySpots.map(spot => (
+                    <div key={spot.id} onClick={() => handleSelectFromList(spot)} style={{ padding:'12px 5px', borderBottom:'1px solid #222', cursor:'pointer', background: selectedLocation?.id === spot.id ? 'rgba(0,255,204,0.1)' : 'transparent', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                      <div><div style={{color:'white', fontWeight:'bold', fontSize:'0.9rem'}}>{spot.name_ja || spot.name}</div><div style={{color:'#888', fontSize:'0.75rem', marginTop:'2px'}}>{getCategoryDetails(spot.category).tag}</div></div>
+                      <button onClick={(e) => { e.stopPropagation(); toggleFavorite(spot.id); }} style={{background:'transparent', border:'none', color: favorites.has(spot.id)?'#ff3366':'#444', fontSize:'1.2rem', cursor:'pointer'}}>♥</button>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
-          )}
-        </div>
-      );
+          );
     }
+    
     if (activeTab === 'browse') {
       return (
         <div style={commonStyle}>
           <h2 style={{color:'#fff', marginTop:0, fontSize:'1.5rem'}}>ブラウズ</h2>
-          <div style={{ background: '#222', borderRadius: '12px', padding: '15px', marginBottom: '20px', border: '1px solid #444' }}>
-            <h4 style={{ margin: '0 0 10px 0', color: '#ffcc00' }}>⏳ ヒストリーライド</h4>
-            <div style={{ display: 'flex', gap: '5px', marginBottom: '10px' }}>
-                <input type="number" placeholder="年" value={historyYearInput} onChange={e => setHistoryYearInput(e.target.value)} style={{ flex: 1, padding: '8px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }} />
-                <select value={historyEra} onChange={e => setHistoryEra(e.target.value)} style={{ background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}><option value="AD">{ERA_LABELS[currentLang].AD}</option><option value="BC">{ERA_LABELS[currentLang].BC}</option></select>
-            </div>
-            <select value={historyCountry} onChange={e => setHistoryCountry(e.target.value)} style={{ width: '100%', padding: '8px', marginBottom: '15px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}><option value="ALL">全ての国</option>{countryList.map(c => <option key={c} value={c}>{c}</option>)}</select>
-            <button onClick={startHistoryRide} style={{ width: '100%', padding: '10px', borderRadius: '20px', background: '#ffcc00', border: 'none', color: 'black', fontWeight: 'bold', cursor: 'pointer' }}>START</button>
-          </div>
-          <button onClick={() => jumpToRandomSpot()} style={{ width: '100%', padding: '12px', borderRadius: '25px', background: 'transparent', border: '2px solid #00ffcc', color: '#00ffcc', fontWeight: 'bold', marginBottom: '25px', cursor: 'pointer' }}>気球の旅 🎈 (All)</button>
+          <div style={{color:'#888', fontSize:'0.9rem', marginBottom:'15px'}}>カテゴリを選んでツアーを開始</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <div onClick={() => jumpToRandomSpot('landmark')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333' }}><div style={{fontSize:'1.5rem'}}>🏯</div><div style={{color:'#ff8800', fontSize:'0.8rem', marginTop:'5px'}}>観光名所</div></div>
-            <div onClick={() => jumpToRandomSpot('nature')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333' }}><div style={{fontSize:'1.5rem'}}>🌲</div><div style={{color:'#00ff7f', fontSize:'0.8rem', marginTop:'5px'}}>自然</div></div>
-            <div onClick={() => jumpToRandomSpot('history')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333' }}><div style={{fontSize:'1.5rem'}}>🏛️</div><div style={{color:'#ffcc00', fontSize:'0.8rem', marginTop:'5px'}}>歴史</div></div>
-            <div onClick={() => jumpToRandomSpot('modern')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333' }}><div style={{fontSize:'1.5rem'}}>🏙️</div><div style={{color:'#00ffff', fontSize:'0.8rem', marginTop:'5px'}}>現代</div></div>
+            <div onClick={() => jumpToRandomSpot('landmark')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333' }}><div style={{fontSize:'1.5rem'}}>🏯</div><div style={{color:'#ff8800', fontSize:'0.8rem'}}>観光名所</div></div>
+            <div onClick={() => jumpToRandomSpot('history')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333' }}><div style={{fontSize:'1.5rem'}}>🏛️</div><div style={{color:'#ffcc00', fontSize:'0.8rem'}}>歴史</div></div>
+            
+            {/* プレミアムカテゴリ (ロック表示) */}
+            <div onClick={() => isPremium ? jumpToRandomSpot('nature') : alert('🔒 プレミアム限定です')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isPremium ? 1 : 0.5 }}>
+              <div style={{fontSize:'1.5rem'}}>{isPremium ? '🌲' : '🔒'}</div><div style={{color:'#00ff7f', fontSize:'0.8rem'}}>自然 (Pro)</div>
+            </div>
+            <div onClick={() => isPremium ? jumpToRandomSpot('modern') : alert('🔒 プレミアム限定です')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isPremium ? 1 : 0.5 }}>
+              <div style={{fontSize:'1.5rem'}}>{isPremium ? '🏙️' : '🔒'}</div><div style={{color:'#00ffff', fontSize:'0.8rem'}}>現代 (Pro)</div>
+            </div>
+            <div onClick={() => isPremium ? jumpToRandomSpot('science') : alert('🔒 プレミアム限定です')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isPremium ? 1 : 0.5 }}>
+              <div style={{fontSize:'1.5rem'}}>{isPremium ? '🚀' : '🔒'}</div><div style={{color:'#d800ff', fontSize:'0.8rem'}}>科学 (Pro)</div>
+            </div>
+            <div onClick={() => isPremium ? jumpToRandomSpot('art') : alert('🔒 プレミアム限定です')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isPremium ? 1 : 0.5 }}>
+              <div style={{fontSize:'1.5rem'}}>{isPremium ? '🎨' : '🔒'}</div><div style={{color:'#ff0055', fontSize:'0.8rem'}}>芸術 (Pro)</div>
+            </div>
           </div>
         </div>
       );
     }
+
     if (activeTab === 'settings') {
       return (
         <div style={commonStyle}>
           <h2 style={{ color: 'white', marginTop: 0, fontSize:'1.5rem', marginBottom:'20px' }}>設定</h2>
           
-          <div style={{ 
-            background: '#222', 
-            borderRadius: '16px', 
-            padding: '20px', 
-            marginBottom: '25px', 
-            boxShadow: '0 4px 15px rgba(0,0,0,0.5)',
-            border: '1px solid #333',
-            textAlign: 'left'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px' }}>
-              <div style={{ fontSize: '2.5rem', marginRight: '15px' }}>🌍</div>
-              <div>
-                <div style={{ color: 'white', fontSize: '1.2rem', fontWeight: 'bold' }}>GeoVoice</div>
-                <div style={{ color: '#00ffcc', fontSize: '1.4rem', fontWeight: 'bold', letterSpacing: '1px' }}>プレミアム</div>
+          {!isPremium && (
+            <div style={{ background: '#222', borderRadius: '16px', padding: '20px', marginBottom: '25px', boxShadow: '0 4px 15px rgba(0,0,0,0.5)', border: '1px solid #333', textAlign: 'left' }}>
+              <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px' }}>
+                <div style={{ fontSize: '2.5rem', marginRight: '15px' }}>🌍</div>
+                <div><div style={{ color: 'white', fontSize: '1.2rem', fontWeight: 'bold' }}>GeoVoice</div><div style={{ color: '#00ffcc', fontSize: '1.4rem', fontWeight: 'bold', letterSpacing: '1px' }}>プレミアム</div></div>
               </div>
+              <div style={{ color: '#ccc', marginBottom: '20px', fontSize: '0.9rem', lineHeight: '1.8' }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> 広告なしで快適に</div>
+                <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> 自然・現代・科学・芸術 カテゴリ解放</div>
+                <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> <b>約{premiumSpotCount}件</b>のスポットが追加されます！</div>
+                <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> AIガイド使い放題</div>
+              </div>
+              <button style={{ width: '100%', padding: '12px', background: '#00ffcc', color: 'black', border: 'none', borderRadius: '25px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', marginBottom: '10px' }}>プレミアムに参加する</button>
+              <div style={{ textAlign: 'center', color: '#888', fontSize: '0.8rem', cursor: 'pointer', textDecoration: 'underline' }}>購入を復元</div>
             </div>
-            
-            <div style={{ color: '#ccc', marginBottom: '20px', fontSize: '0.9rem', lineHeight: '1.8' }}>
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <span style={{ color: '#00ffcc', marginRight: '10px', fontSize: '1.2rem' }}>+</span> ビジュアル広告なし
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <span style={{ color: '#00ffcc', marginRight: '10px', fontSize: '1.2rem' }}>+</span> スリープタイマー (近日公開)
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <span style={{ color: '#00ffcc', marginRight: '10px', fontSize: '1.2rem' }}>+</span> AIガイド無制限
-              </div>
-            </div>
+          )}
 
-            <button style={{ 
-              width: '100%', 
-              padding: '12px', 
-              background: '#00ffcc', 
-              color: 'black', 
-              border: 'none', 
-              borderRadius: '25px', 
-              fontWeight: 'bold', 
-              fontSize: '1rem',
-              cursor: 'pointer',
-              marginBottom: '10px'
-            }}>
-              プレミアムに参加する
-            </button>
-            <div style={{ textAlign: 'center', color: '#888', fontSize: '0.8rem', cursor: 'pointer', textDecoration: 'underline' }}>
-              購入を復元
-            </div>
+          <div style={{marginBottom: '20px'}}>
+            <div style={{color:'white', marginBottom:'5px'}}>言語設定 / Language</div>
+            <select value={currentLang} onChange={(e) => setCurrentLang(e.target.value)} style={{width:'100%', padding:'8px', background:'#333', color:'white', border:'1px solid #555', borderRadius:'5px'}}>
+              {Object.values(LANGUAGES).map(L => <option key={L.code} value={L.code}>{L.label}</option>)}
+            </select>
           </div>
 
           <div style={{ padding: '15px' }}>
@@ -844,6 +575,7 @@ const GlobeContent = () => {
                   <span>BGM Player</span>
                   <button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: 'transparent', color: isBgmOn?'#00ffcc':'#666', border: 'none', cursor: 'pointer', fontWeight:'bold' }}>{isBgmOn ? 'ON' : 'OFF'}</button>
               </div>
+              {/* BGM Controls (省略なし) */}
               <div style={{background:'#111', padding:'10px', borderRadius:'8px', marginBottom:'15px', border:'1px solid #444'}}>
                   <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
                       <div style={{color:'white', fontSize:'0.9rem', fontWeight:'bold'}}>{currentTrack.title}</div>
@@ -873,59 +605,30 @@ const GlobeContent = () => {
         </div>
       );
     }
-    if (activeTab === 'privacy') {
-        return (<div style={commonStyle}><h2>Privacy Policy</h2>{PRIVACY_POLICY_TEXT}</div>);
-    }
     return null;
   };
 
   return (
     <div style={{ width: "100vw", height: "100dvh", background: "black", fontFamily: 'sans-serif', position: 'fixed', top: 0, left: 0, overflow: 'hidden', touchAction: 'none', overscrollBehavior: 'none' }}>
       <audio ref={audioRef} src={currentTrack.url} loop={loopMode === 'one'} onEnded={handleTrackEnded} /> 
-      {isPc && <div style={{ position: 'absolute', bottom: '10px', right: '10px', zIndex: 100, background: 'rgba(0,0,0,0.7)', color: '#00ff00', fontSize: '10px', padding: '5px', borderRadius: '5px', maxWidth: '300px', pointerEvents: 'none' }}>{logs.map((log, i) => <div key={i}>{log}</div>)}</div>}
       
       {showSplash && <SplashScreen onFinished={handleSplashFinish} />}
-      {showTutorial && <TutorialOverlay onClose={() => setShowTutorial(false)} />}
+      {showTutorial && <TutorialOverlay onClose={() => setShowTutorial(false)} onLanguageSelect={handleLanguageSelect} />}
 
-      {/* 全スポット件数カウンター */}
+      {!isPremium && !isVipUser(user?.email) && (
+        <div style={{ position: 'absolute', top: '50px', left: '50%', transform: 'translateX(-50%)', zIndex: 90, width: '320px', height: '50px', background: 'rgba(255,255,255,0.1)', border: '1px dashed #666', color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', pointerEvents: 'none' }}>
+          [ここに広告バナーが入ります]
+        </div>
+      )}
+
       <div style={{ position: 'absolute', top: '15px', left: '15px', zIndex: 10, color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 12px', borderRadius: '8px', fontSize: '0.8rem', pointerEvents: 'none', backdropFilter:'blur(5px)', border:'1px solid rgba(255,255,255,0.2)' }}>
         Spots: {locations.length}
       </div>
 
-      {/* PC用UIコンテナ */}
       {isPc && (
         <div className="pc-ui-container" style={{ position: 'absolute', bottom: '20px', left: '20px', width: '360px', zIndex: 100, display: 'flex', flexDirection: 'column', pointerEvents: 'none' }}>
-          <div style={{
-             background: 'transparent',
-             borderTopLeftRadius: '15px', borderTopRightRadius: '15px',
-             borderBottom: 'none',
-             maxHeight: isPanelOpen ? '60vh' : '0px',
-             height: 'auto',
-             overflowY: 'auto',
-             transition: 'max-height 0.3s ease-in-out, opacity 0.3s',
-             opacity: isPanelOpen ? 1 : 0,
-             visibility: isPanelOpen ? 'visible' : 'hidden',
-             borderLeft: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
-             borderRight: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
-             borderTop: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px',
-             padding: isPanelOpen ? '0' : '0px',
-             boxSizing: 'border-box',
-             pointerEvents: 'none' 
-          }}>
-             {renderPanelContent()}
-          </div>
-
-          <div className="control-bar" style={{ 
-            background: '#111', 
-            borderBottomLeftRadius: '15px', borderBottomRightRadius: '15px',
-            borderTopLeftRadius: isPanelOpen ? '0' : '15px',
-            borderTopRightRadius: isPanelOpen ? '0' : '15px',
-            border: '1px solid rgba(255,255,255,0.1)',
-            overflow: 'hidden', 
-            boxShadow: '0 4px 20px rgba(0,0,0,0.8)',
-            zIndex: 101,
-            pointerEvents: 'auto'
-          }}>
+          <div style={{ background: 'transparent', borderTopLeftRadius: '15px', borderTopRightRadius: '15px', borderBottom: 'none', maxHeight: isPanelOpen ? '60vh' : '0px', height: 'auto', overflowY: 'auto', transition: 'max-height 0.3s ease-in-out, opacity 0.3s', opacity: isPanelOpen ? 1 : 0, visibility: isPanelOpen ? 'visible' : 'hidden', borderLeft: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px', borderRight: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px', borderTop: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px', padding: isPanelOpen ? '0' : '0px', boxSizing: 'border-box', pointerEvents: 'none' }}>{renderPanelContent()}</div>
+          <div className="control-bar" style={{ background: '#111', borderBottomLeftRadius: '15px', borderBottomRightRadius: '15px', borderTopLeftRadius: isPanelOpen ? '0' : '15px', borderTopRightRadius: isPanelOpen ? '0' : '15px', border: '1px solid rgba(255,255,255,0.1)', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.8)', zIndex: 101, pointerEvents: 'auto' }}>
             <div style={{ padding: '15px', borderBottom: '1px solid #222', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ color: 'white', fontWeight: 'bold', fontSize: '1.2rem' }}>GeoVoice</div>
               <div style={{ display: 'flex', gap: '10px' }}>
@@ -934,7 +637,6 @@ const GlobeContent = () => {
                 <button onClick={handleCurrentLocation} style={{ background: '#333', border: 'none', color: '#00ffcc', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer', fontSize:'1rem' }}>📍</button>
               </div>
             </div>
-            
             {activeTab === 'search' && (
                <div style={{ padding: '15px', borderBottom:'1px solid #222' }}>
                   <div style={{ display: 'flex', gap: '5px' }}>
@@ -943,7 +645,6 @@ const GlobeContent = () => {
                   </div>
                </div>
             )}
-
             <div style={{ display: 'flex', borderTop: '1px solid #222', height:'70px', alignItems:'center' }}>
               <NavButton icon="🌍" label="探索" active={activeTab === 'explore'} onClick={() => handleTabChange('explore')} />
               <NavButton icon="♥" label="リスト" active={activeTab === 'fav'} onClick={() => handleTabChange('fav')} />
@@ -1011,23 +712,13 @@ const GlobeContent = () => {
       {selectedLocation && displayData && (activeTab === null || activeTab === 'map' || isPc) && (
         <>
           {!isPc && displayData.image_url && (
-            <div style={{
-              position: 'absolute', top: '40px', left: '10px', right: '10px',
-              height: '160px', borderRadius: '15px', overflow: 'hidden',
-              boxShadow: '0 4px 20px rgba(0,0,0,0.5)', zIndex: 10, pointerEvents: 'none',
-              border: '1px solid rgba(255,255,255,0.1)'
-            }}>
+            <div style={{ position: 'absolute', top: '40px', left: '10px', right: '10px', height: '160px', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', zIndex: 10, pointerEvents: 'none', border: '1px solid rgba(255,255,255,0.1)' }}>
               <img src={displayData.image_url} alt={displayData.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', height: '50px', background: 'linear-gradient(to top, rgba(0,0,0,0.7), transparent)' }} />
             </div>
           )}
           <div onMouseDown={handleMouseDown} style={{ 
-              position: 'absolute', 
-              left: isPc ? (popupPos?.x || (window.innerWidth - 420)) : '10px', 
-              top: isPc ? (popupPos?.y || 20) : 'auto', 
-              right: isPc ? 'auto' : '10px',
-              bottom: isPc ? 'auto' : '290px', 
-              transform: isPc ? 'none' : 'none', 
+              position: 'absolute', left: isPc ? (popupPos?.x || (window.innerWidth - 420)) : '10px', top: isPc ? (popupPos?.y || 20) : 'auto', right: isPc ? 'auto' : '10px', bottom: isPc ? 'auto' : '290px', transform: isPc ? 'none' : 'none', 
               background: 'rgba(10, 10, 10, 0.95)', padding: '20px', borderRadius: '20px', color: 'white', textAlign: 'center', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.2)', zIndex: 10, width: isPc ? '400px' : 'auto', maxWidth: isPc ? '360px' : 'none', maxHeight: isPc ? 'none' : '40vh', boxShadow: '0 4px 30px rgba(0,0,0,0.6)', resize: isPc ? 'both' : 'none', overflow: isPc ? 'auto' : 'hidden', display: 'flex', flexDirection: 'column', cursor: isPc ? (isDragging ? 'grabbing' : 'grab') : 'default', animation: isDragging ? 'none' : 'fadeIn 0.3s'
             }}>
             {isPc && displayData.image_url && (
@@ -1041,23 +732,14 @@ const GlobeContent = () => {
             <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#ffccaa', marginBottom: '5px', flexShrink: 0 }}>{displayData.name.split('#')[0].trim()}</div>
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginBottom: '10px', flexShrink: 0, flexWrap: 'wrap' }}>
               {(displayData.country_ja || displayData.country) && (<span style={{ fontSize: '0.8rem', padding: '2px 10px', borderRadius: '12px', backgroundColor: '#333', border: '1px solid #888', color: '#eee', fontWeight: 'bold' }}>{displayData.country_ja || displayData.country}</span>)}
-              {(() => {
-                const { tag, color } = getCategoryDetails(displayData.category);
-                return (<span style={{ fontSize: '0.8rem', padding: '2px 10px', borderRadius: '12px', backgroundColor: color, color: '#000', fontWeight: 'bold', boxShadow: '0 0 5px '+color }}>#{tag}</span>);
-              })()}
+              {(() => { const { tag, color } = getCategoryDetails(displayData.category); return (<span style={{ fontSize: '0.8rem', padding: '2px 10px', borderRadius: '12px', backgroundColor: color, color: '#000', fontWeight: 'bold', boxShadow: '0 0 5px '+color }}>#{tag}</span>); })()}
               {displayData.needsTranslation && (<button onMouseDown={e => e.stopPropagation()} onClick={() => translateAndFix(selectedLocation, currentLang)} style={{ background: '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '2px 10px', fontSize: '0.8rem', fontWeight: 'bold', cursor: 'pointer' }}>🔄 翻訳</button>)}
             </div>
             <div style={{ overflowY: 'auto', flex: 1, touchAction: 'pan-y', paddingBottom: '10px' }} onMouseDown={e => e.stopPropagation()}>
               <p style={{ margin: 0, fontSize: '0.85rem', color: '#ddd', lineHeight: '1.6', textAlign: 'left' }}>{displayData.description}</p>
             </div>
-            {isPc && (
-                <button onClick={() => { if (!isRideMode) setIsRideMode(true); nextRideStep(); }} style={{ marginTop:'10px', width:'100%', padding:'10px', background:'#333', color:'white', border:'1px solid #555', borderRadius:'5px' }}>
-                    ⏩ {isRideMode ? '次へスキップ' : 'ツアーを開始'}
-                </button>
-            )}
-            {!isPc && isRideMode && (
-                <button onClick={handleNextRide} style={{ marginTop:'10px', width:'100%', padding:'10px', background:'#333', color:'white', border:'1px solid #555', borderRadius:'5px' }}>⏩ 次へスキップ</button>
-            )}
+            {isPc && <button onClick={() => { if (!isRideMode) setIsRideMode(true); nextRideStep(); }} style={{ marginTop:'10px', width:'100%', padding:'10px', background:'#333', color:'white', border:'1px solid #555', borderRadius:'5px' }}>⏩ {isRideMode ? '次へスキップ' : 'ツアーを開始'}</button>}
+            {!isPc && isRideMode && <button onClick={handleNextRide} style={{ marginTop:'10px', width:'100%', padding:'10px', background:'#333', color:'white', border:'1px solid #555', borderRadius:'5px' }}>⏩ 次へスキップ</button>}
           </div>
         </>
       )}
@@ -1074,8 +756,19 @@ const GlobeContent = () => {
         cursor={cursor}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
-      />
-      <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(20px) translateX(-50%); } to { opacity: 1; transform: translateY(0) translateX(-50%); } } .pulse { animation: pulse 1s infinite; } @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }`}</style>
+        style={MAP_CONTAINER_STYLE}
+        interactiveLayerIds={['point-glow', 'point-core']}
+      >
+        <Source
+          id="my-locations"
+          type="geojson"
+          data={filteredGeoJsonData}
+        >
+          {/* 光の点 (Glow + Core) */}
+          <Layer {...LAYER_GLOW} />
+          <Layer {...LAYER_CORE} />
+        </Source>
+      </Map>
     </div>
   );
 };
