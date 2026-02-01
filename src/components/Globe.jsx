@@ -28,6 +28,7 @@ const ERA_LABELS = {
   fr: { AD: 'ap. J.-C.', BC: 'av. J.-C.' },
 };
 
+// ★BGMライブラリ
 const BGM_LIBRARY = [
   // Pop
   { id: 'pop1', title: '10℃', artist: 'Japan', genre: 'Pop', url: '/bgm/Pop1.mp3' },
@@ -59,6 +60,7 @@ const BGM_LIBRARY = [
   { id: 'country3', title: '秋を探しに', artist: 'Japan', genre: 'Country', url: '/bgm/Country3.mp3' },
 ];
 
+// ★ 無料/有料の区分定義 (自然をプレミアムへ移動)
 const PREMIUM_CATEGORIES = ['nature', 'modern', 'science', 'art'];
 
 const PRIVACY_POLICY_TEXT = `## プライバシーポリシー (省略)`;
@@ -186,7 +188,7 @@ const GlobeContent = () => {
   const [showFavList, setShowFavList] = useState(false);
   const [favorites, setFavorites] = useState(new Set());
 
-  // ★フォーム用State
+  // フォーム用State
   const [showContactModal, setShowContactModal] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [formEmail, setFormEmail] = useState("");
@@ -361,7 +363,7 @@ const GlobeContent = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  const setupUser = (u) => { setUser(u); setFormEmail(u.email || ""); fetchFavorites(u.id); fetchProfile(u.id, u.email); };
+  const setupUser = (u) => { setUser(u); fetchFavorites(u.id); fetchProfile(u.id, u.email); };
   const clearUser = () => { setUser(null); setProfile(null); setIsPremium(false); setFavorites(new Set()); };
   const fetchProfile = async (userId, email) => {
     const isVip = isVipUser(email);
@@ -540,9 +542,9 @@ const GlobeContent = () => {
     }
   }, [activeTab]);
 
-  // ★追加: フォーム送信処理
+  // ★修正: バリデーション付き送信処理
   const handleContactSubmit = async () => {
-    if (!formMessage.trim()) return alert("メッセージを入力してください");
+    if (!formEmail.trim() || !formMessage.trim()) return alert("メールアドレスとメッセージを入力してください");
     try {
         const { error } = await supabase.from('inquiries').insert({ user_id: user?.id, email: formEmail, message: formMessage });
         if (error) throw error;
@@ -844,7 +846,7 @@ const GlobeContent = () => {
         <div style={{ position:'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.8)', zIndex:9999, display:'flex', justifyContent:'center', alignItems:'center' }} onClick={() => setShowContactModal(false)}>
             <div style={{ width:'90%', maxWidth:'400px', background:'#222', padding:'20px', borderRadius:'15px', border:'1px solid #444' }} onClick={e => e.stopPropagation()}>
                 <h3 style={{color:'white', marginTop:0}}>📧 お問い合わせ</h3>
-                <div style={{color:'white', marginBottom:'5px'}}>メールアドレス (任意)</div>
+                <div style={{color:'white', marginBottom:'5px'}}>メールアドレス (必須)</div>
                 <input type="email" value={formEmail} onChange={e => setFormEmail(e.target.value)} style={{width:'100%', padding:'10px', marginBottom:'15px', background:'#333', border:'1px solid #555', color:'white', borderRadius:'5px'}} />
                 <div style={{color:'white', marginBottom:'5px'}}>メッセージ</div>
                 <textarea value={formMessage} onChange={e => setFormMessage(e.target.value)} rows={5} style={{width:'100%', padding:'10px', marginBottom:'15px', background:'#333', border:'1px solid #555', color:'white', borderRadius:'5px'}}></textarea>
@@ -989,7 +991,11 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {selectedLocation && displayData && (activeTab === null || activeTab === 'map' || isPc) && (
+      {statusMessage && <div style={{ position: 'absolute', top: '80px', left: '20px', zIndex: 20, color: '#00ffcc', textShadow: '0 0 5px black' }}>{statusMessage}</div>}
+
+      <div style={{ position: 'absolute', top: isPc ? '50%' : '30%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: displayData ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: displayData ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
+
+      {displayData && (activeTab === null || activeTab === 'map' || isPc) && (
         <>
           {!isPc && displayData.image_url && !imgError && (
             <div style={{ position: 'absolute', top: '40px', left: '10px', right: '10px', height: '160px', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', zIndex: 10, pointerEvents: 'none', border: '1px solid rgba(255,255,255,0.1)', background: '#000' }}>
@@ -1048,6 +1054,7 @@ const GlobeContent = () => {
         </>
       )}
 
+      {/* メモ化マップの使用 (self-closing) */}
       <MemoizedMap 
         mapRef={mapRef} 
         mapboxAccessToken={MAPBOX_TOKEN} 
