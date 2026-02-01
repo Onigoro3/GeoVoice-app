@@ -268,6 +268,21 @@ const GlobeContent = () => {
   useEffect(() => { isRideModeRef.current = isRideMode; }, [isRideMode]);
   useEffect(() => { isHistoryModeRef.current = isHistoryMode; }, [isHistoryMode]);
 
+  // ★周辺スポットが変わったら画像を即座に先読み
+  useEffect(() => {
+    if (nearbySpots.length > 0) {
+        nearbySpots.forEach(spot => {
+            if (spot.image_url && !imageCacheRef.current.has(spot.image_url)) {
+                const img = new Image();
+                img.src = spot.image_url;
+                img.onload = () => {
+                    imageCacheRef.current.add(spot.image_url);
+                };
+            }
+        });
+    }
+  }, [nearbySpots]);
+
   const countryList = useMemo(() => {
     const countries = new Set();
     locations.forEach(loc => { if (loc.country_ja) countries.add(loc.country_ja); });
@@ -519,6 +534,15 @@ const GlobeContent = () => {
     }
   }, [activeTab]);
 
+  const updateAllCountryTags = async () => {
+    if (!confirm("全てのスポットの国名情報をAIで再取得しますか？\n（データ数が多い場合、時間がかかります）")) return;
+    setIsGenerating(true);
+    setStatusMessage("国名データ更新開始...");
+    try { alert("ブラウザでの全件更新は負荷が高いため、scripts/update_countries.js の利用を推奨します。"); } 
+    catch (e) { alert("エラー: " + e.message); } 
+    finally { setIsGenerating(false); setStatusMessage(""); }
+  };
+
   const handleGenerate = async () => {
     if (!inputTheme) return; setIsGenerating(true); setStatusMessage("AI生成中...");
     try {
@@ -638,8 +662,9 @@ const GlobeContent = () => {
     const commonStyle = { background: '#111', borderRadius: '15px', padding: '20px', border: '1px solid rgba(255,255,255,0.1)', minHeight: '200px', pointerEvents: 'auto' };
 
     if (activeTab === 'explore') {
-        return (
-            <div style={commonStyle}>
+        // ★修正: スマホ用「探索」ハーフモーダルの中身（PCは普通に表示）
+        const content = (
+            <div>
               <h2 style={{color:'#fff', marginTop:0, marginBottom:'5px', fontSize:'1.2rem'}}>探索</h2>
               <div style={{color:'#888', fontSize:'0.8rem', marginBottom:'15px', borderBottom:'1px solid #333', paddingBottom:'10px'}}>この地域のピックアップ</div>
               {nearbySpots.length === 0 ? (
@@ -655,7 +680,8 @@ const GlobeContent = () => {
                 </div>
               )}
             </div>
-          );
+        );
+        return isPc ? <div style={commonStyle}>{content}</div> : content;
     }
     
     if (activeTab === 'browse') {
@@ -853,19 +879,35 @@ const GlobeContent = () => {
       )}
 
       {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== 'fav' && activeTab !== null && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: 'calc(100% - 80px)', background: '#111', zIndex: 200, overflowY: 'auto', padding: '20px', boxSizing: 'border-box' }}>
-          <button onClick={() => setActiveTab(null)} style={{ position:'absolute', top:'15px', right:'15px', background:'transparent', border:'none', color:'#888', fontSize:'1.5rem', zIndex:201 }}>✕</button>
-          {renderPanelContent()}
-          {activeTab === 'search' && (
-             <div style={{marginTop:'40px'}}>
-               <h2 style={{color:'#fff', marginTop:0, marginBottom:'20px'}}>検索</h2>
-               <div style={{ display: 'flex', gap: '5px' }}>
-                  <input autoFocus type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder={LANGUAGES[currentLang].placeholder} style={{ flex: 1, background: '#222', border: '1px solid #444', color: 'white', padding: '12px', borderRadius: '8px', fontSize:'1rem' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
-                  <button onClick={handleGenerate} style={{ background: '#00ffcc', color: 'black', border: 'none', borderRadius: '8px', padding: '0 15px', fontWeight: 'bold' }}>Go</button>
-               </div>
-             </div>
+        <>
+          {/* ★修正: スマホ用「探索」だけ特別扱い（ハーフモーダル） */}
+          {activeTab === 'explore' ? (
+            <div style={{ 
+                position: 'fixed', bottom: '80px', left: 0, width: '100%', height: '40vh', 
+                background: 'rgba(10, 10, 10, 0.95)', zIndex: 200, overflowY: 'auto', 
+                borderTopLeftRadius: '20px', borderTopRightRadius: '20px',
+                borderTop: '1px solid rgba(255,255,255,0.2)', padding: '15px', boxSizing: 'border-box',
+                transition: 'transform 0.3s ease-out'
+            }}>
+                <button onClick={() => setActiveTab(null)} style={{ position:'absolute', top:'10px', right:'15px', background:'transparent', border:'none', color:'#888', fontSize:'1.2rem', zIndex:201 }}>✕</button>
+                {renderPanelContent()}
+            </div>
+          ) : (
+            <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: 'calc(100% - 80px)', background: '#111', zIndex: 200, overflowY: 'auto', padding: '20px', boxSizing: 'border-box' }}>
+              <button onClick={() => setActiveTab(null)} style={{ position:'absolute', top:'15px', right:'15px', background:'transparent', border:'none', color:'#888', fontSize:'1.5rem', zIndex:201 }}>✕</button>
+              {renderPanelContent()}
+              {activeTab === 'search' && (
+                 <div style={{marginTop:'40px'}}>
+                   <h2 style={{color:'#fff', marginTop:0, marginBottom:'20px'}}>検索</h2>
+                   <div style={{ display: 'flex', gap: '5px' }}>
+                      <input autoFocus type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder={LANGUAGES[currentLang].placeholder} style={{ flex: 1, background: '#222', border: '1px solid #444', color: 'white', padding: '12px', borderRadius: '8px', fontSize:'1rem' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
+                      <button onClick={handleGenerate} style={{ background: '#00ffcc', color: 'black', border: 'none', borderRadius: '8px', padding: '0 15px', fontWeight: 'bold' }}>Go</button>
+                   </div>
+                 </div>
+              )}
+            </div>
           )}
-        </div>
+        </>
       )}
 
       {!isPc && (
@@ -905,19 +947,19 @@ const GlobeContent = () => {
         <>
           {!isPc && displayData.image_url && !imgError && (
             <div style={{ position: 'absolute', top: '40px', left: '10px', right: '10px', height: '160px', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', zIndex: 10, pointerEvents: 'none', border: '1px solid rgba(255,255,255,0.1)', background: '#000' }}>
-              {/* ★修正: キャッシュ済なら即表示、未キャッシュならLoading */}
+              {/* ★修正: 0秒表示 (transitionなし) */}
               {imgLoading && <div style={{width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'#666'}}>Loading...</div>}
               <img 
                 src={displayData.image_url} 
                 alt={displayData.name} 
-                style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1, transition: 'opacity 0.2s' }}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1 }}
                 onError={() => setImgError(true)}
                 onLoad={() => {
                     setImgLoading(false);
-                    imageCacheRef.current.add(displayData.image_url); // ロード完了したら即キャッシュ
+                    imageCacheRef.current.add(displayData.image_url);
                 }}
-                loading="eager" // 即読み込み
-                fetchPriority="high" // 優先度高
+                loading="eager"
+                fetchPriority="high"
               />
               <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', height: '50px', background: 'linear-gradient(to top, rgba(0,0,0,0.7), transparent)' }} />
             </div>
@@ -932,7 +974,7 @@ const GlobeContent = () => {
                 <img 
                     src={displayData.image_url} 
                     alt={displayData.name} 
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1, transition: 'opacity 0.2s' }} 
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1 }} 
                     onError={() => setImgError(true)}
                     onLoad={() => {
                         setImgLoading(false);
