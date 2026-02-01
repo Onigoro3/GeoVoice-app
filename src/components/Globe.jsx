@@ -252,7 +252,20 @@ const GlobeContent = () => {
   const handleTabChange = (tab) => {
     if (activeTab === tab) { setActiveTab(null); return; }
     
-    // リストが押された場合の制御はボタン側で行うため、ここでは単純にタブ切り替え
+    // 非ログインかつリストタブなら認証モーダルへ
+    if (tab === 'fav' && !user) {
+        setShowAuthModal(true);
+        return;
+    }
+
+    if (tab === 'browse') {
+        const hasSeen = localStorage.getItem('hasSeenBrowseGuide');
+        if (!hasSeen) {
+            setShowBrowseGuide(true);
+            setBrowseGuideStep(1);
+        }
+    }
+
     setActiveTab(tab);
     if (tab === 'ride') { if (!isRideMode) toggleRideMode(); }
   };
@@ -453,14 +466,24 @@ const GlobeContent = () => {
     }
   }, [displayData]); 
 
+  // ★修正: 分割再生 & 必ず流す & エラー時スキップ処理
   const speak = async (text) => { 
-    if (!text) { setIsPlaying(false); return; }
+    if (!text) { 
+        if (isRideModeRef.current) setTimeout(nextRideStep, 2000); // テキスト無しなら次へ
+        setIsPlaying(false); 
+        return; 
+    }
     
-    await TextToSpeech.stop();
+    // 既存の再生を停止
+    try { await TextToSpeech.stop(); } catch(e){}
+
+    // Android用のおまじない（バッファクリア待機）
+    await new Promise(resolve => setTimeout(resolve, 200));
 
     try {
         setIsPlaying(true);
-        const chunks = text.match(/[^。！？]+[。！？]+/g) || [text];
+        // 文章を句点などで分割してリスト化。失敗したら全体を1つにする保険を追加
+        const chunks = text.match(/[^。！？\n]+[。！？\n]+/g) || [text];
 
         for (const chunk of chunks) {
             if (!isPlayingRef.current) break;
@@ -474,15 +497,15 @@ const GlobeContent = () => {
                 category: 'ambient',
             });
         }
-        
-        setIsPlaying(false);
-        if (isRideModeRef.current) {
-            rideTimeoutRef.current = setTimeout(nextRideStep, 3000); 
-        }
-
     } catch (e) {
         console.error("TTS Error:", e);
+        // エラーでも止まらないように少し待ってから次へ進める準備をする
+        await new Promise(resolve => setTimeout(resolve, 1000));
+    } finally {
         setIsPlaying(false);
+        if (isRideModeRef.current && isPlayingRef.current) {
+            rideTimeoutRef.current = setTimeout(nextRideStep, 2000); 
+        }
     }
   };
 
@@ -958,12 +981,11 @@ const GlobeContent = () => {
       {showSplash && <SplashScreen onFinished={handleSplashFinish} />}
       {showTutorial && <TutorialOverlay onClose={() => setShowTutorial(false)} onLanguageSelect={handleLanguageSelect} />}
 
-      {/* お問い合わせモーダル */}
+      {/* お問い合わせモーダル - zIndexを最強に */}
       {showContactModal && (
         <div style={{ position:'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.8)', zIndex:9999, display:'flex', justifyContent:'center', alignItems:'center' }} onClick={() => setShowContactModal(false)}>
             <div style={{ width:'90%', maxWidth:'400px', background:'#222', padding:'20px', borderRadius:'15px', border:'1px solid #444' }} onClick={e => e.stopPropagation()}>
                 <h3 style={{color:'white', marginTop:0}}>📧 お問い合わせ</h3>
-                {/* ★修正: 必須表示 */}
                 <div style={{color:'white', marginBottom:'5px'}}>メールアドレス (必須)</div>
                 <input type="email" value={formEmail} onChange={e => setFormEmail(e.target.value)} style={{width:'100%', padding:'10px', marginBottom:'15px', background:'#333', border:'1px solid #555', color:'white', borderRadius:'5px'}} />
                 <div style={{color:'white', marginBottom:'5px'}}>メッセージ</div>
@@ -976,7 +998,7 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* 場所追加依頼モーダル */}
+      {/* 場所追加依頼モーダル - zIndexを最強に */}
       {showRequestModal && (
         <div style={{ position:'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.8)', zIndex:9999, display:'flex', justifyContent:'center', alignItems:'center' }} onClick={() => setShowRequestModal(false)}>
             <div style={{ width:'90%', maxWidth:'400px', background:'#222', padding:'20px', borderRadius:'15px', border:'1px solid #444' }} onClick={e => e.stopPropagation()}>
@@ -993,6 +1015,13 @@ const GlobeContent = () => {
         </div>
       )}
 
+      {/* ログインモーダル - zIndexを最強に */}
+      {showAuthModal && (
+        <div style={{ position:'fixed', top:0, left:0, width:'100%', height:'100%', zIndex:9999 }}>
+            <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={setupUser} />
+        </div>
+      )}
+
       <div style={{ position: 'absolute', top: '15px', left: '15px', zIndex: 10, color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 12px', borderRadius: '8px', fontSize: '0.8rem', pointerEvents: 'none', backdropFilter:'blur(5px)', border:'1px solid rgba(255,255,255,0.2)' }}>
         Spots: {accessibleSpotCount}
       </div>
@@ -1003,6 +1032,7 @@ const GlobeContent = () => {
         </div>
       )}
 
+      {/* 〇枠 */}
       <div style={{ 
           position: 'absolute', 
           top: isPc ? '50%' : '30%', 
@@ -1054,7 +1084,7 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ★修正: スマホ用ボトムシート (全メニュー共通) */}
+      {/* スマホ用ボトムシート */}
       {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== null && (
         <div style={{ 
             position: 'fixed', bottom: '80px', left: 0, width: '100%', height: '45vh', 
@@ -1069,6 +1099,7 @@ const GlobeContent = () => {
         </div>
       )}
 
+      {/* スマホ用ナビゲーションバー */}
       {!isPc && (
         <div style={{ position: 'fixed', bottom: 0, left: 0, width: '100%', height: '80px', background: 'rgba(0, 0, 0, 0.95)', borderTop: '1px solid #333', display: 'flex', justifyContent: 'space-around', alignItems: 'center', zIndex: 100, paddingBottom: 'env(safe-area-inset-bottom)' }}>
           <NavButton icon="🌍" label="探索" active={activeTab === 'explore'} onClick={() => handleTabChange('explore')} />
@@ -1113,12 +1144,11 @@ const GlobeContent = () => {
         <>
           {!isPc && displayData.image_url && !imgError && (
             <div style={{ position: 'absolute', top: '40px', left: '10px', right: '10px', height: '160px', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', zIndex: 10, pointerEvents: 'none', border: '1px solid rgba(255,255,255,0.1)', background: '#000' }}>
-              {/* ★修正: キャッシュ済なら即表示、未キャッシュならLoading */}
               {imgLoading && <div style={{width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'#666'}}>Loading...</div>}
               <img 
                 src={displayData.image_url} 
                 alt={displayData.name} 
-                style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1, transition: 'opacity 0.2s' }}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1 }}
                 onError={() => setImgError(true)}
                 onLoad={() => {
                     setImgLoading(false);
@@ -1140,7 +1170,7 @@ const GlobeContent = () => {
                 <img 
                     src={displayData.image_url} 
                     alt={displayData.name} 
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1, transition: 'opacity 0.2s' }} 
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1 }} 
                     onError={() => setImgError(true)}
                     onLoad={() => {
                         setImgLoading(false);
