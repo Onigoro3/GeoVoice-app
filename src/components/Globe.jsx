@@ -177,7 +177,9 @@ const GlobeContent = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [logs, setLogs] = useState([]);
-  const [imgError, setImgError] = useState(false); // 画像エラー用
+  
+  const [imgError, setImgError] = useState(false); 
+  const [imgLoading, setImgLoading] = useState(true); // ★追加: 画像読み込み中フラグ
 
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -211,12 +213,10 @@ const GlobeContent = () => {
   const [showSplash, setShowSplash] = useState(true);
   const [showTutorial, setShowTutorial] = useState(false);
 
-  // ★プレミアム会員になると増えるスポット数を計算
   const premiumSpotCount = useMemo(() => {
     return locations.filter(l => PREMIUM_CATEGORIES.includes(l.category || 'history')).length;
   }, [locations]);
 
-  // ★現在アクセス可能なスポット数を計算
   const accessibleSpotCount = useMemo(() => {
     const isUserPremium = isPremium || isVipUser(user?.email);
     if (isUserPremium) return locations.length;
@@ -282,7 +282,6 @@ const GlobeContent = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // マウス操作
   const handleMouseDown = (e) => {
     if (!isPc) return;
     if (['BUTTON', 'INPUT', 'SELECT', 'OPTION', 'A'].includes(e.target.tagName)) return;
@@ -304,7 +303,6 @@ const GlobeContent = () => {
 
   const addLog = (msg) => { console.log(msg); setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 5)); };
 
-  // データ取得
   const fetchSpots = async () => {
     try {
       let from = 0; const batchSize = 1000;
@@ -358,7 +356,6 @@ const GlobeContent = () => {
     } catch(e) { addLog(`Fav Error: ${e.message}`); }
   };
 
-  // スポット選択時の処理
   const handleSelectFromList = (spot) => { fetchAndSelectSpot(spot.id); };
   
   const fetchAndSelectSpot = async (spotId) => {
@@ -404,7 +401,8 @@ const GlobeContent = () => {
         setDisplayData(null); 
         if(window.speechSynthesis) window.speechSynthesis.cancel(); 
         setIsPlaying(false); 
-        setImgError(false); // ★リセット
+        setImgError(false); 
+        setImgLoading(true); // リセット
         return; 
     }
     const suffix = currentLang === 'ja' ? '_ja' : `_${currentLang}`;
@@ -412,7 +410,8 @@ const GlobeContent = () => {
     let displayDesc = selectedLocation[`description${suffix}`] || selectedLocation.description;
     const newData = { ...selectedLocation, name: displayName, description: displayDesc, needsTranslation: currentLang === 'ja' && !/[ぁ-んァ-ン]/.test(displayName) };
     setDisplayData(newData);
-    setImgError(false); // ★新しい場所になったらリセット
+    setImgError(false); 
+    setImgLoading(true); // 画像読み込み開始
     if (!newData.needsTranslation) { 
         if(window.speechSynthesis) window.speechSynthesis.cancel(); 
         speak(newData.description); 
@@ -528,7 +527,17 @@ const GlobeContent = () => {
   };
 
   const handleCurrentLocation = () => { if (!navigator.geolocation) { alert("現在地機能が使えません"); return; } navigator.geolocation.getCurrentPosition((pos) => { mapRef.current?.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 9, speed: 1.5, curve: 1 }); }, () => { alert("位置情報の取得に失敗しました"); }); };
-  const startHistoryRide = () => { setIsHistoryMode(true); setIsRideMode(true); setActiveTab('map'); };
+  
+  // ★修正: ヒストリーライド開始時にプレミアムチェック
+  const startHistoryRide = () => { 
+    if (!isPremium && !isVipUser(user?.email)) {
+        alert("🔒 ヒストリーライドはプレミアム限定機能です。\n歴史の旅へ出かけるにはアップグレードが必要です！");
+        return;
+    }
+    setIsHistoryMode(true); 
+    setIsRideMode(true); 
+    setActiveTab('map'); 
+  };
   const toggleRideModeTrigger = () => { if (!isRideMode) { if(!isHistoryMode) jumpToRandomSpot(); else nextRideStep(); } else setIsRideMode(false); };
   
   const jumpToRandomSpot = (cat=null) => { 
@@ -597,18 +606,32 @@ const GlobeContent = () => {
     }
     
     if (activeTab === 'browse') {
+      const isUserPremium = isPremium || isVipUser(user?.email);
       return (
         <div style={commonStyle}>
           <h2 style={{color:'#fff', marginTop:0, fontSize:'1.5rem'}}>ブラウズ</h2>
-          {/* ★復活: ヒストリーライドUI */}
-          <div style={{ background: '#222', borderRadius: '12px', padding: '15px', marginBottom: '20px', border: '1px solid #444' }}>
+          {/* ★修正: ヒストリーライドのロック制御 */}
+          <div style={{ 
+              background: '#222', 
+              borderRadius: '12px', 
+              padding: '15px', 
+              marginBottom: '20px', 
+              border: '1px solid #444',
+              opacity: isUserPremium ? 1 : 0.5, // 無料会員は半透明
+              position: 'relative'
+          }}>
+            {!isUserPremium && (
+                <div style={{position:'absolute', top:0, left:0, width:'100%', height:'100%', zIndex:10, display:'flex', justifyContent:'center', alignItems:'center'}}>
+                    <div style={{background:'rgba(0,0,0,0.8)', padding:'5px 15px', borderRadius:'10px', border:'1px solid #ffcc00'}}>🔒 プレミアム</div>
+                </div>
+            )}
             <h4 style={{ margin: '0 0 10px 0', color: '#ffcc00' }}>⏳ ヒストリーライド</h4>
             <div style={{ display: 'flex', gap: '5px', marginBottom: '10px' }}>
-                <input type="number" placeholder="年" value={historyYearInput} onChange={e => setHistoryYearInput(e.target.value)} style={{ flex: 1, padding: '8px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }} />
-                <select value={historyEra} onChange={e => setHistoryEra(e.target.value)} style={{ background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}><option value="AD">{ERA_LABELS[currentLang].AD}</option><option value="BC">{ERA_LABELS[currentLang].BC}</option></select>
+                <input disabled={!isUserPremium} type="number" placeholder="年" value={historyYearInput} onChange={e => setHistoryYearInput(e.target.value)} style={{ flex: 1, padding: '8px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }} />
+                <select disabled={!isUserPremium} value={historyEra} onChange={e => setHistoryEra(e.target.value)} style={{ background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}><option value="AD">{ERA_LABELS[currentLang].AD}</option><option value="BC">{ERA_LABELS[currentLang].BC}</option></select>
             </div>
-            <select value={historyCountry} onChange={e => setHistoryCountry(e.target.value)} style={{ width: '100%', padding: '8px', marginBottom: '15px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}><option value="ALL">全ての国</option>{countryList.map(c => <option key={c} value={c}>{c}</option>)}</select>
-            <button onClick={startHistoryRide} style={{ width: '100%', padding: '10px', borderRadius: '20px', background: '#ffcc00', border: 'none', color: 'black', fontWeight: 'bold', cursor: 'pointer' }}>START</button>
+            <select disabled={!isUserPremium} value={historyCountry} onChange={e => setHistoryCountry(e.target.value)} style={{ width: '100%', padding: '8px', marginBottom: '15px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}><option value="ALL">全ての国</option>{countryList.map(c => <option key={c} value={c}>{c}</option>)}</select>
+            <button onClick={startHistoryRide} style={{ width: '100%', padding: '10px', borderRadius: '20px', background: isUserPremium ? '#ffcc00' : '#666', border: 'none', color: 'black', fontWeight: 'bold', cursor: isUserPremium ? 'pointer' : 'not-allowed' }}>START</button>
           </div>
 
           <div style={{color:'#888', fontSize:'0.9rem', marginBottom:'15px'}}>カテゴリを選んでツアーを開始</div>
@@ -616,17 +639,17 @@ const GlobeContent = () => {
             <div onClick={() => jumpToRandomSpot('landmark')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333' }}><div style={{fontSize:'1.5rem'}}>🏯</div><div style={{color:'#ff8800', fontSize:'0.8rem'}}>観光名所</div></div>
             <div onClick={() => jumpToRandomSpot('history')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333' }}><div style={{fontSize:'1.5rem'}}>🏛️</div><div style={{color:'#ffcc00', fontSize:'0.8rem'}}>歴史</div></div>
             
-            <div onClick={() => isPremium ? jumpToRandomSpot('nature') : alert('🔒 プレミアム限定です')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isPremium ? 1 : 0.5 }}>
-              <div style={{fontSize:'1.5rem'}}>{isPremium ? '🌲' : '🔒'}</div><div style={{color:'#00ff7f', fontSize:'0.8rem'}}>自然 (Pro)</div>
+            <div onClick={() => isUserPremium ? jumpToRandomSpot('nature') : alert('🔒 プレミアム限定です')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isUserPremium ? 1 : 0.5 }}>
+              <div style={{fontSize:'1.5rem'}}>{isUserPremium ? '🌲' : '🔒'}</div><div style={{color:'#00ff7f', fontSize:'0.8rem'}}>自然 (Pro)</div>
             </div>
-            <div onClick={() => isPremium ? jumpToRandomSpot('modern') : alert('🔒 プレミアム限定です')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isPremium ? 1 : 0.5 }}>
-              <div style={{fontSize:'1.5rem'}}>{isPremium ? '🏙️' : '🔒'}</div><div style={{color:'#00ffff', fontSize:'0.8rem'}}>現代 (Pro)</div>
+            <div onClick={() => isUserPremium ? jumpToRandomSpot('modern') : alert('🔒 プレミアム限定です')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isUserPremium ? 1 : 0.5 }}>
+              <div style={{fontSize:'1.5rem'}}>{isUserPremium ? '🏙️' : '🔒'}</div><div style={{color:'#00ffff', fontSize:'0.8rem'}}>現代 (Pro)</div>
             </div>
-            <div onClick={() => isPremium ? jumpToRandomSpot('science') : alert('🔒 プレミアム限定です')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isPremium ? 1 : 0.5 }}>
-              <div style={{fontSize:'1.5rem'}}>{isPremium ? '🚀' : '🔒'}</div><div style={{color:'#d800ff', fontSize:'0.8rem'}}>科学 (Pro)</div>
+            <div onClick={() => isUserPremium ? jumpToRandomSpot('science') : alert('🔒 プレミアム限定です')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isUserPremium ? 1 : 0.5 }}>
+              <div style={{fontSize:'1.5rem'}}>{isUserPremium ? '🚀' : '🔒'}</div><div style={{color:'#d800ff', fontSize:'0.8rem'}}>科学 (Pro)</div>
             </div>
-            <div onClick={() => isPremium ? jumpToRandomSpot('art') : alert('🔒 プレミアム限定です')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isPremium ? 1 : 0.5 }}>
-              <div style={{fontSize:'1.5rem'}}>{isPremium ? '🎨' : '🔒'}</div><div style={{color:'#ff0055', fontSize:'0.8rem'}}>芸術 (Pro)</div>
+            <div onClick={() => isUserPremium ? jumpToRandomSpot('art') : alert('🔒 プレミアム限定です')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isUserPremium ? 1 : 0.5 }}>
+              <div style={{fontSize:'1.5rem'}}>{isUserPremium ? '🎨' : '🔒'}</div><div style={{color:'#ff0055', fontSize:'0.8rem'}}>芸術 (Pro)</div>
             </div>
           </div>
         </div>
@@ -770,6 +793,10 @@ const GlobeContent = () => {
         </div>
       )}
 
+      {isPc && user && <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 50 }}>{profile && <div style={{ color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '8px', marginBottom: '5px', textAlign: 'right' }}>{profile.username}</div>}</div>}
+      {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={setupUser} />}
+      {showFavList && user && <FavoritesModal userId={user.id} onClose={() => setShowFavList(false)} onSelect={handleSelectFromList} />}
+
       {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== 'fav' && activeTab !== null && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: 'calc(100% - 80px)', background: '#111', zIndex: 200, overflowY: 'auto', padding: '20px', boxSizing: 'border-box' }}>
           <button onClick={() => setActiveTab(null)} style={{ position:'absolute', top:'15px', right:'15px', background:'transparent', border:'none', color:'#888', fontSize:'1.5rem', zIndex:201 }}>✕</button>
@@ -818,14 +845,17 @@ const GlobeContent = () => {
       {selectedLocation && displayData && (activeTab === null || activeTab === 'map' || isPc) && (
         <>
           {!isPc && displayData.image_url && !imgError && (
-            <div style={{ position: 'absolute', top: '40px', left: '10px', right: '10px', height: '160px', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', zIndex: 10, pointerEvents: 'none', border: '1px solid rgba(255,255,255,0.1)' }}>
-              {/* ★修正: 画像エラーハンドリング */}
+            <div style={{ position: 'absolute', top: '40px', left: '10px', right: '10px', height: '160px', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', zIndex: 10, pointerEvents: 'none', border: '1px solid rgba(255,255,255,0.1)', background: '#000' }}>
+              {/* ★修正: 高速化＆読み込み中表示 */}
+              {imgLoading && <div style={{width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'#666'}}>Loading...</div>}
               <img 
                 src={displayData.image_url} 
                 alt={displayData.name} 
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1, transition: 'opacity 0.3s' }}
                 onError={() => setImgError(true)}
-                loading="lazy"
+                onLoad={() => setImgLoading(false)}
+                loading="eager" // 即読み込み
+                fetchPriority="high" // 優先度高
               />
               <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', height: '50px', background: 'linear-gradient(to top, rgba(0,0,0,0.7), transparent)' }} />
             </div>
@@ -835,13 +865,16 @@ const GlobeContent = () => {
               background: 'rgba(10, 10, 10, 0.95)', padding: '20px', borderRadius: '20px', color: 'white', textAlign: 'center', backdropFilter: 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.2)', zIndex: 10, width: isPc ? '400px' : 'auto', maxWidth: isPc ? '360px' : 'none', maxHeight: isPc ? 'none' : '40vh', boxShadow: '0 4px 30px rgba(0,0,0,0.6)', resize: isPc ? 'both' : 'none', overflow: isPc ? 'auto' : 'hidden', display: 'flex', flexDirection: 'column', cursor: isPc ? (isDragging ? 'grabbing' : 'grab') : 'default', animation: isDragging ? 'none' : 'fadeIn 0.3s'
             }}>
             {isPc && displayData.image_url && !imgError && (
-              <div style={{ width: '100%', height: '140px', marginBottom: '10px', borderRadius: '12px', overflow: 'hidden', position: 'relative', flexShrink: 0 }}>
+              <div style={{ width: '100%', height: '140px', marginBottom: '10px', borderRadius: '12px', overflow: 'hidden', position: 'relative', flexShrink: 0, background:'#000' }}>
+                {imgLoading && <div style={{width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'#666'}}>Loading...</div>}
                 <img 
                     src={displayData.image_url} 
                     alt={displayData.name} 
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1, transition: 'opacity 0.3s' }} 
                     onError={() => setImgError(true)}
-                    loading="lazy"
+                    onLoad={() => setImgLoading(false)}
+                    loading="eager"
+                    fetchPriority="high"
                 />
               </div>
             )}
