@@ -3,7 +3,6 @@ import Map, { Source, Layer } from 'react-map-gl';
 import { supabase } from '../supabaseClient';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import AuthModal from './AuthModal';
-// FavoritesModalは削除（パネル内に統合するため）
 import ErrorBoundary from './ErrorBoundary';
 import SplashScreen from './SplashScreen';
 import TutorialOverlay from './TutorialOverlay';
@@ -29,31 +28,24 @@ const ERA_LABELS = {
 };
 
 const BGM_LIBRARY = [
-  // Pop
   { id: 'pop1', title: '10℃', artist: 'Japan', genre: 'Pop', url: '/bgm/Pop1.mp3' },
   { id: 'pop2', title: 'Green park', artist: 'Japan', genre: 'Pop', url: '/bgm/Pop2.mp3' },
   { id: 'pop3', title: 'ART-Break', artist: 'Japan', genre: 'Pop', url: '/bgm/Pop3.mp3' },
-  // Chill
   { id: 'chill1', title: 'かえりみち', artist: 'Japan', genre: 'Chill', url: '/bgm/Chill1.mp3' }, 
   { id: 'chill2', title: 'ON AIR', artist: 'Japan', genre: 'Chill', url: '/bgm/Chill2.mp3' },
   { id: 'chill3', title: 'Bad-weather', artist: 'Japan', genre: 'Chill', url: '/bgm/Chill3.mp3' },
-  // Rock
   { id: 'rock1', title: 'Rolling Girl', artist: 'Japan', genre: 'Rock', url: '/bgm/Rock1.mp3' },
   { id: 'rock2', title: 'Break your destiny', artist: 'Japan', genre: 'Rock', url: '/bgm/Rock2.mp3' },
   { id: 'rock3', title: 'Sword in the Void', artist: 'Japan', genre: 'Rock', url: '/bgm/Rock3.mp3' },
-  // Metal
   { id: 'metal1', title: 'MECHANICAL DEATH', artist: 'Japan', genre: 'Metal', url: '/bgm/Metal1.mp3' },
   { id: 'metal2', title: 'RADICAL GOOD SPEED', artist: 'Japan', genre: 'Metal', url: '/bgm/Metal2.mp3' },
   { id: 'metal3', title: 'DIVINE WARRIORS', artist: 'Japan', genre: 'Metal', url: '/bgm/Metal3.mp3' },
-  // EDM
   { id: 'edm1', title: 'Cosmic Summer', artist: 'Japan', genre: 'EDM', url: '/bgm/EDM1.mp3' },
   { id: 'edm2', title: 'Rogue Circuit', artist: 'Japan', genre: 'EDM', url: '/bgm/EDM2.mp3' },
   { id: 'edm3', title: 'Guide Me to Heaven', artist: 'Japan', genre: 'EDM', url: '/bgm/EDM3.mp3' },
-  // Jazz
   { id: 'jazz1', title: 'Winter Night Street', artist: 'Japan', genre: 'Jazz', url: '/bgm/JAZZ1.mp3' },
   { id: 'jazz2', title: 'Dive to ocean', artist: 'Japan', genre: 'Jazz', url: '/bgm/JAZZ2.mp3' },
   { id: 'jazz3', title: 'Tea with Grace', artist: 'Japan', genre: 'Jazz', url: '/bgm/JAZZ3.mp3' },
-  // Country
   { id: 'country1', title: 'Peaceful Town', artist: 'Japan', genre: 'Country', url: '/bgm/Country1.mp3' },
   { id: 'country2', title: '木立の冬支度', artist: 'Japan', genre: 'Country', url: '/bgm/Country2.mp3' },
   { id: 'country3', title: '秋を探しに', artist: 'Japan', genre: 'Country', url: '/bgm/Country3.mp3' },
@@ -183,7 +175,6 @@ const GlobeContent = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [favorites, setFavorites] = useState(new Set());
 
-  // フォーム用State
   const [showContactModal, setShowContactModal] = useState(false);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [formEmail, setFormEmail] = useState("");
@@ -225,7 +216,7 @@ const GlobeContent = () => {
     return locations.filter(loc => !PREMIUM_CATEGORIES.includes(loc.category || 'history')).length;
   }, [locations, isPremium, user]);
 
-  const isPanelOpen = isPc && activeTab && (activeTab === 'explore' || activeTab === 'browse' || activeTab === 'settings' || activeTab === 'fav');
+  const isPanelOpen = isPc && activeTab && (activeTab === 'explore' || activeTab === 'browse' || activeTab === 'settings' || activeTab === 'fav' || activeTab === 'search');
 
   const displayData = useMemo(() => {
     if (!selectedLocation) return null;
@@ -256,11 +247,9 @@ const GlobeContent = () => {
 
   const toggleRideMode = () => setIsRideMode(prev => !prev);
 
-  // ★修正: タブ切り替え処理（リストもパネルで表示）
   const handleTabChange = (tab) => {
     if (activeTab === tab) { setActiveTab(null); return; }
     
-    // リストが押された場合、未ログインならログイン画面へ
     if (tab === 'fav' && !user) {
         setShowAuthModal(true);
         return;
@@ -684,9 +673,7 @@ const GlobeContent = () => {
 
     // ★リストタブ (お気に入り)
     if (activeTab === 'fav') {
-        // お気に入りリストを抽出
         const favSpots = locations.filter(l => favorites.has(l.id));
-        
         const content = (
             <div>
               <h2 style={{color:'#fff', marginTop:0, marginBottom:'5px', fontSize:'1.2rem'}}>お気に入りリスト</h2>
@@ -737,10 +724,25 @@ const GlobeContent = () => {
         return isPc ? <div style={commonStyle}>{content}</div> : content;
     }
     
+    // ★検索タブ (統一してここに移動)
+    if (activeTab === 'search') {
+        const content = (
+            <div>
+               <h2 style={{color:'#fff', marginTop:0, marginBottom:'20px'}}>検索</h2>
+               <div style={{ display: 'flex', gap: '5px' }}>
+                  <input autoFocus type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder={LANGUAGES[currentLang].placeholder} style={{ flex: 1, background: '#222', border: '1px solid #444', color: 'white', padding: '12px', borderRadius: '8px', fontSize:'1rem' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
+                  <button onClick={handleGenerate} style={{ background: '#00ffcc', color: 'black', border: 'none', borderRadius: '8px', padding: '0 15px', fontWeight: 'bold' }}>Go</button>
+               </div>
+               <div style={{color:'#888', fontSize:'0.8rem', marginTop:'10px'}}>例: 「古代エジプトの遺跡」「パリの美術館」</div>
+            </div>
+        );
+        return isPc ? <div style={commonStyle}>{content}</div> : content;
+    }
+    
     if (activeTab === 'browse') {
       const isUserPremium = isPremium || isVipUser(user?.email);
-      return (
-        <div style={commonStyle}>
+      const content = (
+        <div>
           <h2 style={{color:'#fff', marginTop:0, fontSize:'1.5rem'}}>ブラウズ</h2>
           <div style={{ 
               background: '#222', 
@@ -786,11 +788,12 @@ const GlobeContent = () => {
           </div>
         </div>
       );
+      return isPc ? <div style={commonStyle}>{content}</div> : content;
     }
 
     if (activeTab === 'settings') {
-      return (
-        <div style={commonStyle}>
+      const content = (
+        <div>
           <h2 style={{ color: 'white', marginTop: 0, fontSize:'1.5rem', marginBottom:'20px' }}>設定</h2>
           
           {(!isPremium && !isVipUser(user?.email)) && (
@@ -864,6 +867,7 @@ const GlobeContent = () => {
           <div style={{ height: '80px' }}></div> 
         </div>
       );
+      return isPc ? <div style={commonStyle}>{content}</div> : content;
     }
     return null;
   };
@@ -880,7 +884,6 @@ const GlobeContent = () => {
         <div style={{ position:'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.8)', zIndex:9999, display:'flex', justifyContent:'center', alignItems:'center' }} onClick={() => setShowContactModal(false)}>
             <div style={{ width:'90%', maxWidth:'400px', background:'#222', padding:'20px', borderRadius:'15px', border:'1px solid #444' }} onClick={e => e.stopPropagation()}>
                 <h3 style={{color:'white', marginTop:0}}>📧 お問い合わせ</h3>
-                {/* ★修正: 必須表示 */}
                 <div style={{color:'white', marginBottom:'5px'}}>メールアドレス (必須)</div>
                 <input type="email" value={formEmail} onChange={e => setFormEmail(e.target.value)} style={{width:'100%', padding:'10px', marginBottom:'15px', background:'#333', border:'1px solid #555', color:'white', borderRadius:'5px'}} />
                 <div style={{color:'white', marginBottom:'5px'}}>メッセージ</div>
@@ -947,7 +950,7 @@ const GlobeContent = () => {
                 <button onClick={handleCurrentLocation} style={{ background: '#333', border: 'none', color: '#00ffcc', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer', fontSize:'1rem' }}>📍</button>
               </div>
             </div>
-            {activeTab === 'search' && (
+            {activeTab === 'search' && isPc && (
                <div style={{ padding: '15px', borderBottom:'1px solid #222' }}>
                   <div style={{ display: 'flex', gap: '5px' }}>
                     <input autoFocus type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder={LANGUAGES[currentLang].placeholder} style={{ flex: 1, background: '#222', border: '1px solid #444', color: 'white', padding: '12px', borderRadius: '8px', fontSize:'1rem' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
@@ -966,36 +969,19 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== 'fav' && activeTab !== null && (
-        <>
-          {/* ★修正: スマホ用「探索」「お気に入り」だけハーフモーダル */}
-          {(activeTab === 'explore' || activeTab === 'fav') ? (
-            <div style={{ 
-                position: 'fixed', bottom: '80px', left: 0, width: '100%', height: '40vh', 
-                background: 'rgba(10, 10, 10, 0.95)', zIndex: 200, overflowY: 'auto', 
-                borderTopLeftRadius: '20px', borderTopRightRadius: '20px',
-                borderTop: '1px solid rgba(255,255,255,0.2)', padding: '15px', boxSizing: 'border-box',
-                transition: 'transform 0.3s ease-out'
-            }}>
-                <button onClick={() => setActiveTab(null)} style={{ position:'absolute', top:'10px', right:'15px', background:'transparent', border:'none', color:'#888', fontSize:'1.2rem', zIndex:201 }}>✕</button>
-                {renderPanelContent()}
-            </div>
-          ) : (
-            <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: 'calc(100% - 80px)', background: '#111', zIndex: 200, overflowY: 'auto', padding: '20px', boxSizing: 'border-box' }}>
-              <button onClick={() => setActiveTab(null)} style={{ position:'absolute', top:'15px', right:'15px', background:'transparent', border:'none', color:'#888', fontSize:'1.5rem', zIndex:201 }}>✕</button>
-              {renderPanelContent()}
-              {activeTab === 'search' && (
-                 <div style={{marginTop:'40px'}}>
-                   <h2 style={{color:'#fff', marginTop:0, marginBottom:'20px'}}>検索</h2>
-                   <div style={{ display: 'flex', gap: '5px' }}>
-                      <input autoFocus type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder={LANGUAGES[currentLang].placeholder} style={{ flex: 1, background: '#222', border: '1px solid #444', color: 'white', padding: '12px', borderRadius: '8px', fontSize:'1rem' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
-                      <button onClick={handleGenerate} style={{ background: '#00ffcc', color: 'black', border: 'none', borderRadius: '8px', padding: '0 15px', fontWeight: 'bold' }}>Go</button>
-                   </div>
-                 </div>
-              )}
-            </div>
-          )}
-        </>
+      {/* ★修正: スマホ用ボトムシート (全メニュー共通) */}
+      {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== null && (
+        <div style={{ 
+            position: 'fixed', bottom: '80px', left: 0, width: '100%', height: '45vh', 
+            background: 'rgba(10, 10, 10, 0.95)', zIndex: 200, overflowY: 'auto', 
+            borderTopLeftRadius: '20px', borderTopRightRadius: '20px',
+            borderTop: '1px solid rgba(255,255,255,0.2)', padding: '15px', boxSizing: 'border-box',
+            transition: 'transform 0.3s ease-out',
+            boxShadow: '0 -5px 20px rgba(0,0,0,0.5)'
+        }}>
+            <button onClick={() => setActiveTab(null)} style={{ position:'absolute', top:'10px', right:'15px', background:'transparent', border:'none', color:'#888', fontSize:'1.2rem', zIndex:201 }}>✕</button>
+            {renderPanelContent()}
+        </div>
       )}
 
       {!isPc && (
@@ -1035,7 +1021,6 @@ const GlobeContent = () => {
         <>
           {!isPc && displayData.image_url && !imgError && (
             <div style={{ position: 'absolute', top: '40px', left: '10px', right: '10px', height: '160px', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', zIndex: 10, pointerEvents: 'none', border: '1px solid rgba(255,255,255,0.1)', background: '#000' }}>
-              {/* ★修正: キャッシュ済なら即表示、未キャッシュならLoading */}
               {imgLoading && <div style={{width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'#666'}}>Loading...</div>}
               <img 
                 src={displayData.image_url} 
@@ -1044,10 +1029,10 @@ const GlobeContent = () => {
                 onError={() => setImgError(true)}
                 onLoad={() => {
                     setImgLoading(false);
-                    imageCacheRef.current.add(displayData.image_url); // ロード完了したら即キャッシュ
+                    imageCacheRef.current.add(displayData.image_url);
                 }}
-                loading="eager" // 即読み込み
-                fetchPriority="high" // 優先度高
+                loading="eager"
+                fetchPriority="high"
               />
               <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', height: '50px', background: 'linear-gradient(to top, rgba(0,0,0,0.7), transparent)' }} />
             </div>
@@ -1091,7 +1076,6 @@ const GlobeContent = () => {
         </>
       )}
 
-      {/* メモ化マップの使用 (self-closing) */}
       <MemoizedMap 
         mapRef={mapRef} 
         mapboxAccessToken={MAPBOX_TOKEN} 
