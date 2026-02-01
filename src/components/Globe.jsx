@@ -70,7 +70,6 @@ const MAP_CONFIG = {
   terrain: { source: 'mapbox-dem', exaggeration: 1.5 }
 };
 
-// ★美しい「光の点」レイヤー
 const LAYER_GLOW = {
   id: 'point-glow',
   type: 'circle',
@@ -98,7 +97,6 @@ const LAYER_CORE = {
 
 const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
 
-// ヘルパー関数
 const getCategoryDetails = (category) => {
   let tag = '世界遺産'; let color = '#ffcc00';
   if (category === 'landmark') { tag = '観光名所'; color = '#ff8800'; }
@@ -109,7 +107,6 @@ const getCategoryDetails = (category) => {
   return { tag, color };
 };
 
-// メモ化されたマップコンポーネント
 const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, onClick, onMouseEnter, onMouseLeave, cursor, geoJsonData, onError, padding }) => {
   return (
     <Map
@@ -160,12 +157,14 @@ const GlobeContent = () => {
   const visibleCategoriesRef = useRef(null);
   const rideCategoryRef = useRef(null);
   
-  // ★追加: 次のスポットの先読み用Ref
   const nextSpotDataRef = useRef(null);
+  // ★追加: 読み込み済み画像URLを記録するキャッシュ
+  const imageCacheRef = useRef(new Set());
 
   const [locations, setLocations] = useState([]);
   const [selectedLocation, setSelectedLocation] = useState(null);
-  const [displayData, setDisplayData] = useState(null);
+  // displayDataはuseMemoで計算するためState削除
+  
   const [isPlaying, setIsPlaying] = useState(false);
   const [isRideMode, setIsRideMode] = useState(false);
   const [isHistoryMode, setIsHistoryMode] = useState(false);
@@ -225,6 +224,20 @@ const GlobeContent = () => {
   }, [locations, isPremium, user]);
 
   const isPanelOpen = isPc && activeTab && (activeTab === 'explore' || activeTab === 'browse' || activeTab === 'settings');
+
+  // ★高速化: 表示データ(displayData)をStateではなくMemoで即時計算
+  const displayData = useMemo(() => {
+    if (!selectedLocation) return null;
+    const suffix = currentLang === 'ja' ? '_ja' : `_${currentLang}`;
+    let displayName = selectedLocation[`name${suffix}`] || selectedLocation.name;
+    let displayDesc = selectedLocation[`description${suffix}`] || selectedLocation.description;
+    return { 
+        ...selectedLocation, 
+        name: displayName, 
+        description: displayDesc, 
+        needsTranslation: currentLang === 'ja' && !/[ぁ-んァ-ン]/.test(displayName) 
+    };
+  }, [selectedLocation, currentLang]);
 
   const handleSplashFinish = () => {
     setShowSplash(false);
@@ -360,7 +373,6 @@ const GlobeContent = () => {
   const handleSelectFromList = (spot) => { fetchAndSelectSpot(spot.id); };
   
   const fetchAndSelectSpot = async (spotId, fromPreload=false) => {
-    // プレミアムチェック (先読み時はチェック済みと仮定)
     if (!fromPreload) {
         const spot = locationsRef.current.find(s => s.id === spotId);
         if (spot && PREMIUM_CATEGORIES.includes(spot.category) && !isPremium && !isVipUser(user?.email)) {
@@ -372,10 +384,9 @@ const GlobeContent = () => {
     try {
         let fullSpot = null;
         
-        // ★先読みデータがある場合はそれを使う
         if (fromPreload && nextSpotDataRef.current && nextSpotDataRef.current.id === spotId) {
             fullSpot = nextSpotDataRef.current;
-            nextSpotDataRef.current = null; // 使い終わったらクリア
+            nextSpotDataRef.current = null; 
         } else {
             const { data } = await supabase.from('spots').select('*').eq('id', spotId).single();
             if (data) {
@@ -387,7 +398,6 @@ const GlobeContent = () => {
             setSelectedLocation(fullSpot);
             mapRef.current?.flyTo({ center: [fullSpot.lon, fullSpot.lat], zoom: 6, speed: 2.0, curve: 1, essential: true });
             
-            // ★ライドモード中なら、表示と同時に次のスポットを裏で準備する
             if (isRideModeRef.current) {
                 setTimeout(preloadNextSpot, 500); 
             }
@@ -409,34 +419,33 @@ const GlobeContent = () => {
       await supabase.from('spots').update(updateData).eq('id', spot.id);
       
       if (selectedLocationRef.current && selectedLocationRef.current.id === spot.id) {
+        // 注: displayDataはmemo化されているため、selectedLocationを更新する
         const newData = { ...spot, ...updateData, name: json.name, description: json.description };
-        setDisplayData(newData);
+        setSelectedLocation(newData);
         if (!isRideModeRef.current) speak(json.description);
       }
     } catch (e) { addLog(`翻訳失敗: ${e.message}`); } finally { setStatusMessage(""); }
   };
 
+  // ★重要: 表示データが変わった瞬間に画像状態をセット（Effectでなく即時判定）
   useEffect(() => { 
-    if (!selectedLocation) { 
-        setDisplayData(null); 
+    if (!displayData) { 
         if(window.speechSynthesis) window.speechSynthesis.cancel(); 
         setIsPlaying(false); 
         setImgError(false); 
-        setImgLoading(true); 
         return; 
     }
-    const suffix = currentLang === 'ja' ? '_ja' : `_${currentLang}`;
-    let displayName = selectedLocation[`name${suffix}`] || selectedLocation.name;
-    let displayDesc = selectedLocation[`description${suffix}`] || selectedLocation.description;
-    const newData = { ...selectedLocation, name: displayName, description: displayDesc, needsTranslation: currentLang === 'ja' && !/[ぁ-んァ-ン]/.test(displayName) };
-    setDisplayData(newData);
-    setImgError(false); 
-    setImgLoading(true); 
-    if (!newData.needsTranslation) { 
+
+    setImgError(false);
+    // ★重要: キャッシュにあるならLoadingにしない
+    const isCached = displayData.image_url && imageCacheRef.current.has(displayData.image_url);
+    setImgLoading(!isCached);
+
+    if (!displayData.needsTranslation) { 
         if(window.speechSynthesis) window.speechSynthesis.cancel(); 
-        speak(newData.description); 
+        speak(displayData.description); 
     }
-  }, [selectedLocation, currentLang]);
+  }, [displayData]); // displayDataの変化だけでトリガー
 
   const speak = (text) => { 
     if (!window.speechSynthesis) return;
@@ -570,13 +579,12 @@ const GlobeContent = () => {
     setIsHistoryMode(false); setIsRideMode(true); setActiveTab('map'); setTimeout(() => { nextRideStep(); }, 100); 
   };
 
-  // ★重要: 次のスポットを決定するロジック（分離して再利用可能に）
   const getNextSpotCandidate = () => {
     if (isHistoryModeRef.current) {
         const sorted = historySortedSpotsRef.current; 
         let idx = historyIndexRef.current; 
         if (idx >= sorted.length) idx = 0; 
-        historyIndexRef.current = idx + 1; // 副作用あり注意
+        historyIndexRef.current = idx + 1; 
         return sorted[idx];
     } else {
         const currentFilters = visibleCategoriesRef.current || { history: true, nature: true, modern: true, science: true, art: true }; 
@@ -593,22 +601,25 @@ const GlobeContent = () => {
     }
   };
 
-  // ★重要: 先読み処理（画像ダウンロード開始）
+  // ★重要: 先読み処理（画像ダウンロード＆キャッシュ登録）
   const preloadNextSpot = async () => {
     const nextCandidate = getNextSpotCandidate();
     if (!nextCandidate) return;
 
     try {
-        // データを取得
         const { data } = await supabase.from('spots').select('*').eq('id', nextCandidate.id).single();
         if (data) {
             const fullSpot = { ...data, category: data.category || 'history' };
-            nextSpotDataRef.current = fullSpot; // Refに保存
+            nextSpotDataRef.current = fullSpot;
             
-            // 画像のバックグラウンドダウンロード (キャッシュさせる)
+            // ★キャッシュ登録付きプリロード
             if (fullSpot.image_url) {
                 const img = new Image();
                 img.src = fullSpot.image_url;
+                img.onload = () => {
+                    // 読み込み完了したらキャッシュリストに追加
+                    imageCacheRef.current.add(fullSpot.image_url);
+                };
             }
         }
     } catch (e) { console.error("Preload error", e); }
@@ -617,7 +628,6 @@ const GlobeContent = () => {
   const nextRideStep = async () => {
     if (!isRideModeRef.current) return;
     
-    // ★先読みデータがあれば即座に使用、なければ通常取得
     if (nextSpotDataRef.current) {
         await fetchAndSelectSpot(nextSpotDataRef.current.id, true);
     } else {
@@ -671,7 +681,6 @@ const GlobeContent = () => {
       return (
         <div style={commonStyle}>
           <h2 style={{color:'#fff', marginTop:0, fontSize:'1.5rem'}}>ブラウズ</h2>
-          {/* ヒストリーライド (有料化) */}
           <div style={{ 
               background: '#222', 
               borderRadius: '12px', 
@@ -680,7 +689,7 @@ const GlobeContent = () => {
               border: '1px solid #444',
               opacity: isUserPremium ? 1 : 0.5,
               position: 'relative',
-              pointerEvents: isUserPremium ? 'auto' : 'none' // 操作ブロック
+              pointerEvents: isUserPremium ? 'auto' : 'none' 
           }}>
             {!isUserPremium && (
                 <div style={{position:'absolute', top:0, left:0, width:'100%', height:'100%', zIndex:10, display:'flex', justifyContent:'center', alignItems:'center', pointerEvents:'auto'}} onClick={() => alert("🔒 ヒストリーライドはプレミアム限定機能です")}>
@@ -819,8 +828,8 @@ const GlobeContent = () => {
           borderRadius: '50%', 
           zIndex: 10, 
           pointerEvents: 'none', 
-          border: selectedLocation ? '3px solid #00ffcc' : '2px solid rgba(255, 180, 150, 0.5)', 
-          boxShadow: selectedLocation ? '0 0 20px #00ffcc' : '0 0 10px rgba(255, 100, 100, 0.3)', 
+          border: displayData ? '3px solid #00ffcc' : '2px solid rgba(255, 180, 150, 0.5)', 
+          boxShadow: displayData ? '0 0 20px #00ffcc' : '0 0 10px rgba(255, 100, 100, 0.3)', 
           transition: 'all 0.3s ease-out' 
       }} />
 
@@ -900,18 +909,25 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {selectedLocation && displayData && (activeTab === null || activeTab === 'map' || isPc) && (
+      {statusMessage && <div style={{ position: 'absolute', top: '80px', left: '20px', zIndex: 20, color: '#00ffcc', textShadow: '0 0 5px black' }}>{statusMessage}</div>}
+
+      <div style={{ position: 'absolute', top: isPc ? '50%' : '30%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: displayData ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: displayData ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
+
+      {displayData && (activeTab === null || activeTab === 'map' || isPc) && (
         <>
           {!isPc && displayData.image_url && !imgError && (
             <div style={{ position: 'absolute', top: '40px', left: '10px', right: '10px', height: '160px', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.5)', zIndex: 10, pointerEvents: 'none', border: '1px solid rgba(255,255,255,0.1)', background: '#000' }}>
-              {/* ★修正: 高速化＆読み込み中表示 */}
+              {/* ★修正: キャッシュ済なら即表示、未キャッシュならLoading */}
               {imgLoading && <div style={{width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'#666'}}>Loading...</div>}
               <img 
                 src={displayData.image_url} 
                 alt={displayData.name} 
-                style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1, transition: 'opacity 0.3s' }}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1, transition: 'opacity 0.2s' }}
                 onError={() => setImgError(true)}
-                onLoad={() => setImgLoading(false)}
+                onLoad={() => {
+                    setImgLoading(false);
+                    imageCacheRef.current.add(displayData.image_url); // ロード完了したら即キャッシュ
+                }}
                 loading="eager" // 即読み込み
                 fetchPriority="high" // 優先度高
               />
@@ -928,22 +944,25 @@ const GlobeContent = () => {
                 <img 
                     src={displayData.image_url} 
                     alt={displayData.name} 
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1, transition: 'opacity 0.3s' }} 
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoading ? 0 : 1, transition: 'opacity 0.2s' }} 
                     onError={() => setImgError(true)}
-                    onLoad={() => setImgLoading(false)}
+                    onLoad={() => {
+                        setImgLoading(false);
+                        imageCacheRef.current.add(displayData.image_url);
+                    }}
                     loading="eager"
                     fetchPriority="high"
                 />
               </div>
             )}
             <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 5 }}>
-              <button onMouseDown={e => e.stopPropagation()} onClick={() => toggleFavorite(null)} style={{ background: favorites.has(selectedLocation.id) ? '#ff3366' : '#333', color: 'white', border: '2px solid white', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', boxShadow: '0 4px 10px rgba(0,0,0,0.5)', transition: 'all 0.2s' }}>{favorites.has(selectedLocation.id) ? '♥' : '♡'}</button>
+              <button onMouseDown={e => e.stopPropagation()} onClick={() => toggleFavorite(null)} style={{ background: favorites.has(displayData.id) ? '#ff3366' : '#333', color: 'white', border: '2px solid white', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '1.2rem', boxShadow: '0 4px 10px rgba(0,0,0,0.5)', transition: 'all 0.2s' }}>{favorites.has(displayData.id) ? '♥' : '♡'}</button>
             </div>
             <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#ffccaa', marginBottom: '5px', flexShrink: 0 }}>{displayData.name.split('#')[0].trim()}</div>
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginBottom: '10px', flexShrink: 0, flexWrap: 'wrap' }}>
               {(displayData.country_ja || displayData.country) && (<span style={{ fontSize: '0.8rem', padding: '2px 10px', borderRadius: '12px', backgroundColor: '#333', border: '1px solid #888', color: '#eee', fontWeight: 'bold' }}>{displayData.country_ja || displayData.country}</span>)}
               {(() => { const { tag, color } = getCategoryDetails(displayData.category); return (<span style={{ fontSize: '0.8rem', padding: '2px 10px', borderRadius: '12px', backgroundColor: color, color: '#000', fontWeight: 'bold', boxShadow: '0 0 5px '+color }}>#{tag}</span>); })()}
-              {displayData.needsTranslation && (<button onMouseDown={e => e.stopPropagation()} onClick={() => translateAndFix(selectedLocation, currentLang)} style={{ background: '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '2px 10px', fontSize: '0.8rem', fontWeight: 'bold', cursor: 'pointer' }}>🔄 翻訳</button>)}
+              {displayData.needsTranslation && (<button onMouseDown={e => e.stopPropagation()} onClick={() => translateAndFix(displayData, currentLang)} style={{ background: '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '2px 10px', fontSize: '0.8rem', fontWeight: 'bold', cursor: 'pointer' }}>🔄 翻訳</button>)}
             </div>
             <div style={{ overflowY: 'auto', flex: 1, touchAction: 'pan-y', paddingBottom: '10px' }} onMouseDown={e => e.stopPropagation()}>
               <p style={{ margin: 0, fontSize: '0.85rem', color: '#ddd', lineHeight: '1.6', textAlign: 'left' }}>{displayData.description}</p>
