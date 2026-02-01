@@ -146,7 +146,7 @@ const GlobeContent = () => {
   
   const nextSpotDataRef = useRef(null);
   const imageCacheRef = useRef(new Set());
-  const isPlayingRef = useRef(false); // ★再生状態管理用Ref
+  const isPlayingRef = useRef(false);
 
   const [locations, setLocations] = useState([]);
   const [selectedLocation, setSelectedLocation] = useState(null);
@@ -252,19 +252,7 @@ const GlobeContent = () => {
   const handleTabChange = (tab) => {
     if (activeTab === tab) { setActiveTab(null); return; }
     
-    if (tab === 'fav' && !user) {
-        setShowAuthModal(true);
-        return;
-    }
-
-    if (tab === 'browse') {
-        const hasSeen = localStorage.getItem('hasSeenBrowseGuide');
-        if (!hasSeen) {
-            setShowBrowseGuide(true);
-            setBrowseGuideStep(1);
-        }
-    }
-
+    // リストが押された場合の制御はボタン側で行うため、ここでは単純にタブ切り替え
     setActiveTab(tab);
     if (tab === 'ride') { if (!isRideMode) toggleRideMode(); }
   };
@@ -277,7 +265,7 @@ const GlobeContent = () => {
   
   useEffect(() => { isRideModeRef.current = isRideMode; }, [isRideMode]);
   useEffect(() => { isHistoryModeRef.current = isHistoryMode; }, [isHistoryMode]);
-  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]); // Ref同期
+  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
 
   useEffect(() => {
     if (nearbySpots.length > 0) {
@@ -465,7 +453,6 @@ const GlobeContent = () => {
     }
   }, [displayData]); 
 
-  // ★修正: Android用分割再生ロジック
   const speak = async (text) => { 
     if (!text) { setIsPlaying(false); return; }
     
@@ -473,11 +460,9 @@ const GlobeContent = () => {
 
     try {
         setIsPlaying(true);
-        // 文章を句点などで分割してリスト化
         const chunks = text.match(/[^。！？]+[。！？]+/g) || [text];
 
         for (const chunk of chunks) {
-            // 再生が停止されていたらループを抜ける
             if (!isPlayingRef.current) break;
 
             await TextToSpeech.speak({
@@ -503,7 +488,7 @@ const GlobeContent = () => {
 
   const togglePlay = async () => { 
     if (isPlaying) {
-        setIsPlaying(false); // Refも更新される
+        setIsPlaying(false);
         await TextToSpeech.stop();
     } else {
         if (selectedLocation) speak(displayData?.description);
@@ -1018,7 +1003,6 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* 〇枠 */}
       <div style={{ 
           position: 'absolute', 
           top: isPc ? '50%' : '30%', 
@@ -1046,7 +1030,7 @@ const GlobeContent = () => {
                 <button onClick={handleCurrentLocation} style={{ background: '#333', border: 'none', color: '#00ffcc', borderRadius: '50%', width: '35px', height: '35px', cursor: 'pointer', fontSize:'1rem' }}>📍</button>
               </div>
             </div>
-            {activeTab === 'search' && (
+            {activeTab === 'search' && isPc && (
                <div style={{ padding: '15px', borderBottom:'1px solid #222' }}>
                   <div style={{ display: 'flex', gap: '5px' }}>
                     <input autoFocus type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder={LANGUAGES[currentLang].placeholder} style={{ flex: 1, background: '#222', border: '1px solid #444', color: 'white', padding: '12px', borderRadius: '8px', fontSize:'1rem' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
@@ -1056,7 +1040,12 @@ const GlobeContent = () => {
             )}
             <div style={{ display: 'flex', borderTop: '1px solid #222', height:'70px', alignItems:'center' }}>
               <NavButton icon="🌍" label="探索" active={activeTab === 'explore'} onClick={() => handleTabChange('explore')} />
-              <NavButton icon="♥" label="リスト" active={activeTab === 'fav'} onClick={() => handleTabChange('fav')} />
+              {/* PC用: ログイン状態による条件分岐 */}
+              {user ? (
+                <NavButton icon="♥" label="リスト" active={activeTab === 'fav'} onClick={() => handleTabChange('fav')} />
+              ) : (
+                <NavButton icon="👤" label="Sign In" active={false} onClick={() => setShowAuthModal(true)} />
+              )}
               <NavButton icon="🎲" label="ブラウズ" active={activeTab === 'browse'} onClick={() => handleTabChange('browse')} />
               <NavButton icon="🔍" label="検索" active={activeTab === 'search'} onClick={() => handleTabChange('search')} />
               <NavButton icon="⚙️" label="設定" active={activeTab === 'settings'} onClick={() => handleTabChange('settings')} />
@@ -1065,6 +1054,7 @@ const GlobeContent = () => {
         </div>
       )}
 
+      {/* ★修正: スマホ用ボトムシート (全メニュー共通) */}
       {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== null && (
         <div style={{ 
             position: 'fixed', bottom: '80px', left: 0, width: '100%', height: '45vh', 
@@ -1082,7 +1072,14 @@ const GlobeContent = () => {
       {!isPc && (
         <div style={{ position: 'fixed', bottom: 0, left: 0, width: '100%', height: '80px', background: 'rgba(0, 0, 0, 0.95)', borderTop: '1px solid #333', display: 'flex', justifyContent: 'space-around', alignItems: 'center', zIndex: 100, paddingBottom: 'env(safe-area-inset-bottom)' }}>
           <NavButton icon="🌍" label="探索" active={activeTab === 'explore'} onClick={() => handleTabChange('explore')} />
-          <NavButton icon="♥" label="リスト" active={activeTab === 'fav'} onClick={() => handleTabChange('fav')} />
+          
+          {/* ★修正: モバイル用 ログイン状態による条件分岐 */}
+          {user ? (
+            <NavButton icon="♥" label="リスト" active={activeTab === 'fav'} onClick={() => handleTabChange('fav')} />
+          ) : (
+            <NavButton icon="👤" label="Sign In" active={false} onClick={() => setShowAuthModal(true)} />
+          )}
+
           <NavButton icon="🎲" label="ブラウズ" active={activeTab === 'browse'} onClick={() => handleTabChange('browse')} />
           <NavButton icon="🔍" label="検索" active={activeTab === 'search'} onClick={() => handleTabChange('search')} />
           <NavButton icon="⚙️" label="設定" active={activeTab === 'settings'} onClick={() => handleTabChange('settings')} />
