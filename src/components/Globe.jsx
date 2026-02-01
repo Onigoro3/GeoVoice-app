@@ -60,7 +60,6 @@ const BGM_LIBRARY = [
   { id: 'country3', title: '秋を探しに', artist: 'Japan', genre: 'Country', url: '/bgm/Country3.mp3' },
 ];
 
-// ★ 無料/有料の区分定義 (自然をプレミアムへ移動)
 const PREMIUM_CATEGORIES = ['nature', 'modern', 'science', 'art'];
 
 const PRIVACY_POLICY_TEXT = `## プライバシーポリシー (省略)`;
@@ -172,7 +171,7 @@ const GlobeContent = () => {
   const [historyEra, setHistoryEra] = useState("AD");
   const [historyCountry, setHistoryCountry] = useState("ALL");
   
-  const [currentLang, setCurrentLang] = useState('ja'); // 初期値
+  const [currentLang, setCurrentLang] = useState('ja');
   const [inputTheme, setInputTheme] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
@@ -185,7 +184,6 @@ const GlobeContent = () => {
   const [showFavList, setShowFavList] = useState(false);
   const [favorites, setFavorites] = useState(new Set());
 
-  // 初期表示カテゴリ
   const [visibleCategories, setVisibleCategories] = useState({
     landmark: true, history: true, nature: true, 
     modern: true, science: true, art: true
@@ -210,12 +208,10 @@ const GlobeContent = () => {
   const [showSplash, setShowSplash] = useState(true);
   const [showTutorial, setShowTutorial] = useState(false);
 
-  // ★プレミアム会員になると増えるスポット数を計算
   const premiumSpotCount = useMemo(() => {
     return locations.filter(l => PREMIUM_CATEGORIES.includes(l.category || 'history')).length;
   }, [locations]);
 
-  // ★現在アクセス可能なスポット数を計算
   const accessibleSpotCount = useMemo(() => {
     const isUserPremium = isPremium || isVipUser(user?.email);
     if (isUserPremium) return locations.length;
@@ -252,15 +248,17 @@ const GlobeContent = () => {
   useEffect(() => { selectedLocationRef.current = selectedLocation; }, [selectedLocation]);
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
   useEffect(() => { visibleCategoriesRef.current = visibleCategories; }, [visibleCategories]);
+  
+  // ★追加: ライドモード状態のRef更新を確実に行う
+  useEffect(() => { isRideModeRef.current = isRideMode; }, [isRideMode]);
+  useEffect(() => { isHistoryModeRef.current = isHistoryMode; }, [isHistoryMode]);
 
-  // 国リスト作成
   const countryList = useMemo(() => {
     const countries = new Set();
     locations.forEach(loc => { if (loc.country_ja) countries.add(loc.country_ja); });
     return Array.from(countries).sort();
   }, [locations]);
 
-  // BGMリスト制御
   const availableGenres = useMemo(() => Array.from(new Set(BGM_LIBRARY.map(t => t.genre))).sort(), []);
   const availableArtists = useMemo(() => { 
     let tracks = BGM_LIBRARY;
@@ -280,7 +278,6 @@ const GlobeContent = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // マウス操作
   const handleMouseDown = (e) => {
     if (!isPc) return;
     if (['BUTTON', 'INPUT', 'SELECT', 'OPTION', 'A'].includes(e.target.tagName)) return;
@@ -302,7 +299,6 @@ const GlobeContent = () => {
 
   const addLog = (msg) => { console.log(msg); setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 5)); };
 
-  // データ取得
   const fetchSpots = async () => {
     try {
       let from = 0; const batchSize = 1000;
@@ -356,8 +352,9 @@ const GlobeContent = () => {
     } catch(e) { addLog(`Fav Error: ${e.message}`); }
   };
 
-  // スポット選択時の処理
   const handleSelectFromList = (spot) => { fetchAndSelectSpot(spot.id); };
+  
+  // ★修正: リストから確実に飛ぶように修正
   const fetchAndSelectSpot = async (spotId) => {
     const spot = locationsRef.current.find(s => s.id === spotId);
     if (spot && PREMIUM_CATEGORIES.includes(spot.category) && !isPremium && !isVipUser(user?.email)) {
@@ -370,14 +367,12 @@ const GlobeContent = () => {
         if (data) {
             const fullSpot = { ...data, category: data.category || 'history' };
             setSelectedLocation(fullSpot);
-            // ★修正: 画面の中心にスポットが来るように調整
-            // PC: 中心、スマホ: 上から30%（パディング設定と連動）
-            mapRef.current?.flyTo({ center: [fullSpot.lon, fullSpot.lat], zoom: 6, speed: 1.2, curve: 1 });
+            // ★修正: essential: true を追加して強制的に移動
+            mapRef.current?.flyTo({ center: [fullSpot.lon, fullSpot.lat], zoom: 6, speed: 2.0, curve: 1, essential: true });
         }
     } catch (e) { console.error(e); }
   };
 
-  // 翻訳・読み上げ・BGM
   const translateAndFix = async (spot, lang) => {
     if (statusMessage.includes("生成中")) return;
     setStatusMessage("翻訳中...");
@@ -400,13 +395,21 @@ const GlobeContent = () => {
   };
 
   useEffect(() => { 
-    if (!selectedLocation) { setDisplayData(null); if(window.speechSynthesis) window.speechSynthesis.cancel(); setIsPlaying(false); return; }
+    if (!selectedLocation) { 
+        setDisplayData(null); 
+        if(window.speechSynthesis) window.speechSynthesis.cancel(); 
+        setIsPlaying(false); 
+        return; 
+    }
     const suffix = currentLang === 'ja' ? '_ja' : `_${currentLang}`;
     let displayName = selectedLocation[`name${suffix}`] || selectedLocation.name;
     let displayDesc = selectedLocation[`description${suffix}`] || selectedLocation.description;
     const newData = { ...selectedLocation, name: displayName, description: displayDesc, needsTranslation: currentLang === 'ja' && !/[ぁ-んァ-ン]/.test(displayName) };
     setDisplayData(newData);
-    if (!newData.needsTranslation) { if(window.speechSynthesis) window.speechSynthesis.cancel(); speak(newData.description); }
+    if (!newData.needsTranslation) { 
+        if(window.speechSynthesis) window.speechSynthesis.cancel(); 
+        speak(newData.description); 
+    }
   }, [selectedLocation, currentLang]);
 
   const speak = (text) => { 
@@ -416,7 +419,13 @@ const GlobeContent = () => {
     utterance.lang = { ja: 'ja-JP', en: 'en-US', zh: 'zh-CN', es: 'es-ES', fr: 'fr-FR' }[currentLang];
     utterance.volume = voiceVolume;
     utterance.onstart = () => setIsPlaying(true);
-    utterance.onend = () => { setIsPlaying(false); if(isRideModeRef.current) rideTimeoutRef.current = setTimeout(nextRideStep, 3000); };
+    // ★修正: ライドモード時の自動送りを修正
+    utterance.onend = () => { 
+        setIsPlaying(false); 
+        if(isRideModeRef.current) {
+            rideTimeoutRef.current = setTimeout(nextRideStep, 3000); 
+        }
+    };
     window.speechSynthesis.speak(utterance);
   };
 
@@ -459,7 +468,6 @@ const GlobeContent = () => {
     else { audio.pause(); }
   }, [isBgmOn, isPlaying, bgmVolume, currentTrack]);
 
-  // マップクリック時の処理
   const handleMapClick = useCallback((event) => {
     if (isRideModeRef.current) setIsRideMode(false);
     const feature = event.features?.[0];
@@ -506,7 +514,18 @@ const GlobeContent = () => {
     } catch (e) { alert(e.message); } finally { setIsGenerating(false); setStatusMessage(""); }
   };
 
-  const handleNextRide = () => { if (!isRideMode) return; if(window.speechSynthesis) window.speechSynthesis.cancel(); if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current); nextRideStep(); };
+  // ★修正: 「次へ」ボタンの反応改善
+  const handleNextRide = () => { 
+    if (!isRideMode) return; 
+    if(window.speechSynthesis) window.speechSynthesis.cancel(); 
+    if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current); 
+    
+    // 即時実行だと処理が被る場合があるので少しだけ待つ
+    setTimeout(() => {
+        nextRideStep(); 
+    }, 50);
+  };
+
   const handleCurrentLocation = () => { if (!navigator.geolocation) { alert("現在地機能が使えません"); return; } navigator.geolocation.getCurrentPosition((pos) => { mapRef.current?.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 9, speed: 1.5, curve: 1 }); }, () => { alert("位置情報の取得に失敗しました"); }); };
   const startHistoryRide = () => { setIsHistoryMode(true); setIsRideMode(true); setActiveTab('map'); };
   const toggleRideModeTrigger = () => { if (!isRideMode) { if(!isHistoryMode) jumpToRandomSpot(); else nextRideStep(); } else setIsRideMode(false); };
@@ -692,10 +711,10 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ★復活: 中央の照準サークル (〇枠) */}
+      {/* 〇枠 */}
       <div style={{ 
           position: 'absolute', 
-          top: isPc ? '50%' : '30%', // PCは中央、スマホは上から30%（マップのpaddingと連動）
+          top: isPc ? '50%' : '30%', 
           left: '50%', 
           transform: 'translate(-50%, -50%)', 
           width: '50px', 
@@ -788,10 +807,6 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {statusMessage && <div style={{ position: 'absolute', top: '80px', left: '20px', zIndex: 20, color: '#00ffcc', textShadow: '0 0 5px black' }}>{statusMessage}</div>}
-
-      <div style={{ position: 'absolute', top: isPc ? '50%' : '30%', left: '50%', transform: 'translate(-50%, -50%)', width: '50px', height: '50px', borderRadius: '50%', zIndex: 10, pointerEvents: 'none', border: selectedLocation ? '2px solid #fff' : '2px solid rgba(255, 180, 150, 0.5)', boxShadow: selectedLocation ? '0 0 20px #fff' : '0 0 10px rgba(255, 100, 100, 0.3)', transition: 'all 0.3s' }} />
-
       {selectedLocation && displayData && (activeTab === null || activeTab === 'map' || isPc) && (
         <>
           {!isPc && displayData.image_url && (
@@ -836,7 +851,6 @@ const GlobeContent = () => {
         onClick={handleMapClick}
         geoJsonData={filteredGeoJsonData} 
         onError={(e) => addLog(`Map Error: ${e.error.message}`)} 
-        // ★修正: スマホ版のpaddingを設定して中心を上にずらす
         padding={isPc ? {} : { bottom: window.innerHeight * 0.4 }} 
         cursor={cursor}
         onMouseEnter={onMouseEnter}
