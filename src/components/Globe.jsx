@@ -2,7 +2,8 @@ import React, { useRef, useState, useMemo, useEffect, useCallback } from 'react'
 import Map, { Source, Layer } from 'react-map-gl';
 import { supabase } from '../supabaseClient';
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { TextToSpeech } from '@capacitor-community/text-to-speech';
+// ★削除: CapacitorのTTSプラグインは削除します
+// import { TextToSpeech } from '@capacitor-community/text-to-speech'; 
 import AuthModal from './AuthModal';
 import ErrorBoundary from './ErrorBoundary';
 import SplashScreen from './SplashScreen';
@@ -451,7 +452,7 @@ const GlobeContent = () => {
 
   useEffect(() => { 
     if (!displayData) { 
-        TextToSpeech.stop(); 
+        window.speechSynthesis.cancel();
         setIsPlaying(false); 
         setImgError(false); 
         return; 
@@ -466,61 +467,49 @@ const GlobeContent = () => {
     }
   }, [displayData]); 
 
-  // ... (前略) ...
+  // ★修正: Web Speech API を使用する speak 関数
+  const speak = (text) => {
+    window.speechSynthesis.cancel(); // 既存の読み上げをキャンセル
 
-  // ★修正箇所: speak関数
-  const speak = async (text) => { 
-    if (!text) { 
-        if (isRideModeRef.current) setTimeout(nextRideStep, 2000); 
-        setIsPlaying(false); 
-        return; 
-    }
-    
-    // 既存の再生を停止
-    try { await TextToSpeech.stop(); } catch(e){}
-
-    // Android用のおまじない（バッファクリア待機）
-    await new Promise(resolve => setTimeout(resolve, 200));
-
-    try {
-        setIsPlaying(true);
-        // 文章を句点などで分割してリスト化。
-        const chunks = text.match(/[^。！？\n]+[。！？\n]+/g) || [text];
-
-        for (const chunk of chunks) {
-            if (!isPlayingRef.current) break;
-
-            // ★Android修正: categoryオプションを削除し、パラメータを最小限に
-            await TextToSpeech.speak({
-                text: chunk,
-                lang: LANGUAGES[currentLang].ttsCode, 
-                rate: 1.0,
-                pitch: 1.0,
-                volume: voiceVolume,
-                // category: 'ambient', // ← これがAndroidで音が出ない原因の可能性大なので削除
-            });
-        }
-    } catch (e) {
-        console.error("TTS Error:", e);
-        // エラーログを表示（デバッグ用）
-        addLog(`TTS Error: ${e.message}`);
-        
-        // エラーでも止まらないように少し待ってから次へ進める
-        await new Promise(resolve => setTimeout(resolve, 1000));
-    } finally {
+    if (!text) {
         setIsPlaying(false);
-        if (isRideModeRef.current && isPlayingRef.current) {
-            rideTimeoutRef.current = setTimeout(nextRideStep, 2000); 
-        }
+        return;
     }
+
+    setIsPlaying(true);
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    // 言語設定（Android互換性のため）
+    const langCode = LANGUAGES[currentLang]?.ttsCode || 'ja-JP';
+    utterance.lang = langCode;
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.volume = voiceVolume;
+
+    utterance.onstart = () => {
+        setIsPlaying(true);
+    };
+
+    utterance.onend = () => {
+        setIsPlaying(false);
+        // ライドモード中なら次のスポットへ
+        if (isRideModeRef.current) {
+             rideTimeoutRef.current = setTimeout(nextRideStep, 2000);
+        }
+    };
+
+    utterance.onerror = (event) => {
+        console.error("Speech Error:", event);
+        setIsPlaying(false);
+    };
+
+    window.speechSynthesis.speak(utterance);
   };
 
-  // ... (後略) ...
-
-  const togglePlay = async () => { 
+  const togglePlay = () => { 
     if (isPlaying) {
         setIsPlaying(false);
-        await TextToSpeech.stop();
+        window.speechSynthesis.cancel();
     } else {
         if (selectedLocation) speak(displayData?.description);
         else findClosestSpotAndPlay();
@@ -617,7 +606,7 @@ const GlobeContent = () => {
 
   const handleNextRide = () => { 
     if (!isRideMode) return; 
-    if(window.speechSynthesis) window.speechSynthesis.cancel(); 
+    window.speechSynthesis.cancel(); 
     if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current); 
     setTimeout(() => { nextRideStep(); }, 50);
   };
