@@ -11,8 +11,6 @@ import SplashScreen from './SplashScreen';
 import TutorialOverlay from './TutorialOverlay';
 import { isVipUser } from '../vipList';
 
-// ★★★ 重要：ここにあなたの「pk.eyJ...」から始まるトークンを貼り付けてください ★★★
-// .envファイルから読み込む設定に戻す
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
@@ -137,13 +135,13 @@ const BGM_LIBRARY = [
 
 const PREMIUM_CATEGORIES = ['nature', 'modern', 'science', 'art'];
 
+// ★最適化: 3D地形と霧をOFFにしてFPSを稼ぐ（スマホでの高速化のため）
 const MAP_CONFIG = {
   style: "mapbox://styles/mapbox/satellite-v9",
-  fog: { range: [0.5, 10], color: 'rgba(255, 255, 255, 0)', 'high-color': '#000', 'space-color': '#000', 'star-intensity': 0.6 },
-  terrain: { source: 'mapbox-dem', exaggeration: 1.5 }
+  // fog: { range: [0.5, 10], color: 'rgba(255, 255, 255, 0)', 'high-color': '#000', 'space-color': '#000', 'star-intensity': 0.6 },
+  // terrain: { source: 'mapbox-dem', exaggeration: 1.5 }
 };
 
-// ★修正: 赤色を削除
 const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
 
 const getCategoryDetails = (category, lang = 'ja') => {
@@ -165,8 +163,8 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       initialViewState={initialViewState}
       projection="globe"
       mapStyle={MAP_CONFIG.style}
-      fog={MAP_CONFIG.fog}
-      terrain={MAP_CONFIG.terrain}
+      // fog={MAP_CONFIG.fog}      // ★OFF（高速化）
+      // terrain={MAP_CONFIG.terrain} // ★OFF（高速化）
       onMoveEnd={onMoveEnd}
       onClick={onClick}
       onMouseEnter={onMouseEnter}
@@ -178,12 +176,12 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
       touchZoomRotate={true}
       padding={padding}
       reuseMaps={true}
-      optimizeForTerrain={true} 
+      // optimizeForTerrain={true} // Terrainがないので不要
       interactiveLayerIds={['point-glow', 'point-core']}
     >
-      <Source id="mapbox-dem" type="raster-dem" url="mapbox://mapbox.mapbox-terrain-dem-v1" tileSize={512} maxzoom={14} />
+      {/* Terrain Sourceは重いので削除 */}
       {geoJsonData && (
-        <Source id="my-locations" type="geojson" data={geoJsonData}>
+        <Source id="my-locations" type="geojson" data={geoJsonData} tolerance={0.5}>
           <Layer 
             id="point-glow"
             type="circle"
@@ -456,21 +454,25 @@ const GlobeContent = () => {
 
   const addLog = (msg) => { console.log(msg); setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 5)); };
 
+  // ★最適化: 一気に読み込んでからState更新（爆速化のキモ）
   const fetchSpots = async () => {
     try {
-      let from = 0; const batchSize = 1000;
-      const { data, error } = await supabase.from('spots').select('*').range(from, from + batchSize - 1);
+      let from = 0; const batchSize = 2000; // バッチサイズアップ
+      let allSpots = [];
       
-      setLocations([]);
       while (true) {
         const { data, error } = await supabase.from('spots').select('*').range(from, from + batchSize - 1);
         if (error || !data || data.length === 0) break;
+        
         const validBatch = data.filter(d => d.lat && d.lon).map(d => ({ ...d, category: d.category || 'history' }));
-        setLocations(prev => [...prev, ...validBatch]);
+        allSpots = [...allSpots, ...validBatch];
+        
         if (data.length < batchSize) break;
         from += batchSize;
-        await new Promise(resolve => setTimeout(resolve, 50)); 
+        // setTimeoutを削除して待機時間をなくす
       }
+      // ループが終わってから1回だけ更新（これで描画が1回だけになり高速化）
+      setLocations(allSpots);
     } catch (e) { addLog(`Fetch Error: ${e.message}`); }
   };
 
@@ -1126,7 +1128,6 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* ★修正: 位置を下げた (top: 60px) */}
       <div style={{ position: 'absolute', top: '60px', left: '15px', zIndex: 10, color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 12px', borderRadius: '8px', fontSize: '0.8rem', pointerEvents: 'none', backdropFilter:'blur(5px)', border:'1px solid rgba(255,255,255,0.2)' }}>
         Spots: {accessibleSpotCount}
       </div>
