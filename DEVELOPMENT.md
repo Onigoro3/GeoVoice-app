@@ -42,3 +42,6 @@ npm install ライブラリ名
 
 # スマホ側にも反映 (これを忘れるとアプリが動かなくなる)
 npx cap sync
+
+# 画像のない物を高速取得(50件ずつ取得)「Wiki徹底検索」→「Pixabay」→「Mapbox衛星写真（確実）」
+node tools/update-images.js

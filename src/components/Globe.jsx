@@ -2,6 +2,10 @@ import React, { useRef, useState, useMemo, useEffect, useCallback } from 'react'
 import Map, { Source, Layer } from 'react-map-gl';
 import { supabase } from '../supabaseClient';
 import { GoogleGenerativeAI } from "@google/generative-ai";
+// ★修正: BackgroundModeのインポートを削除し、TTSとAppのみ残す
+import { TextToSpeech } from '@capacitor-community/text-to-speech';
+import { App } from '@capacitor/app';
+
 import AuthModal from './AuthModal';
 import ErrorBoundary from './ErrorBoundary';
 import SplashScreen from './SplashScreen';
@@ -25,7 +29,7 @@ const TRANSLATIONS = {
     settings_title: '設定', premium_join: 'プレミアムに参加する', restore: '購入を復元', logout: 'ログアウト',
     contact: '📧 お問い合わせ', request: '📍 場所の追加依頼', bgm_player: 'BGM プレイヤー', voice_vol: 'ボイス音量',
     cat_landmark: '観光名所', cat_history: '歴史', cat_nature: '自然 (Pro)', cat_modern: '現代 (Pro)', cat_science: '科学 (Pro)', cat_art: '芸術 (Pro)',
-    premium_desc: '広告なし・全カテゴリ解放・AIガイド使い放題',
+    premium_desc: '広告なし・全カテゴリ解放・AIガイド使い放題・バックグラウンド再生',
     locked: '🔒 プレミアム限定'
   },
   en: {
@@ -40,7 +44,7 @@ const TRANSLATIONS = {
     settings_title: 'Settings', premium_join: 'Join Premium', restore: 'Restore Purchase', logout: 'Log Out',
     contact: '📧 Contact Us', request: '📍 Request Spot', bgm_player: 'BGM Player', voice_vol: 'Voice Volume',
     cat_landmark: 'Landmarks', cat_history: 'History', cat_nature: 'Nature (Pro)', cat_modern: 'Modern (Pro)', cat_science: 'Science (Pro)', cat_art: 'Art (Pro)',
-    premium_desc: 'No Ads, All Categories, Unlimited AI Guide',
+    premium_desc: 'No Ads, All Categories, Unlimited AI Guide, Background Play',
     locked: '🔒 Premium Only'
   },
   zh: {
@@ -55,7 +59,7 @@ const TRANSLATIONS = {
     settings_title: '设置', premium_join: '加入高级版', restore: '恢复购买', logout: '登出',
     contact: '📧 联系我们', request: '📍 申请添加地点', bgm_player: '背景音乐', voice_vol: '语音音量',
     cat_landmark: '景点', cat_history: '历史', cat_nature: '自然 (Pro)', cat_modern: '现代 (Pro)', cat_science: '科学 (Pro)', cat_art: '艺术 (Pro)',
-    premium_desc: '无广告 · 全分类 · 无限AI导游',
+    premium_desc: '无广告 · 全分类 · 无限AI导游 · 后台播放',
     locked: '🔒 仅限高级版'
   },
   es: {
@@ -70,7 +74,7 @@ const TRANSLATIONS = {
     settings_title: 'Ajustes', premium_join: 'Unirse a Premium', restore: 'Restaurar compra', logout: 'Cerrar sesión',
     contact: '📧 Contacto', request: '📍 Solicitar lugar', bgm_player: 'Reproductor BGM', voice_vol: 'Volumen de voz',
     cat_landmark: 'Puntos', cat_history: 'Historia', cat_nature: 'Naturaleza (Pro)', cat_modern: 'Moderno (Pro)', cat_science: 'Ciencia (Pro)', cat_art: 'Arte (Pro)',
-    premium_desc: 'Sin anuncios, Todas las categorías, Guía AI ilimitada',
+    premium_desc: 'Sin anuncios, Todas las categorías, Guía AI ilimitada, Reproducción en segundo plano',
     locked: '🔒 Solo Premium'
   },
   fr: {
@@ -85,7 +89,7 @@ const TRANSLATIONS = {
     settings_title: 'Réglages', premium_join: 'Rejoindre Premium', restore: 'Restaurer', logout: 'Déconnexion',
     contact: '📧 Contact', request: '📍 Suggérer un lieu', bgm_player: 'Lecteur BGM', voice_vol: 'Volume voix',
     cat_landmark: 'Monuments', cat_history: 'Histoire', cat_nature: 'Nature (Pro)', cat_modern: 'Moderne (Pro)', cat_science: 'Science (Pro)', cat_art: 'Art (Pro)',
-    premium_desc: 'Sans pub, Toutes catégories, Guide IA illimité',
+    premium_desc: 'Sans pub, Toutes catégories, Guide IA illimité, Lecture en arrière-plan',
     locked: '🔒 Premium'
   },
 };
@@ -287,14 +291,11 @@ const GlobeContent = () => {
   
   const [showSplash, setShowSplash] = useState(true);
 
-  // 翻訳ヘルパー (UI用)
   const t = useMemo(() => TRANSLATIONS[currentLang] || TRANSLATIONS.ja, [currentLang]);
 
-  // ★修正: データ用翻訳ヘルパー (リストやマーカー用)
-  // データに name_en, name_fr などがあればそれを返し、なければデフォルト(name)を返す
+  // データ用翻訳ヘルパー
   const getLocalizedName = (spot) => {
     const suffix = currentLang === 'ja' ? '_ja' : `_${currentLang}`;
-    // 例: name_en があればそれ、なければ name_ja、それもなければ name (インポート時の値)
     return spot[`name${suffix}`] || spot.name_ja || spot.name;
   };
 
@@ -320,10 +321,48 @@ const GlobeContent = () => {
         ...selectedLocation, 
         name: displayName, 
         description: displayDesc, 
-        // 翻訳ボタンを出す条件: 日本語設定なのに日本語が含まれていない場合など
         needsTranslation: currentLang === 'ja' && !/[ぁ-んァ-ン]/.test(displayName) 
     };
   }, [selectedLocation, currentLang]);
+
+  // ★バックグラウンドモード制御 (Cordova Plugin使用)
+  useEffect(() => {
+    const toggleBackgroundMode = () => {
+      const hasPremium = isPremium || isVipUser(user?.email);
+      // Cordovaプラグインが読み込まれているか確認
+      if (window.cordova && window.cordova.plugins && window.cordova.plugins.backgroundMode) {
+        if (hasPremium) {
+          window.cordova.plugins.backgroundMode.enable();
+          // Android用設定: 通知に表示
+          window.cordova.plugins.backgroundMode.setDefaults({
+            title: "GeoVoice Tour",
+            text: "Playing in background",
+            icon: "ic_launcher", 
+            color: "00ffcc", 
+            resume: true,
+            hidden: false,
+            bigText: true
+          });
+        } else {
+          window.cordova.plugins.backgroundMode.disable();
+        }
+      }
+    };
+    toggleBackgroundMode();
+  }, [isPremium, user]);
+
+  // App State監視 (無料会員はバックグラウンドで停止)
+  useEffect(() => {
+    App.addListener('appStateChange', ({ isActive }) => {
+      const hasPremium = isPremium || isVipUser(user?.email);
+      if (!isActive && !hasPremium) {
+        if (isPlaying) {
+          stopSpeaking();
+          if (audioRef.current) audioRef.current.pause();
+        }
+      }
+    });
+  }, [isPremium, user, isPlaying]);
 
   const handleSplashFinish = () => {
     setShowSplash(false);
@@ -343,21 +382,11 @@ const GlobeContent = () => {
 
   const handleTabChange = (tab) => {
     if (activeTab === tab) { setActiveTab(null); return; }
-    
-    // 非ログインかつリストタブなら認証モーダルへ
-    if (tab === 'fav' && !user) {
-        setShowAuthModal(true);
-        return;
-    }
-
+    if (tab === 'fav' && !user) { setShowAuthModal(true); return; }
     if (tab === 'browse') {
         const hasSeen = localStorage.getItem('hasSeenBrowseGuide');
-        if (!hasSeen) {
-            setShowBrowseGuide(true);
-            setBrowseGuideStep(1);
-        }
+        if (!hasSeen) { setShowBrowseGuide(true); setBrowseGuideStep(1); }
     }
-
     setActiveTab(tab);
     if (tab === 'ride') { if (!isRideMode) toggleRideMode(); }
   };
@@ -378,9 +407,7 @@ const GlobeContent = () => {
             if (spot.image_url && !imageCacheRef.current.has(spot.image_url)) {
                 const img = new Image();
                 img.src = spot.image_url;
-                img.onload = () => {
-                    imageCacheRef.current.add(spot.image_url);
-                };
+                img.onload = () => { imageCacheRef.current.add(spot.image_url); };
             }
         });
     }
@@ -435,9 +462,6 @@ const GlobeContent = () => {
   const fetchSpots = async () => {
     try {
       let from = 0; const batchSize = 1000;
-      // ★修正: 翻訳データも取得するようにフィールドを追加 (name_en, name_zhなど)
-      // * を指定して全カラム取得するのが確実ですが、パフォーマンスのために必要なものだけ指定
-      // ここでは '*' にして全データ取得にします（翻訳カラム名が動的かもしれないため）
       const { data, error } = await supabase.from('spots').select('*').range(from, from + batchSize - 1);
       
       setLocations([]);
@@ -502,7 +526,6 @@ const GlobeContent = () => {
 
     try {
         let fullSpot = null;
-        
         if (fromPreload && nextSpotDataRef.current && nextSpotDataRef.current.id === spotId) {
             fullSpot = nextSpotDataRef.current;
             nextSpotDataRef.current = null; 
@@ -516,10 +539,7 @@ const GlobeContent = () => {
         if (fullSpot) {
             setSelectedLocation(fullSpot);
             mapRef.current?.flyTo({ center: [fullSpot.lon, fullSpot.lat], zoom: 6, speed: 2.0, curve: 1, essential: true });
-            
-            if (isRideModeRef.current) {
-                setTimeout(preloadNextSpot, 500); 
-            }
+            if (isRideModeRef.current) setTimeout(preloadNextSpot, 500); 
         }
     } catch (e) { console.error(e); }
   };
@@ -547,12 +567,11 @@ const GlobeContent = () => {
 
   useEffect(() => { 
     if (!displayData) { 
-        window.speechSynthesis.cancel();
-        setIsPlaying(false); 
+        // 停止
+        stopSpeaking();
         setImgError(false); 
         return; 
     }
-
     setImgError(false);
     const isCached = displayData.image_url && imageCacheRef.current.has(displayData.image_url);
     setImgLoading(!isCached);
@@ -562,47 +581,85 @@ const GlobeContent = () => {
     }
   }, [displayData]); 
 
-  // Web Speech API
-  const speak = (text) => {
-    window.speechSynthesis.cancel();
-
+  // ★修正: バックグラウンド再生のため、Native TextToSpeechを使用
+  // Androidの沈黙対策としてパラメータ調整済み
+  const speak = async (text) => {
     if (!text) {
         setIsPlaying(false);
         return;
     }
+    
+    // 既存の再生を停止
+    try { await TextToSpeech.stop(); } catch(e){}
 
     setIsPlaying(true);
+    isPlayingRef.current = true;
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    const langCode = LANGUAGES[currentLang]?.ttsCode || 'ja-JP';
-    utterance.lang = langCode;
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    utterance.volume = voiceVolume;
+    // 文章分割（長文対応）
+    const chunks = text.match(/[^。！？\n]+[。！？\n]+/g) || [text];
 
-    utterance.onstart = () => {
-        setIsPlaying(true);
-    };
+    try {
+        for (const chunk of chunks) {
+            if (!isPlayingRef.current) break;
 
-    utterance.onend = () => {
-        setIsPlaying(false);
-        if (isRideModeRef.current) {
-             rideTimeoutRef.current = setTimeout(nextRideStep, 2000);
+            await TextToSpeech.speak({
+                text: chunk,
+                lang: LANGUAGES[currentLang].ttsCode,
+                rate: 1.0,
+                pitch: 1.0,
+                volume: voiceVolume,
+                category: 'playback', // ★Android用: 音楽として再生 (沈黙防止)
+            });
         }
-    };
-
-    utterance.onerror = (event) => {
-        console.error("Speech Error:", event);
+    } catch (e) {
+        console.error("TTS Error:", e);
+        // フォールバック: Web Speech API (ただしバックグラウンドは弱い)
+        if (e.message && e.message.includes('not supported')) {
+             const u = new SpeechSynthesisUtterance(text);
+             u.lang = LANGUAGES[currentLang].ttsCode;
+             window.speechSynthesis.speak(u);
+        }
+    } finally {
         setIsPlaying(false);
-    };
+        isPlayingRef.current = false;
+        if (isRideModeRef.current) {
+             rideTimeoutRef.current = setTimeout(nextRideStep, 2000); 
+        }
+    }
+  };
 
-    window.speechSynthesis.speak(utterance);
+  const stopSpeaking = async () => {
+    try { await TextToSpeech.stop(); } catch(e){}
+    window.speechSynthesis.cancel();
+    setIsPlaying(false);
+    isPlayingRef.current = false;
+    // ライドモードも停止
+    if (isRideMode) stopRideMode();
+  };
+
+  // --- ライドモード制御 ---
+  const startRideMode = () => {
+    setIsRideMode(true); isRideModeRef.current = true;
+    setToastMessage('Tour Started 🚀');
+    // バックグラウンドモード有効化 (Premium)
+    const hasPremium = isPremium || isVipUser(user?.email);
+    if(hasPremium && window.cordova && window.cordova.plugins && window.cordova.plugins.backgroundMode) {
+       window.cordova.plugins.backgroundMode.enable();
+    }
+
+    nextRideStep(); 
+  };
+
+  const stopRideMode = () => {
+    setIsRideMode(false); isRideModeRef.current = false;
+    if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current);
+    try { TextToSpeech.stop(); } catch(e){}
+    setToastMessage('Tour Stopped');
   };
 
   const togglePlay = () => { 
     if (isPlaying) {
-        setIsPlaying(false);
-        window.speechSynthesis.cancel();
+        stopSpeaking();
     } else {
         if (selectedLocation) speak(displayData?.description);
         else findClosestSpotAndPlay();
@@ -699,7 +756,7 @@ const GlobeContent = () => {
 
   const handleNextRide = () => { 
     if (!isRideMode) return; 
-    window.speechSynthesis.cancel(); 
+    try { TextToSpeech.stop(); } catch(e){}
     if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current); 
     setTimeout(() => { nextRideStep(); }, 50);
   };
@@ -707,17 +764,9 @@ const GlobeContent = () => {
   const handleCurrentLocation = () => { if (!navigator.geolocation) { alert("Geolocation not supported"); return; } navigator.geolocation.getCurrentPosition((pos) => { mapRef.current?.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 9, speed: 1.5, curve: 1 }); }, () => { alert("Geolocation failed"); }); };
   
   const startHistoryRide = () => { 
-    if (!isPremium && !isVipUser(user?.email)) {
-        alert(t.locked);
-        return;
-    }
-
+    if (!isPremium && !isVipUser(user?.email)) { alert(t.locked); return; }
     let candidates = locationsRef.current.filter(l => (l.category === 'history' || !l.category)); 
-
-    if (historyCountry !== "ALL") {
-        candidates = candidates.filter(l => l.country_ja === historyCountry);
-    }
-
+    if (historyCountry !== "ALL") { candidates = candidates.filter(l => l.country_ja === historyCountry); }
     if (historyYearInput) {
         let targetYear = parseInt(historyYearInput);
         if (historyEra === 'BC') targetYear = -targetYear;
@@ -726,34 +775,25 @@ const GlobeContent = () => {
             const yearB = b.year !== undefined ? b.year : 9999;
             return Math.abs(yearA - targetYear) - Math.abs(yearB - targetYear);
         });
-    } else {
-        candidates.sort(() => Math.random() - 0.5);
-    }
-
-    if (candidates.length === 0) {
-        alert("No spots found.");
-        return;
-    }
-
+    } else { candidates.sort(() => Math.random() - 0.5); }
+    if (candidates.length === 0) { alert("No spots found."); return; }
     historySortedSpotsRef.current = candidates;
     historyIndexRef.current = 0;
-
     setIsHistoryMode(true); 
-    setIsRideMode(true); 
+    startRideMode(); // ここでライド開始＆バックグラウンド有効化
     setActiveTab('map'); 
     setTimeout(() => { nextRideStep(); }, 100);
   };
 
-  const toggleRideModeTrigger = () => { if (!isRideMode) { if(!isHistoryMode) jumpToRandomSpot(); else nextRideStep(); } else setIsRideMode(false); };
-  
   const jumpToRandomSpot = (cat=null) => { 
     rideCategoryRef.current = cat; 
-    if (cat && PREMIUM_CATEGORIES.includes(cat) && !isPremium && !isVipUser(user?.email)) {
-        alert(t.locked); return;
-    }
+    if (cat && PREMIUM_CATEGORIES.includes(cat) && !isPremium && !isVipUser(user?.email)) { alert(t.locked); return; }
     if (cat) { const newFilters = { landmark: false, history: false, nature: false, modern: false, science: false, art: false }; newFilters[cat] = true; setVisibleCategories(newFilters); } 
     else { setVisibleCategories({ landmark: true, history: true, nature: true, modern: true, science: true, art: true }); }
-    setIsHistoryMode(false); setIsRideMode(true); setActiveTab('map'); setTimeout(() => { nextRideStep(); }, 100); 
+    setIsHistoryMode(false); 
+    startRideMode(); // ここでライド開始
+    setActiveTab('map'); 
+    setTimeout(() => { nextRideStep(); }, 100); 
   };
 
   const getNextSpotCandidate = () => {
@@ -761,7 +801,6 @@ const GlobeContent = () => {
         const sorted = historySortedSpotsRef.current; 
         let idx = historyIndexRef.current; 
         if (idx >= sorted.length) idx = 0; 
-        
         const spot = sorted[idx];
         historyIndexRef.current = idx + 1; 
         return spot;
@@ -783,19 +822,15 @@ const GlobeContent = () => {
   const preloadNextSpot = async () => {
     const nextCandidate = getNextSpotCandidate();
     if (!nextCandidate) return;
-
     try {
         const { data } = await supabase.from('spots').select('*').eq('id', nextCandidate.id).single();
         if (data) {
             const fullSpot = { ...data, category: data.category || 'history' };
             nextSpotDataRef.current = fullSpot;
-            
             if (fullSpot.image_url) {
                 const img = new Image();
                 img.src = fullSpot.image_url;
-                img.onload = () => {
-                    imageCacheRef.current.add(fullSpot.image_url);
-                };
+                img.onload = () => { imageCacheRef.current.add(fullSpot.image_url); };
             }
         }
     } catch (e) { console.error("Preload error", e); }
@@ -803,16 +838,12 @@ const GlobeContent = () => {
 
   const nextRideStep = async () => {
     if (!isRideModeRef.current) return;
-    
     if (nextSpotDataRef.current) {
         await fetchAndSelectSpot(nextSpotDataRef.current.id, true);
     } else {
         const nextSpot = getNextSpotCandidate();
-        if (nextSpot) {
-            await fetchAndSelectSpot(nextSpot.id);
-        } else {
-            setIsRideMode(false);
-        }
+        if (nextSpot) await fetchAndSelectSpot(nextSpot.id);
+        else stopRideMode();
     }
   };
 
@@ -929,7 +960,7 @@ const GlobeContent = () => {
                     </>
                 )}
             </div>
-          )}
+        )}
 
           <h2 style={{color:'#fff', marginTop:0, fontSize:'1.5rem'}}>{t.browse_title}</h2>
           <div style={{ 
@@ -1268,7 +1299,7 @@ const GlobeContent = () => {
             <div style={{ overflowY: 'auto', flex: 1, touchAction: 'pan-y', paddingBottom: '10px' }} onMouseDown={e => e.stopPropagation()}>
               <p style={{ margin: 0, fontSize: '0.85rem', color: '#ddd', lineHeight: '1.6', textAlign: 'left' }}>{displayData.description}</p>
             </div>
-            {isPc && <button onClick={() => { if (!isRideMode) setIsRideMode(true); nextRideStep(); }} style={{ marginTop:'10px', width:'100%', padding:'10px', background:'#333', color:'white', border:'1px solid #555', borderRadius:'5px' }}>⏩ {isRideMode ? 'Skip' : 'Start Tour'}</button>}
+            {isPc && <button onClick={() => { if (!isRideMode) startRideMode(); nextRideStep(); }} style={{ marginTop:'10px', width:'100%', padding:'10px', background:'#333', color:'white', border:'1px solid #555', borderRadius:'5px' }}>⏩ {isRideMode ? 'Skip' : 'Start Tour'}</button>}
             {!isPc && isRideMode && <button onClick={handleNextRide} style={{ marginTop:'10px', width:'100%', padding:'10px', background:'#333', color:'white', border:'1px solid #555', borderRadius:'5px' }}>⏩ Skip</button>}
           </div>
         </>
