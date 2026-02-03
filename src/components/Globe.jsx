@@ -466,10 +466,12 @@ const GlobeContent = () => {
     }
   }, [displayData]); 
 
-  // ★修正: 分割再生 & 必ず流す & エラー時スキップ処理
+  // ... (前略) ...
+
+  // ★修正箇所: speak関数
   const speak = async (text) => { 
     if (!text) { 
-        if (isRideModeRef.current) setTimeout(nextRideStep, 2000); // テキスト無しなら次へ
+        if (isRideModeRef.current) setTimeout(nextRideStep, 2000); 
         setIsPlaying(false); 
         return; 
     }
@@ -482,24 +484,28 @@ const GlobeContent = () => {
 
     try {
         setIsPlaying(true);
-        // 文章を句点などで分割してリスト化。失敗したら全体を1つにする保険を追加
+        // 文章を句点などで分割してリスト化。
         const chunks = text.match(/[^。！？\n]+[。！？\n]+/g) || [text];
 
         for (const chunk of chunks) {
             if (!isPlayingRef.current) break;
 
+            // ★Android修正: categoryオプションを削除し、パラメータを最小限に
             await TextToSpeech.speak({
                 text: chunk,
                 lang: LANGUAGES[currentLang].ttsCode, 
                 rate: 1.0,
                 pitch: 1.0,
                 volume: voiceVolume,
-                category: 'ambient',
+                // category: 'ambient', // ← これがAndroidで音が出ない原因の可能性大なので削除
             });
         }
     } catch (e) {
         console.error("TTS Error:", e);
-        // エラーでも止まらないように少し待ってから次へ進める準備をする
+        // エラーログを表示（デバッグ用）
+        addLog(`TTS Error: ${e.message}`);
+        
+        // エラーでも止まらないように少し待ってから次へ進める
         await new Promise(resolve => setTimeout(resolve, 1000));
     } finally {
         setIsPlaying(false);
@@ -508,6 +514,8 @@ const GlobeContent = () => {
         }
     }
   };
+
+  // ... (後略) ...
 
   const togglePlay = async () => { 
     if (isPlaying) {
