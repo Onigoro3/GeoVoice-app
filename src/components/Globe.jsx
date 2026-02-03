@@ -142,7 +142,7 @@ const MAP_CONFIG = {
   terrain: { source: 'mapbox-dem', exaggeration: 1.5 }
 };
 
-const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
+const MAP_CONTAINER_STYLE = { width: '100%', height: '100%', backgroundColor: 'red' };
 
 const getCategoryDetails = (category, lang = 'ja') => {
   const t = TRANSLATIONS[lang] || TRANSLATIONS.ja;
@@ -215,6 +215,17 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
 const GlobeContent = () => {
   const mapRef = useRef(null);
   const audioRef = useRef(null);
+
+  // ★★★ 追加：テスト用（確認したら後で消してください） ★★★
+  useEffect(() => {
+    if (!MAPBOX_TOKEN) {
+      alert("⚠️ Mapboxトークンが読み込まれていません！ .envを確認してください");
+    } else {
+      // 成功している場合も、念のため最初の数文字を表示して確認
+      // alert("Mapbox Token OK: " + MAPBOX_TOKEN.substring(0, 5) + "...");
+    }
+  }, []);
+  // ★★★ ここまで ★★★
   
   const locationsRef = useRef([]);
   const selectedLocationRef = useRef(null);
