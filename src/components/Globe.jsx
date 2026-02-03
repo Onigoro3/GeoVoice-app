@@ -2,7 +2,6 @@ import React, { useRef, useState, useMemo, useEffect, useCallback } from 'react'
 import Map, { Source, Layer } from 'react-map-gl';
 import { supabase } from '../supabaseClient';
 import { GoogleGenerativeAI } from "@google/generative-ai";
-// ★修正: BackgroundModeのインポートを削除し、TTSとAppのみ残す
 import { TextToSpeech } from '@capacitor-community/text-to-speech';
 import { App } from '@capacitor/app';
 
@@ -12,6 +11,8 @@ import SplashScreen from './SplashScreen';
 import TutorialOverlay from './TutorialOverlay';
 import { isVipUser } from '../vipList';
 
+// ★★★ 重要：ここにあなたの「pk.eyJ...」から始まるトークンを貼り付けてください ★★★
+// .envファイルから読み込む設定に戻す
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
@@ -142,7 +143,8 @@ const MAP_CONFIG = {
   terrain: { source: 'mapbox-dem', exaggeration: 1.5 }
 };
 
-const MAP_CONTAINER_STYLE = { width: '100%', height: '100%', backgroundColor: 'red' };
+// ★修正: 赤色を削除
+const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
 
 const getCategoryDetails = (category, lang = 'ja') => {
   const t = TRANSLATIONS[lang] || TRANSLATIONS.ja;
@@ -215,17 +217,6 @@ const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, o
 const GlobeContent = () => {
   const mapRef = useRef(null);
   const audioRef = useRef(null);
-
-  // ★★★ 追加：テスト用（確認したら後で消してください） ★★★
-  useEffect(() => {
-    if (!MAPBOX_TOKEN) {
-      alert("⚠️ Mapboxトークンが読み込まれていません！ .envを確認してください");
-    } else {
-      // 成功している場合も、念のため最初の数文字を表示して確認
-      // alert("Mapbox Token OK: " + MAPBOX_TOKEN.substring(0, 5) + "...");
-    }
-  }, []);
-  // ★★★ ここまで ★★★
   
   const locationsRef = useRef([]);
   const selectedLocationRef = useRef(null);
@@ -304,7 +295,6 @@ const GlobeContent = () => {
 
   const t = useMemo(() => TRANSLATIONS[currentLang] || TRANSLATIONS.ja, [currentLang]);
 
-  // データ用翻訳ヘルパー
   const getLocalizedName = (spot) => {
     const suffix = currentLang === 'ja' ? '_ja' : `_${currentLang}`;
     return spot[`name${suffix}`] || spot.name_ja || spot.name;
@@ -336,15 +326,12 @@ const GlobeContent = () => {
     };
   }, [selectedLocation, currentLang]);
 
-  // ★バックグラウンドモード制御 (Cordova Plugin使用)
   useEffect(() => {
     const toggleBackgroundMode = () => {
       const hasPremium = isPremium || isVipUser(user?.email);
-      // Cordovaプラグインが読み込まれているか確認
       if (window.cordova && window.cordova.plugins && window.cordova.plugins.backgroundMode) {
         if (hasPremium) {
           window.cordova.plugins.backgroundMode.enable();
-          // Android用設定: 通知に表示
           window.cordova.plugins.backgroundMode.setDefaults({
             title: "GeoVoice Tour",
             text: "Playing in background",
@@ -362,7 +349,6 @@ const GlobeContent = () => {
     toggleBackgroundMode();
   }, [isPremium, user]);
 
-  // App State監視 (無料会員はバックグラウンドで停止)
   useEffect(() => {
     App.addListener('appStateChange', ({ isActive }) => {
       const hasPremium = isPremium || isVipUser(user?.email);
@@ -578,7 +564,6 @@ const GlobeContent = () => {
 
   useEffect(() => { 
     if (!displayData) { 
-        // 停止
         stopSpeaking();
         setImgError(false); 
         return; 
@@ -592,21 +577,18 @@ const GlobeContent = () => {
     }
   }, [displayData]); 
 
-  // ★修正: バックグラウンド再生のため、Native TextToSpeechを使用
-  // Androidの沈黙対策としてパラメータ調整済み
+  // ★音声再生（BGMと混ざるように category 設定なし）
   const speak = async (text) => {
     if (!text) {
         setIsPlaying(false);
         return;
     }
     
-    // 既存の再生を停止
     try { await TextToSpeech.stop(); } catch(e){}
 
     setIsPlaying(true);
     isPlayingRef.current = true;
 
-    // 文章分割（長文対応）
     const chunks = text.match(/[^。！？\n]+[。！？\n]+/g) || [text];
 
     try {
@@ -619,12 +601,11 @@ const GlobeContent = () => {
                 rate: 1.0,
                 pitch: 1.0,
                 volume: voiceVolume,
-                category: 'playback', // ★Android用: 音楽として再生 (沈黙防止)
+                // category: 'playback' を削除してBGMと共存させる
             });
         }
     } catch (e) {
         console.error("TTS Error:", e);
-        // フォールバック: Web Speech API (ただしバックグラウンドは弱い)
         if (e.message && e.message.includes('not supported')) {
              const u = new SpeechSynthesisUtterance(text);
              u.lang = LANGUAGES[currentLang].ttsCode;
@@ -639,18 +620,17 @@ const GlobeContent = () => {
     }
   };
 
+  // ★停止処理（安全装置付き）
   const stopSpeaking = async () => {
     try { await TextToSpeech.stop(); } catch(e){}
     
-    // ★修正: Androidでのクラッシュを防ぐ安全装置
-    // window.speechSynthesis が存在する場合だけ実行する
+    // Androidでのクラッシュ防止: window.speechSynthesisがある時だけ実行
     if (window.speechSynthesis && typeof window.speechSynthesis.cancel === 'function') {
         window.speechSynthesis.cancel();
     }
     
     setIsPlaying(false);
     isPlayingRef.current = false;
-    // ライドモードも停止
     if (isRideMode) stopRideMode();
   };
 
@@ -658,7 +638,6 @@ const GlobeContent = () => {
   const startRideMode = () => {
     setIsRideMode(true); isRideModeRef.current = true;
     setToastMessage('Tour Started 🚀');
-    // バックグラウンドモード有効化 (Premium)
     const hasPremium = isPremium || isVipUser(user?.email);
     if(hasPremium && window.cordova && window.cordova.plugins && window.cordova.plugins.backgroundMode) {
        window.cordova.plugins.backgroundMode.enable();
@@ -896,7 +875,6 @@ const GlobeContent = () => {
                 <div style={{ display:'flex', flexDirection:'column' }}>
                   {favSpots.map(spot => (
                     <div key={spot.id} onClick={() => handleSelectFromList(spot)} style={{ padding:'12px 5px', borderBottom:'1px solid #222', cursor:'pointer', background: selectedLocation?.id === spot.id ? 'rgba(0,255,204,0.1)' : 'transparent', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                      {/* ★修正: 言語に合わせて名前を表示 (getLocalizedName) */}
                       <div><div style={{color:'white', fontWeight:'bold', fontSize:'0.9rem'}}>{getLocalizedName(spot)}</div><div style={{color:'#888', fontSize:'0.75rem', marginTop:'2px'}}>{getCategoryDetails(spot.category, currentLang).tag}</div></div>
                       <button onClick={(e) => { e.stopPropagation(); toggleFavorite(spot.id); }} style={{background:'transparent', border:'none', color: '#ff3366', fontSize:'1.2rem', cursor:'pointer'}}>♥</button>
                     </div>
@@ -924,7 +902,6 @@ const GlobeContent = () => {
                 <div style={{ display:'flex', flexDirection:'column' }}>
                   {nearbySpots.map(spot => (
                     <div key={spot.id} onClick={() => handleSelectFromList(spot)} style={{ padding:'12px 5px', borderBottom:'1px solid #222', cursor:'pointer', background: selectedLocation?.id === spot.id ? 'rgba(0,255,204,0.1)' : 'transparent', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                      {/* ★修正: 言語に合わせて名前を表示 (getLocalizedName) */}
                       <div><div style={{color:'white', fontWeight:'bold', fontSize:'0.9rem'}}>{getLocalizedName(spot)}</div><div style={{color:'#888', fontSize:'0.75rem', marginTop:'2px'}}>{getCategoryDetails(spot.category, currentLang).tag}</div></div>
                       <button onClick={(e) => { e.stopPropagation(); toggleFavorite(spot.id); }} style={{background:'transparent', border:'none', color: favorites.has(spot.id)?'#ff3366':'#444', fontSize:'1.2rem', cursor:'pointer'}}>♥</button>
                     </div>
@@ -1149,7 +1126,8 @@ const GlobeContent = () => {
         </div>
       )}
 
-      <div style={{ position: 'absolute', top: '15px', left: '15px', zIndex: 10, color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 12px', borderRadius: '8px', fontSize: '0.8rem', pointerEvents: 'none', backdropFilter:'blur(5px)', border:'1px solid rgba(255,255,255,0.2)' }}>
+      {/* ★修正: 位置を下げた (top: 60px) */}
+      <div style={{ position: 'absolute', top: '60px', left: '15px', zIndex: 10, color: 'white', background: 'rgba(0,0,0,0.6)', padding: '5px 12px', borderRadius: '8px', fontSize: '0.8rem', pointerEvents: 'none', backdropFilter:'blur(5px)', border:'1px solid rgba(255,255,255,0.2)' }}>
         Spots: {accessibleSpotCount}
       </div>
 
@@ -1175,6 +1153,7 @@ const GlobeContent = () => {
           transition: 'all 0.3s ease-out' 
       }} />
 
+      {/* (省略: PC/モバイル用UI、ポップアップなど既存コードそのまま) */}
       {isPc && (
         <div className="pc-ui-container" style={{ position: 'absolute', bottom: '20px', left: '20px', width: '360px', zIndex: 100, display: 'flex', flexDirection: 'column', pointerEvents: 'none' }}>
           <div style={{ background: 'transparent', borderTopLeftRadius: '15px', borderTopRightRadius: '15px', borderBottom: 'none', maxHeight: isPanelOpen ? '60vh' : '0px', height: 'auto', overflowY: 'auto', transition: 'max-height 0.3s ease-in-out, opacity 0.3s', opacity: isPanelOpen ? 1 : 0, visibility: isPanelOpen ? 'visible' : 'hidden', borderLeft: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px', borderRight: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px', borderTop: isPanelOpen ? '1px solid rgba(255,255,255,0.1)' : '0px', padding: isPanelOpen ? '0' : '0px', boxSizing: 'border-box', pointerEvents: 'none' }}>{renderPanelContent()}</div>
@@ -1210,7 +1189,6 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* Mobile Bottom Sheet */}
       {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== null && (
         <div style={{ 
             position: 'fixed', bottom: '80px', left: 0, width: '100%', height: '45vh', 
@@ -1225,7 +1203,6 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* Mobile Nav Bar */}
       {!isPc && (
         <div style={{ position: 'fixed', bottom: 0, left: 0, width: '100%', height: '80px', background: 'rgba(0, 0, 0, 0.95)', borderTop: '1px solid #333', display: 'flex', justifyContent: 'space-around', alignItems: 'center', zIndex: 100, paddingBottom: 'env(safe-area-inset-bottom)' }}>
           <NavButton icon="🌍" label={t.explore} active={activeTab === 'explore'} onClick={() => handleTabChange('explore')} />
@@ -1275,10 +1252,10 @@ const GlobeContent = () => {
                 onError={() => setImgError(true)}
                 onLoad={() => {
                     setImgLoading(false);
-                    imageCacheRef.current.add(displayData.image_url); // ロード完了したら即キャッシュ
+                    imageCacheRef.current.add(displayData.image_url); 
                 }}
-                loading="eager" // 即読み込み
-                fetchPriority="high" // 優先度高
+                loading="eager" 
+                fetchPriority="high" 
               />
               <div style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', height: '50px', background: 'linear-gradient(to top, rgba(0,0,0,0.7), transparent)' }} />
             </div>
@@ -1322,7 +1299,6 @@ const GlobeContent = () => {
         </>
       )}
 
-      {/* Memoized Map (self-closing) */}
       <MemoizedMap 
         mapRef={mapRef} 
         mapboxAccessToken={MAPBOX_TOKEN} 
