@@ -630,7 +630,13 @@ const GlobeContent = () => {
 
   const stopSpeaking = async () => {
     try { await TextToSpeech.stop(); } catch(e){}
-    window.speechSynthesis.cancel();
+    
+    // ★修正: Androidでのクラッシュを防ぐ安全装置
+    // window.speechSynthesis が存在する場合だけ実行する
+    if (window.speechSynthesis && typeof window.speechSynthesis.cancel === 'function') {
+        window.speechSynthesis.cancel();
+    }
+    
     setIsPlaying(false);
     isPlayingRef.current = false;
     // ライドモードも停止
