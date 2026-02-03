@@ -4,7 +4,7 @@ import { supabase } from '../supabaseClient';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { TextToSpeech } from '@capacitor-community/text-to-speech';
 import { App } from '@capacitor/app';
-// ★追加: 位置情報プラグイン
+// 位置情報プラグイン
 import { Geolocation } from '@capacitor/geolocation';
 
 import AuthModal from './AuthModal';
@@ -13,6 +13,7 @@ import SplashScreen from './SplashScreen';
 import TutorialOverlay from './TutorialOverlay';
 import { isVipUser } from '../vipList';
 
+// .envからトークンを読み込む設定（これがないと地図が出ません）
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
@@ -64,7 +65,7 @@ const BGM_LIBRARY = [
   { id: 'chill1', title: 'かえりみち', artist: 'Japan', genre: 'Chill', url: '/bgm/Chill1.mp3' }, 
 ];
 
-// 無料ユーザーが見られるカテゴリ（これ以外は非表示）
+// 無料ユーザーが見られるカテゴリ
 const FREE_CATEGORIES = ['history', 'landmark'];
 const PREMIUM_CATEGORIES = ['nature', 'modern', 'science', 'art'];
 
@@ -227,11 +228,10 @@ const GlobeContent = () => {
     return locations.filter(l => PREMIUM_CATEGORIES.includes(l.category || 'history')).length;
   }, [locations]);
 
-  // ★修正: ユーザー権限に基づく表示数計算
+  // スポット数の計算（無料/有料で出し分け）
   const accessibleSpotCount = useMemo(() => {
     const isUserPremium = isPremium || isVipUser(user?.email);
     if (isUserPremium) return locations.length;
-    // 無料ユーザーは「歴史」「観光名所」のみカウント
     return locations.filter(loc => FREE_CATEGORIES.includes(loc.category || 'history')).length;
   }, [locations, isPremium, user]);
 
@@ -242,7 +242,6 @@ const GlobeContent = () => {
     let displayName = getLocalizedName(selectedLocation);
     const suffix = currentLang === 'ja' ? '_ja' : `_${currentLang}`;
     let displayDesc = selectedLocation[`description${suffix}`] || selectedLocation.description;
-    
     return { 
         ...selectedLocation, 
         name: displayName, 
@@ -372,24 +371,27 @@ const GlobeContent = () => {
 
   const addLog = (msg) => { console.log(msg); setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 5)); };
 
-  // ★修正: データ軽量化 & 爆速フェッチ
+  // ★修正: 1000件の壁を突破する軽量化フェッチ
   const fetchSpots = async () => {
     try {
       let from = 0; 
-      const batchSize = 3000; // バッチサイズを増加
+      const batchSize = 3000; 
       let allSpots = [];
       
-      // ★軽量化: 必要なカラムだけを取得する（これで数万件も軽くなる）
-      const columns = 'id, lat, lon, category, name, name_ja, country_ja';
+      // ★軽量化: id, lat, lon, category だけを先に取得（これが爆速の秘訣）
+      const columns = 'id, lat, lon, category';
 
       while (true) {
+        // rangeを使ってバッチ取得
         const { data, error } = await supabase.from('spots').select(columns).range(from, from + batchSize - 1);
-        if (error || !data || data.length === 0) break;
+        
+        if (error) { console.error("Fetch error:", error); break; }
+        if (!data || data.length === 0) break;
         
         const validBatch = data.filter(d => d.lat && d.lon).map(d => ({ ...d, category: d.category || 'history' }));
-        allSpots = [...allSpots, ...validBatch];
+        allSpots.push(...validBatch);
         
-        if (data.length < batchSize) break;
+        if (data.length < batchSize) break; // 取得数がバッチサイズ未満なら終了
         from += batchSize;
       }
       setLocations(allSpots);
@@ -667,7 +669,7 @@ const GlobeContent = () => {
     setTimeout(() => { nextRideStep(); }, 50);
   };
 
-  // ★修正: Capacitor Geolocation Pluginを使用
+  // Capacitor Geolocation Pluginを使用
   const handleCurrentLocation = async () => {
     try {
         const permissions = await Geolocation.checkPermissions();
@@ -776,20 +778,14 @@ const GlobeContent = () => {
     }
   };
 
-  // ★修正: 無料/有料の厳格な出し分け & 高速化
+  // 無料/有料の出し分け
   const filteredGeoJsonData = useMemo(() => {
     const isUserPremium = isPremium || isVipUser(user?.email);
-    
-    // フィルター処理
     const filtered = locations.filter(loc => {
       const cat = loc.category || 'history';
-      
-      // 無料ユーザーは「history」か「landmark」以外は絶対に見せない（データ自体を渡さない）
       if (!isUserPremium) {
           if (!FREE_CATEGORIES.includes(cat)) return false;
       }
-      
-      // カテゴリフィルター（トグルスイッチ）の状態も反映
       return visibleCategories[cat];
     });
 
@@ -807,8 +803,6 @@ const GlobeContent = () => {
   const renderPanelContent = () => {
     const commonStyle = { background: '#111', borderRadius: '15px', padding: '20px', border: '1px solid rgba(255,255,255,0.1)', minHeight: '200px', pointerEvents: 'auto' };
 
-    // ... (UI Panel Content: No significant changes needed here, keeping as is for brevity in copy-paste) ...
-    // Note: For full correctness, I will include the unchanged renderPanelContent below to ensure copy-paste works.
     if (activeTab === 'fav') {
         const favSpots = locations.filter(l => favorites.has(l.id));
         return <div style={isPc ? commonStyle : {}}><div><h2 style={{color:'#fff', marginTop:0, marginBottom:'5px', fontSize:'1.2rem'}}>{t.fav_title}</h2><div style={{color:'#888', fontSize:'0.8rem', marginBottom:'15px', borderBottom:'1px solid #333', paddingBottom:'10px'}}>{t.fav_desc}</div>{favSpots.length===0?<div style={{color:'#666',textAlign:'center',marginTop:'30px',whiteSpace:'pre-wrap'}}>{t.fav_empty}</div>:<div style={{display:'flex',flexDirection:'column'}}>{favSpots.map(spot=><div key={spot.id} onClick={()=>handleSelectFromList(spot)} style={{padding:'12px 5px',borderBottom:'1px solid #222',cursor:'pointer',background:selectedLocation?.id===spot.id?'rgba(0,255,204,0.1)':'transparent',display:'flex',justifyContent:'space-between',alignItems:'center'}}><div><div style={{color:'white',fontWeight:'bold',fontSize:'0.9rem'}}>{getLocalizedName(spot)}</div><div style={{color:'#888',fontSize:'0.75rem',marginTop:'2px'}}>{getCategoryDetails(spot.category,currentLang).tag}</div></div><button onClick={(e)=>{e.stopPropagation();toggleFavorite(spot.id);}} style={{background:'transparent',border:'none',color:'#ff3366',fontSize:'1.2rem',cursor:'pointer'}}>♥</button></div>)}</div>}</div></div>;
@@ -999,10 +993,13 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* Mobile UI */}
+      {/* Mobile UI (ここを修正して被らないようにしました) */}
       {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== null && (
         <div style={{ 
-            position: 'fixed', bottom: '80px', left: 0, width: '100%', height: '45vh', 
+            position: 'fixed', 
+            // ★修正: ホームバー(safe-area)を考慮してパネルを少し上に
+            bottom: 'calc(90px + env(safe-area-inset-bottom))', 
+            left: 0, width: '100%', height: '45vh', 
             background: 'rgba(10, 10, 10, 0.95)', zIndex: 200, overflowY: 'auto', 
             borderTopLeftRadius: '20px', borderTopRightRadius: '20px',
             borderTop: '1px solid rgba(255,255,255,0.2)', padding: '15px', boxSizing: 'border-box',
@@ -1051,6 +1048,14 @@ const GlobeContent = () => {
     </div>
   );
 };
+
+// ★ここに追加しました！
+const NavButton = ({ icon, label, active, onClick }) => (
+  <div onClick={onClick} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent:'center', cursor: 'pointer', color: active ? '#00ffcc' : '#888', width: '20%', height:'100%', transition: 'all 0.2s', borderBottom: active ? '3px solid #00ffcc' : '3px solid transparent' }}>
+    <div style={{ fontSize: active ? '1.5rem' : '1.3rem', marginBottom: '2px', transition: 'all 0.2s' }}>{icon}</div>
+    <div style={{ fontSize: '0.6rem', fontWeight: active ? 'bold' : 'normal', color: active ? 'white' : '#666' }}>{label}</div>
+  </div>
+);
 
 export default function GlobeWrapper() {
   return (
