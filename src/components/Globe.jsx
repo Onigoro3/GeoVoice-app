@@ -287,8 +287,16 @@ const GlobeContent = () => {
   
   const [showSplash, setShowSplash] = useState(true);
 
-  // 翻訳ヘルパー
+  // 翻訳ヘルパー (UI用)
   const t = useMemo(() => TRANSLATIONS[currentLang] || TRANSLATIONS.ja, [currentLang]);
+
+  // ★修正: データ用翻訳ヘルパー (リストやマーカー用)
+  // データに name_en, name_fr などがあればそれを返し、なければデフォルト(name)を返す
+  const getLocalizedName = (spot) => {
+    const suffix = currentLang === 'ja' ? '_ja' : `_${currentLang}`;
+    // 例: name_en があればそれ、なければ name_ja、それもなければ name (インポート時の値)
+    return spot[`name${suffix}`] || spot.name_ja || spot.name;
+  };
 
   const premiumSpotCount = useMemo(() => {
     return locations.filter(l => PREMIUM_CATEGORIES.includes(l.category || 'history')).length;
@@ -304,13 +312,15 @@ const GlobeContent = () => {
 
   const displayData = useMemo(() => {
     if (!selectedLocation) return null;
+    let displayName = getLocalizedName(selectedLocation);
     const suffix = currentLang === 'ja' ? '_ja' : `_${currentLang}`;
-    let displayName = selectedLocation[`name${suffix}`] || selectedLocation.name;
     let displayDesc = selectedLocation[`description${suffix}`] || selectedLocation.description;
+    
     return { 
         ...selectedLocation, 
         name: displayName, 
         description: displayDesc, 
+        // 翻訳ボタンを出す条件: 日本語設定なのに日本語が含まれていない場合など
         needsTranslation: currentLang === 'ja' && !/[ぁ-んァ-ン]/.test(displayName) 
     };
   }, [selectedLocation, currentLang]);
@@ -425,10 +435,14 @@ const GlobeContent = () => {
   const fetchSpots = async () => {
     try {
       let from = 0; const batchSize = 1000;
-      const minimalFields = 'id, name, name_ja, lat, lon, category, country_ja, year';
+      // ★修正: 翻訳データも取得するようにフィールドを追加 (name_en, name_zhなど)
+      // * を指定して全カラム取得するのが確実ですが、パフォーマンスのために必要なものだけ指定
+      // ここでは '*' にして全データ取得にします（翻訳カラム名が動的かもしれないため）
+      const { data, error } = await supabase.from('spots').select('*').range(from, from + batchSize - 1);
+      
       setLocations([]);
       while (true) {
-        const { data, error } = await supabase.from('spots').select(minimalFields).range(from, from + batchSize - 1);
+        const { data, error } = await supabase.from('spots').select('*').range(from, from + batchSize - 1);
         if (error || !data || data.length === 0) break;
         const validBatch = data.filter(d => d.lat && d.lon).map(d => ({ ...d, category: d.category || 'history' }));
         setLocations(prev => [...prev, ...validBatch]);
@@ -834,7 +848,8 @@ const GlobeContent = () => {
                 <div style={{ display:'flex', flexDirection:'column' }}>
                   {favSpots.map(spot => (
                     <div key={spot.id} onClick={() => handleSelectFromList(spot)} style={{ padding:'12px 5px', borderBottom:'1px solid #222', cursor:'pointer', background: selectedLocation?.id === spot.id ? 'rgba(0,255,204,0.1)' : 'transparent', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                      <div><div style={{color:'white', fontWeight:'bold', fontSize:'0.9rem'}}>{spot.name_ja || spot.name}</div><div style={{color:'#888', fontSize:'0.75rem', marginTop:'2px'}}>{getCategoryDetails(spot.category, currentLang).tag}</div></div>
+                      {/* ★修正: 言語に合わせて名前を表示 (getLocalizedName) */}
+                      <div><div style={{color:'white', fontWeight:'bold', fontSize:'0.9rem'}}>{getLocalizedName(spot)}</div><div style={{color:'#888', fontSize:'0.75rem', marginTop:'2px'}}>{getCategoryDetails(spot.category, currentLang).tag}</div></div>
                       <button onClick={(e) => { e.stopPropagation(); toggleFavorite(spot.id); }} style={{background:'transparent', border:'none', color: '#ff3366', fontSize:'1.2rem', cursor:'pointer'}}>♥</button>
                     </div>
                   ))}
@@ -861,7 +876,8 @@ const GlobeContent = () => {
                 <div style={{ display:'flex', flexDirection:'column' }}>
                   {nearbySpots.map(spot => (
                     <div key={spot.id} onClick={() => handleSelectFromList(spot)} style={{ padding:'12px 5px', borderBottom:'1px solid #222', cursor:'pointer', background: selectedLocation?.id === spot.id ? 'rgba(0,255,204,0.1)' : 'transparent', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                      <div><div style={{color:'white', fontWeight:'bold', fontSize:'0.9rem'}}>{spot.name_ja || spot.name}</div><div style={{color:'#888', fontSize:'0.75rem', marginTop:'2px'}}>{getCategoryDetails(spot.category, currentLang).tag}</div></div>
+                      {/* ★修正: 言語に合わせて名前を表示 (getLocalizedName) */}
+                      <div><div style={{color:'white', fontWeight:'bold', fontSize:'0.9rem'}}>{getLocalizedName(spot)}</div><div style={{color:'#888', fontSize:'0.75rem', marginTop:'2px'}}>{getCategoryDetails(spot.category, currentLang).tag}</div></div>
                       <button onClick={(e) => { e.stopPropagation(); toggleFavorite(spot.id); }} style={{background:'transparent', border:'none', color: favorites.has(spot.id)?'#ff3366':'#444', fontSize:'1.2rem', cursor:'pointer'}}>♥</button>
                     </div>
                   ))}
