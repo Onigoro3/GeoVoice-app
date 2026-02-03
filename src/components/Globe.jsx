@@ -2,8 +2,6 @@ import React, { useRef, useState, useMemo, useEffect, useCallback } from 'react'
 import Map, { Source, Layer } from 'react-map-gl';
 import { supabase } from '../supabaseClient';
 import { GoogleGenerativeAI } from "@google/generative-ai";
-// ★削除: CapacitorのTTSプラグインは削除します
-// import { TextToSpeech } from '@capacitor-community/text-to-speech'; 
 import AuthModal from './AuthModal';
 import ErrorBoundary from './ErrorBoundary';
 import SplashScreen from './SplashScreen';
@@ -12,6 +10,85 @@ import { isVipUser } from '../vipList';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+
+// --- 翻訳データ (UIの文言を管理) ---
+const TRANSLATIONS = {
+  ja: {
+    explore: '探索', list: 'リスト', signin: 'ログイン', browse: 'ブラウズ', search: '検索', settings: '設定',
+    tutorial: '🔰 チュートリアル',
+    fav_title: 'お気に入りリスト', fav_desc: '保存したスポット', fav_empty: 'ハートボタンを押して\nお気に入りに追加しよう ♥',
+    explore_title: '探索', explore_desc: 'この地域のピックアップ', explore_empty: '地図を動かして\nスポットを探そう 🌍',
+    search_title: '検索', search_ex: '例: 「古代エジプトの遺跡」「パリの美術館」', go: 'Go',
+    browse_title: 'ブラウズ', browse_hist: '⏳ ヒストリーライド', browse_cat: 'カテゴリを選んでツアーを開始', start: 'START',
+    browse_guide_hist: '行きたい時代（年）を入力すると、<br/>その時代の歴史スポットへタイムスリップ！<br/>(プレミアム限定)',
+    browse_guide_cat: '好きなジャンルをタップするだけで、<br/>ランダムに世界中のスポットへ飛びます。<br/>偶然の出会いを楽しもう！',
+    settings_title: '設定', premium_join: 'プレミアムに参加する', restore: '購入を復元', logout: 'ログアウト',
+    contact: '📧 お問い合わせ', request: '📍 場所の追加依頼', bgm_player: 'BGM プレイヤー', voice_vol: 'ボイス音量',
+    cat_landmark: '観光名所', cat_history: '歴史', cat_nature: '自然 (Pro)', cat_modern: '現代 (Pro)', cat_science: '科学 (Pro)', cat_art: '芸術 (Pro)',
+    premium_desc: '広告なし・全カテゴリ解放・AIガイド使い放題',
+    locked: '🔒 プレミアム限定'
+  },
+  en: {
+    explore: 'Explore', list: 'List', signin: 'Sign In', browse: 'Browse', search: 'Search', settings: 'Settings',
+    tutorial: '🔰 Tutorial',
+    fav_title: 'Favorites', fav_desc: 'Saved Spots', fav_empty: 'Tap the heart button\nto save spots ♥',
+    explore_title: 'Explore', explore_desc: 'Nearby Picks', explore_empty: 'Move the map to\nfind spots 🌍',
+    search_title: 'Search', search_ex: 'Ex: "Ancient Egypt", "Art Museums in Paris"', go: 'Go',
+    browse_title: 'Browse', browse_hist: '⏳ History Ride', browse_cat: 'Select a category to start tour', start: 'START',
+    browse_guide_hist: 'Enter a year to time travel<br/>to historical spots of that era!<br/>(Premium Only)',
+    browse_guide_cat: 'Tap a genre to jump to random spots<br/>around the world.<br/>Enjoy serendipity!',
+    settings_title: 'Settings', premium_join: 'Join Premium', restore: 'Restore Purchase', logout: 'Log Out',
+    contact: '📧 Contact Us', request: '📍 Request Spot', bgm_player: 'BGM Player', voice_vol: 'Voice Volume',
+    cat_landmark: 'Landmarks', cat_history: 'History', cat_nature: 'Nature (Pro)', cat_modern: 'Modern (Pro)', cat_science: 'Science (Pro)', cat_art: 'Art (Pro)',
+    premium_desc: 'No Ads, All Categories, Unlimited AI Guide',
+    locked: '🔒 Premium Only'
+  },
+  zh: {
+    explore: '探索', list: '收藏', signin: '登录', browse: '浏览', search: '搜索', settings: '设置',
+    tutorial: '🔰 教程',
+    fav_title: '收藏列表', fav_desc: '保存的地点', fav_empty: '点击心形按钮\n添加收藏 ♥',
+    explore_title: '探索', explore_desc: '附近推荐', explore_empty: '移动地图\n寻找地点 🌍',
+    search_title: '搜索', search_ex: '例如：“古埃及遗迹”、“巴黎美术馆”', go: 'Go',
+    browse_title: '浏览', browse_hist: '⏳ 历史之旅', browse_cat: '选择分类开始游览', start: '开始',
+    browse_guide_hist: '输入年份即可穿越时空，<br/>造访那个时代的历史景点！<br/>(仅限高级版)',
+    browse_guide_cat: '点击喜欢的类型，<br/>随机飞往世界各地的景点。<br/>享受偶遇的乐趣！',
+    settings_title: '设置', premium_join: '加入高级版', restore: '恢复购买', logout: '登出',
+    contact: '📧 联系我们', request: '📍 申请添加地点', bgm_player: '背景音乐', voice_vol: '语音音量',
+    cat_landmark: '景点', cat_history: '历史', cat_nature: '自然 (Pro)', cat_modern: '现代 (Pro)', cat_science: '科学 (Pro)', cat_art: '艺术 (Pro)',
+    premium_desc: '无广告 · 全分类 · 无限AI导游',
+    locked: '🔒 仅限高级版'
+  },
+  es: {
+    explore: 'Explorar', list: 'Lista', signin: 'Entrar', browse: 'Navegar', search: 'Buscar', settings: 'Ajustes',
+    tutorial: '🔰 Tutorial',
+    fav_title: 'Favoritos', fav_desc: 'Lugares guardados', fav_empty: 'Toca el corazón\npara guardar ♥',
+    explore_title: 'Explorar', explore_desc: 'Cercanos', explore_empty: 'Mueve el mapa\npara encontrar lugares 🌍',
+    search_title: 'Buscar', search_ex: 'Ej: "Antiguo Egipto", "Museos de arte en París"', go: 'Ir',
+    browse_title: 'Navegar', browse_hist: '⏳ Viaje Histórico', browse_cat: 'Elige categoría para empezar', start: 'INICIO',
+    browse_guide_hist: '¡Introduce un año para viajar en el tiempo<br/>a lugares históricos de esa época!<br/>(Solo Premium)',
+    browse_guide_cat: 'Toca un género para saltar a lugares aleatorios<br/>alrededor del mundo.<br/>¡Disfruta la serendipia!',
+    settings_title: 'Ajustes', premium_join: 'Unirse a Premium', restore: 'Restaurar compra', logout: 'Cerrar sesión',
+    contact: '📧 Contacto', request: '📍 Solicitar lugar', bgm_player: 'Reproductor BGM', voice_vol: 'Volumen de voz',
+    cat_landmark: 'Puntos', cat_history: 'Historia', cat_nature: 'Naturaleza (Pro)', cat_modern: 'Moderno (Pro)', cat_science: 'Ciencia (Pro)', cat_art: 'Arte (Pro)',
+    premium_desc: 'Sin anuncios, Todas las categorías, Guía AI ilimitada',
+    locked: '🔒 Solo Premium'
+  },
+  fr: {
+    explore: 'Explorer', list: 'Liste', signin: 'Connexion', browse: 'Parcourir', search: 'Recherche', settings: 'Réglages',
+    tutorial: '🔰 Tutoriel',
+    fav_title: 'Favoris', fav_desc: 'Lieux enregistrés', fav_empty: 'Appuyez sur le cœur\npour enregistrer ♥',
+    explore_title: 'Explorer', explore_desc: 'À proximité', explore_empty: 'Déplacez la carte\npour trouver des lieux 🌍',
+    search_title: 'Recherche', search_ex: 'Ex: "Égypte ancienne", "Musées à Paris"', go: 'Go',
+    browse_title: 'Parcourir', browse_hist: '⏳ Voyage Historique', browse_cat: 'Choisissez une catégorie', start: 'DÉMARRER',
+    browse_guide_hist: 'Entrez une année pour voyager dans le temps<br/>vers des lieux historiques de cette époque !<br/>(Premium uniquement)',
+    browse_guide_cat: 'Appuyez sur un genre pour sauter vers des lieux<br/>aléatoires dans le monde.<br/>Profitez du hasard !',
+    settings_title: 'Réglages', premium_join: 'Rejoindre Premium', restore: 'Restaurer', logout: 'Déconnexion',
+    contact: '📧 Contact', request: '📍 Suggérer un lieu', bgm_player: 'Lecteur BGM', voice_vol: 'Volume voix',
+    cat_landmark: 'Monuments', cat_history: 'Histoire', cat_nature: 'Nature (Pro)', cat_modern: 'Moderne (Pro)', cat_science: 'Science (Pro)', cat_art: 'Art (Pro)',
+    premium_desc: 'Sans pub, Toutes catégories, Guide IA illimité',
+    locked: '🔒 Premium'
+  },
+};
 
 const LANGUAGES = {
   ja: { code: 'ja', name: 'Japanese', label: '🇯🇵 日本語', placeholder: '行きたい場所やテーマを入力...', ttsCode: 'ja-JP' },
@@ -63,13 +140,14 @@ const MAP_CONFIG = {
 
 const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
 
-const getCategoryDetails = (category) => {
-  let tag = '世界遺産'; let color = '#ffcc00';
-  if (category === 'landmark') { tag = '観光名所'; color = '#ff8800'; }
-  if (category === 'nature') { tag = '自然遺産'; color = '#00ff7f'; }
-  if (category === 'modern') { tag = '現代建築'; color = '#00ffff'; }
-  if (category === 'science') { tag = '宇宙・科学'; color = '#d800ff'; }
-  if (category === 'art') { tag = '美術館'; color = '#ff0055'; }
+const getCategoryDetails = (category, lang = 'ja') => {
+  const t = TRANSLATIONS[lang] || TRANSLATIONS.ja;
+  let tag = t.cat_history; let color = '#ffcc00';
+  if (category === 'landmark') { tag = t.cat_landmark; color = '#ff8800'; }
+  if (category === 'nature') { tag = t.cat_nature; color = '#00ff7f'; }
+  if (category === 'modern') { tag = t.cat_modern; color = '#00ffff'; }
+  if (category === 'science') { tag = t.cat_science; color = '#d800ff'; }
+  if (category === 'art') { tag = t.cat_art; color = '#ff0055'; }
   return { tag, color };
 };
 
@@ -208,6 +286,9 @@ const GlobeContent = () => {
   const [cursor, setCursor] = useState('auto'); 
   
   const [showSplash, setShowSplash] = useState(true);
+
+  // 翻訳ヘルパー
+  const t = useMemo(() => TRANSLATIONS[currentLang] || TRANSLATIONS.ja, [currentLang]);
 
   const premiumSpotCount = useMemo(() => {
     return locations.filter(l => PREMIUM_CATEGORIES.includes(l.category || 'history')).length;
@@ -400,7 +481,7 @@ const GlobeContent = () => {
     if (!fromPreload) {
         const spot = locationsRef.current.find(s => s.id === spotId);
         if (spot && PREMIUM_CATEGORIES.includes(spot.category) && !isPremium && !isVipUser(user?.email)) {
-            alert("🔒 このカテゴリ（自然・現代・科学・芸術）はプレミアム会員限定です。\n設定からプレミアムに参加してください！");
+            alert(t.locked);
             return;
         }
     }
@@ -430,8 +511,8 @@ const GlobeContent = () => {
   };
 
   const translateAndFix = async (spot, lang) => {
-    if (statusMessage.includes("生成中")) return;
-    setStatusMessage("翻訳中...");
+    if (statusMessage.includes("...")) return;
+    setStatusMessage("Translating...");
     try {
       const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
       const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" }); 
@@ -447,7 +528,7 @@ const GlobeContent = () => {
         setSelectedLocation(newData);
         if (!isRideModeRef.current) speak(json.description);
       }
-    } catch (e) { addLog(`翻訳失敗: ${e.message}`); } finally { setStatusMessage(""); }
+    } catch (e) { addLog(`Trans Error: ${e.message}`); } finally { setStatusMessage(""); }
   };
 
   useEffect(() => { 
@@ -467,9 +548,9 @@ const GlobeContent = () => {
     }
   }, [displayData]); 
 
-  // ★修正: Web Speech API を使用する speak 関数
+  // Web Speech API
   const speak = (text) => {
-    window.speechSynthesis.cancel(); // 既存の読み上げをキャンセル
+    window.speechSynthesis.cancel();
 
     if (!text) {
         setIsPlaying(false);
@@ -479,7 +560,6 @@ const GlobeContent = () => {
     setIsPlaying(true);
 
     const utterance = new SpeechSynthesisUtterance(text);
-    // 言語設定（Android互換性のため）
     const langCode = LANGUAGES[currentLang]?.ttsCode || 'ja-JP';
     utterance.lang = langCode;
     utterance.rate = 1.0;
@@ -492,7 +572,6 @@ const GlobeContent = () => {
 
     utterance.onend = () => {
         setIsPlaying(false);
-        // ライドモード中なら次のスポットへ
         if (isRideModeRef.current) {
              rideTimeoutRef.current = setTimeout(nextRideStep, 2000);
         }
@@ -571,27 +650,27 @@ const GlobeContent = () => {
   }, [activeTab]);
 
   const handleContactSubmit = async () => {
-    if (!formEmail.trim() || !formMessage.trim()) return alert("メールアドレスとメッセージを入力してください");
+    if (!formEmail.trim() || !formMessage.trim()) return alert("Error: Email/Message empty");
     try {
         const { error } = await supabase.from('inquiries').insert({ user_id: user?.id, email: formEmail, message: formMessage });
         if (error) throw error;
-        alert("送信しました。ありがとうございます！");
+        alert("Sent!");
         setFormMessage(""); setShowContactModal(false);
-    } catch(e) { alert("送信エラー: " + e.message); }
+    } catch(e) { alert("Error: " + e.message); }
   };
 
   const handleRequestSubmit = async () => {
-    if (!formPlaceName.trim()) return alert("場所の名前を入力してください");
+    if (!formPlaceName.trim()) return alert("Error: Place name empty");
     try {
         const { error } = await supabase.from('place_requests').insert({ user_id: user?.id, place_name: formPlaceName, description: formPlaceDesc });
         if (error) throw error;
-        alert("リクエストを送信しました！");
+        alert("Sent!");
         setFormPlaceName(""); setFormPlaceDesc(""); setShowRequestModal(false);
-    } catch(e) { alert("送信エラー: " + e.message); }
+    } catch(e) { alert("Error: " + e.message); }
   };
 
   const handleGenerate = async () => {
-    if (!inputTheme) return; setIsGenerating(true); setStatusMessage("AI生成中...");
+    if (!inputTheme) return; setIsGenerating(true); setStatusMessage("AI Generating...");
     try {
       const genAI = new GoogleGenerativeAI(GEMINI_API_KEY); const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
       const prompt = `歴史ガイドとして「${inputTheme}」のスポットを3つ選んで。言語: ${LANGUAGES[currentLang].label}。出力(JSON): [{"name":"名称 #タグ","lat":0,"lon":0,"description":"解説"}]`;
@@ -600,7 +679,7 @@ const GlobeContent = () => {
       const insertData = newSpots.map(s => ({ ...s, name_ja: s.name, description_ja: s.description, category: 'history' }));
       await supabase.from('spots').insert(insertData); fetchSpots();
       if (newSpots.length > 0) mapRef.current?.flyTo({ center: [newSpots[0].lon, newSpots[0].lat], zoom: 4 });
-      setInputTheme(""); alert(`${newSpots.length}件追加！`);
+      setInputTheme(""); alert(`${newSpots.length} added!`);
     } catch (e) { alert(e.message); } finally { setIsGenerating(false); setStatusMessage(""); }
   };
 
@@ -611,11 +690,11 @@ const GlobeContent = () => {
     setTimeout(() => { nextRideStep(); }, 50);
   };
 
-  const handleCurrentLocation = () => { if (!navigator.geolocation) { alert("現在地機能が使えません"); return; } navigator.geolocation.getCurrentPosition((pos) => { mapRef.current?.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 9, speed: 1.5, curve: 1 }); }, () => { alert("位置情報の取得に失敗しました"); }); };
+  const handleCurrentLocation = () => { if (!navigator.geolocation) { alert("Geolocation not supported"); return; } navigator.geolocation.getCurrentPosition((pos) => { mapRef.current?.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 9, speed: 1.5, curve: 1 }); }, () => { alert("Geolocation failed"); }); };
   
   const startHistoryRide = () => { 
     if (!isPremium && !isVipUser(user?.email)) {
-        alert("🔒 ヒストリーライドはプレミアム限定機能です。\n歴史の旅へ出かけるにはアップグレードが必要です！");
+        alert(t.locked);
         return;
     }
 
@@ -638,7 +717,7 @@ const GlobeContent = () => {
     }
 
     if (candidates.length === 0) {
-        alert("条件に合うスポットが見つかりませんでした。");
+        alert("No spots found.");
         return;
     }
 
@@ -656,7 +735,7 @@ const GlobeContent = () => {
   const jumpToRandomSpot = (cat=null) => { 
     rideCategoryRef.current = cat; 
     if (cat && PREMIUM_CATEGORIES.includes(cat) && !isPremium && !isVipUser(user?.email)) {
-        alert("🔒 プレミアム限定機能です"); return;
+        alert(t.locked); return;
     }
     if (cat) { const newFilters = { landmark: false, history: false, nature: false, modern: false, science: false, art: false }; newFilters[cat] = true; setVisibleCategories(newFilters); } 
     else { setVisibleCategories({ landmark: true, history: true, nature: true, modern: true, science: true, art: true }); }
@@ -747,17 +826,15 @@ const GlobeContent = () => {
         const favSpots = locations.filter(l => favorites.has(l.id));
         const content = (
             <div>
-              <h2 style={{color:'#fff', marginTop:0, marginBottom:'5px', fontSize:'1.2rem'}}>お気に入りリスト</h2>
-              <div style={{color:'#888', fontSize:'0.8rem', marginBottom:'15px', borderBottom:'1px solid #333', paddingBottom:'10px'}}>保存したスポット</div>
+              <h2 style={{color:'#fff', marginTop:0, marginBottom:'5px', fontSize:'1.2rem'}}>{t.fav_title}</h2>
+              <div style={{color:'#888', fontSize:'0.8rem', marginBottom:'15px', borderBottom:'1px solid #333', paddingBottom:'10px'}}>{t.fav_desc}</div>
               {favSpots.length === 0 ? (
-                <div style={{color:'#666', textAlign:'center', marginTop:'30px'}}>
-                    ハートボタンを押して<br/>お気に入りに追加しよう ♥
-                </div>
+                <div style={{color:'#666', textAlign:'center', marginTop:'30px', whiteSpace:'pre-wrap'}}>{t.fav_empty}</div>
               ) : (
                 <div style={{ display:'flex', flexDirection:'column' }}>
                   {favSpots.map(spot => (
                     <div key={spot.id} onClick={() => handleSelectFromList(spot)} style={{ padding:'12px 5px', borderBottom:'1px solid #222', cursor:'pointer', background: selectedLocation?.id === spot.id ? 'rgba(0,255,204,0.1)' : 'transparent', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                      <div><div style={{color:'white', fontWeight:'bold', fontSize:'0.9rem'}}>{spot.name_ja || spot.name}</div><div style={{color:'#888', fontSize:'0.75rem', marginTop:'2px'}}>{getCategoryDetails(spot.category).tag}</div></div>
+                      <div><div style={{color:'white', fontWeight:'bold', fontSize:'0.9rem'}}>{spot.name_ja || spot.name}</div><div style={{color:'#888', fontSize:'0.75rem', marginTop:'2px'}}>{getCategoryDetails(spot.category, currentLang).tag}</div></div>
                       <button onClick={(e) => { e.stopPropagation(); toggleFavorite(spot.id); }} style={{background:'transparent', border:'none', color: '#ff3366', fontSize:'1.2rem', cursor:'pointer'}}>♥</button>
                     </div>
                   ))}
@@ -772,19 +849,19 @@ const GlobeContent = () => {
         const content = (
             <div>
               <div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'5px'}}>
-                <h2 style={{color:'#fff', margin:0, fontSize:'1.2rem'}}>探索</h2>
+                <h2 style={{color:'#fff', margin:0, fontSize:'1.2rem'}}>{t.explore_title}</h2>
                 <button onClick={() => setShowTutorial(true)} style={{ background: '#222', color: '#00ffcc', border: '1px solid #444', borderRadius: '12px', padding: '2px 8px', fontSize: '0.8rem', cursor: 'pointer' }}>
-                   🔰 チュートリアル
+                   {t.tutorial}
                 </button>
               </div>
-              <div style={{color:'#888', fontSize:'0.8rem', marginBottom:'15px', borderBottom:'1px solid #333', paddingBottom:'10px'}}>この地域のピックアップ</div>
+              <div style={{color:'#888', fontSize:'0.8rem', marginBottom:'15px', borderBottom:'1px solid #333', paddingBottom:'10px'}}>{t.explore_desc}</div>
               {nearbySpots.length === 0 ? (
-                <div style={{color:'#666', textAlign:'center', marginTop:'30px'}}>地図を動かして<br/>スポットを探そう 🌍</div>
+                <div style={{color:'#666', textAlign:'center', marginTop:'30px', whiteSpace:'pre-wrap'}}>{t.explore_empty}</div>
               ) : (
                 <div style={{ display:'flex', flexDirection:'column' }}>
                   {nearbySpots.map(spot => (
                     <div key={spot.id} onClick={() => handleSelectFromList(spot)} style={{ padding:'12px 5px', borderBottom:'1px solid #222', cursor:'pointer', background: selectedLocation?.id === spot.id ? 'rgba(0,255,204,0.1)' : 'transparent', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                      <div><div style={{color:'white', fontWeight:'bold', fontSize:'0.9rem'}}>{spot.name_ja || spot.name}</div><div style={{color:'#888', fontSize:'0.75rem', marginTop:'2px'}}>{getCategoryDetails(spot.category).tag}</div></div>
+                      <div><div style={{color:'white', fontWeight:'bold', fontSize:'0.9rem'}}>{spot.name_ja || spot.name}</div><div style={{color:'#888', fontSize:'0.75rem', marginTop:'2px'}}>{getCategoryDetails(spot.category, currentLang).tag}</div></div>
                       <button onClick={(e) => { e.stopPropagation(); toggleFavorite(spot.id); }} style={{background:'transparent', border:'none', color: favorites.has(spot.id)?'#ff3366':'#444', fontSize:'1.2rem', cursor:'pointer'}}>♥</button>
                     </div>
                   ))}
@@ -798,12 +875,12 @@ const GlobeContent = () => {
     if (activeTab === 'search') {
         const content = (
             <div>
-               <h2 style={{color:'#fff', marginTop:0, marginBottom:'20px'}}>検索</h2>
+               <h2 style={{color:'#fff', marginTop:0, marginBottom:'20px'}}>{t.search_title}</h2>
                <div style={{ display: 'flex', gap: '5px' }}>
                   <input autoFocus type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder={LANGUAGES[currentLang].placeholder} style={{ flex: 1, background: '#222', border: '1px solid #444', color: 'white', padding: '12px', borderRadius: '8px', fontSize:'1rem' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
-                  <button onClick={handleGenerate} style={{ background: '#00ffcc', color: 'black', border: 'none', borderRadius: '8px', padding: '0 15px', fontWeight: 'bold' }}>Go</button>
+                  <button onClick={handleGenerate} style={{ background: '#00ffcc', color: 'black', border: 'none', borderRadius: '8px', padding: '0 15px', fontWeight: 'bold' }}>{t.go}</button>
                </div>
-               <div style={{color:'#888', fontSize:'0.8rem', marginTop:'10px'}}>例: 「古代エジプトの遺跡」「パリの美術館」</div>
+               <div style={{color:'#888', fontSize:'0.8rem', marginTop:'10px'}}>{t.search_ex}</div>
             </div>
         );
         return isPc ? <div style={commonStyle}>{content}</div> : content;
@@ -823,26 +900,22 @@ const GlobeContent = () => {
                 {browseGuideStep === 1 ? (
                     <>
                         <div style={{fontSize:'3rem', marginBottom:'10px'}}>⏳</div>
-                        <h3 style={{color:'#ffcc00', margin:'0 0 10px 0'}}>ヒストリーライド</h3>
-                        <p style={{color:'#ddd', fontSize:'0.9rem', lineHeight:'1.5'}}>
-                            行きたい時代（年）を入力すると、<br/>その時代の歴史スポットへタイムスリップ！<br/>(プレミアム限定)
-                        </p>
-                        <button onClick={() => setBrowseGuideStep(2)} style={{marginTop:'15px', padding:'10px 30px', background:'white', color:'black', border:'none', borderRadius:'20px', fontWeight:'bold'}}>次へ</button>
+                        <h3 style={{color:'#ffcc00', margin:'0 0 10px 0'}}>{t.browse_hist}</h3>
+                        <p style={{color:'#ddd', fontSize:'0.9rem', lineHeight:'1.5'}} dangerouslySetInnerHTML={{ __html: t.browse_guide_hist }} />
+                        <button onClick={() => setBrowseGuideStep(2)} style={{marginTop:'15px', padding:'10px 30px', background:'white', color:'black', border:'none', borderRadius:'20px', fontWeight:'bold'}}>Next</button>
                     </>
                 ) : (
                     <>
                         <div style={{fontSize:'3rem', marginBottom:'10px'}}>🎲</div>
-                        <h3 style={{color:'#00ffcc', margin:'0 0 10px 0'}}>カテゴリツアー</h3>
-                        <p style={{color:'#ddd', fontSize:'0.9rem', lineHeight:'1.5'}}>
-                            好きなジャンルをタップするだけで、<br/>ランダムに世界中のスポットへ飛びます。<br/>偶然の出会いを楽しもう！
-                        </p>
-                        <button onClick={handleBrowseGuideFinish} style={{marginTop:'15px', padding:'10px 30px', background:'#00ffcc', color:'black', border:'none', borderRadius:'20px', fontWeight:'bold'}}>始める！</button>
+                        <h3 style={{color:'#00ffcc', margin:'0 0 10px 0'}}>{t.browse_title}</h3>
+                        <p style={{color:'#ddd', fontSize:'0.9rem', lineHeight:'1.5'}} dangerouslySetInnerHTML={{ __html: t.browse_guide_cat }} />
+                        <button onClick={handleBrowseGuideFinish} style={{marginTop:'15px', padding:'10px 30px', background:'#00ffcc', color:'black', border:'none', borderRadius:'20px', fontWeight:'bold'}}>{t.start}</button>
                     </>
                 )}
             </div>
           )}
 
-          <h2 style={{color:'#fff', marginTop:0, fontSize:'1.5rem'}}>ブラウズ</h2>
+          <h2 style={{color:'#fff', marginTop:0, fontSize:'1.5rem'}}>{t.browse_title}</h2>
           <div style={{ 
               background: '#222', 
               borderRadius: '12px', 
@@ -854,35 +927,35 @@ const GlobeContent = () => {
               pointerEvents: isUserPremium ? 'auto' : 'none' 
           }}>
             {!isUserPremium && (
-                <div style={{position:'absolute', top:0, left:0, width:'100%', height:'100%', zIndex:10, display:'flex', justifyContent:'center', alignItems:'center', pointerEvents:'auto'}} onClick={() => alert("🔒 ヒストリーライドはプレミアム限定機能です")}>
-                    <div style={{background:'rgba(0,0,0,0.8)', padding:'5px 15px', borderRadius:'10px', border:'1px solid #ffcc00', color:'white', fontWeight:'bold'}}>🔒 プレミアム (History)</div>
+                <div style={{position:'absolute', top:0, left:0, width:'100%', height:'100%', zIndex:10, display:'flex', justifyContent:'center', alignItems:'center', pointerEvents:'auto'}} onClick={() => alert(t.locked)}>
+                    <div style={{background:'rgba(0,0,0,0.8)', padding:'5px 15px', borderRadius:'10px', border:'1px solid #ffcc00', color:'white', fontWeight:'bold'}}>{t.locked}</div>
                 </div>
             )}
-            <h4 style={{ margin: '0 0 10px 0', color: '#ffcc00' }}>⏳ ヒストリーライド</h4>
+            <h4 style={{ margin: '0 0 10px 0', color: '#ffcc00' }}>{t.browse_hist}</h4>
             <div style={{ display: 'flex', gap: '5px', marginBottom: '10px' }}>
-                <input type="number" placeholder="年" value={historyYearInput} onChange={e => setHistoryYearInput(e.target.value)} style={{ flex: 1, padding: '8px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }} />
+                <input type="number" placeholder="Year" value={historyYearInput} onChange={e => setHistoryYearInput(e.target.value)} style={{ flex: 1, padding: '8px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }} />
                 <select value={historyEra} onChange={e => setHistoryEra(e.target.value)} style={{ background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}><option value="AD">{ERA_LABELS[currentLang].AD}</option><option value="BC">{ERA_LABELS[currentLang].BC}</option></select>
             </div>
-            <select value={historyCountry} onChange={e => setHistoryCountry(e.target.value)} style={{ width: '100%', padding: '8px', marginBottom: '15px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}><option value="ALL">全ての国</option>{countryList.map(c => <option key={c} value={c}>{c}</option>)}</select>
-            <button onClick={startHistoryRide} style={{ width: '100%', padding: '10px', borderRadius: '20px', background: '#ffcc00', border: 'none', color: 'black', fontWeight: 'bold', cursor: 'pointer' }}>START</button>
+            <select value={historyCountry} onChange={e => setHistoryCountry(e.target.value)} style={{ width: '100%', padding: '8px', marginBottom: '15px', background: '#111', color: 'white', border:'1px solid #555', borderRadius:'5px' }}><option value="ALL">All Countries</option>{countryList.map(c => <option key={c} value={c}>{c}</option>)}</select>
+            <button onClick={startHistoryRide} style={{ width: '100%', padding: '10px', borderRadius: '20px', background: '#ffcc00', border: 'none', color: 'black', fontWeight: 'bold', cursor: 'pointer' }}>{t.start}</button>
           </div>
 
-          <div style={{color:'#888', fontSize:'0.9rem', marginBottom:'15px'}}>カテゴリを選んでツアーを開始</div>
+          <div style={{color:'#888', fontSize:'0.9rem', marginBottom:'15px'}}>{t.browse_cat}</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-            <div onClick={() => jumpToRandomSpot('landmark')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333' }}><div style={{fontSize:'1.5rem'}}>🏯</div><div style={{color:'#ff8800', fontSize:'0.8rem'}}>観光名所</div></div>
-            <div onClick={() => jumpToRandomSpot('history')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333' }}><div style={{fontSize:'1.5rem'}}>🏛️</div><div style={{color:'#ffcc00', fontSize:'0.8rem'}}>歴史</div></div>
+            <div onClick={() => jumpToRandomSpot('landmark')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333' }}><div style={{fontSize:'1.5rem'}}>🏯</div><div style={{color:'#ff8800', fontSize:'0.8rem'}}>{t.cat_landmark}</div></div>
+            <div onClick={() => jumpToRandomSpot('history')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333' }}><div style={{fontSize:'1.5rem'}}>🏛️</div><div style={{color:'#ffcc00', fontSize:'0.8rem'}}>{t.cat_history}</div></div>
             
-            <div onClick={() => isUserPremium ? jumpToRandomSpot('nature') : alert('🔒 プレミアム限定です')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isUserPremium ? 1 : 0.5 }}>
-              <div style={{fontSize:'1.5rem'}}>{isUserPremium ? '🌲' : '🔒'}</div><div style={{color:'#00ff7f', fontSize:'0.8rem'}}>自然 (Pro)</div>
+            <div onClick={() => isUserPremium ? jumpToRandomSpot('nature') : alert(t.locked)} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isUserPremium ? 1 : 0.5 }}>
+              <div style={{fontSize:'1.5rem'}}>{isUserPremium ? '🌲' : '🔒'}</div><div style={{color:'#00ff7f', fontSize:'0.8rem'}}>{t.cat_nature}</div>
             </div>
-            <div onClick={() => isUserPremium ? jumpToRandomSpot('modern') : alert('🔒 プレミアム限定です')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isUserPremium ? 1 : 0.5 }}>
-              <div style={{fontSize:'1.5rem'}}>{isUserPremium ? '🏙️' : '🔒'}</div><div style={{color:'#00ffff', fontSize:'0.8rem'}}>現代 (Pro)</div>
+            <div onClick={() => isUserPremium ? jumpToRandomSpot('modern') : alert(t.locked)} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isUserPremium ? 1 : 0.5 }}>
+              <div style={{fontSize:'1.5rem'}}>{isUserPremium ? '🏙️' : '🔒'}</div><div style={{color:'#00ffff', fontSize:'0.8rem'}}>{t.cat_modern}</div>
             </div>
-            <div onClick={() => isUserPremium ? jumpToRandomSpot('science') : alert('🔒 プレミアム限定です')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isUserPremium ? 1 : 0.5 }}>
-              <div style={{fontSize:'1.5rem'}}>{isUserPremium ? '🚀' : '🔒'}</div><div style={{color:'#d800ff', fontSize:'0.8rem'}}>科学 (Pro)</div>
+            <div onClick={() => isUserPremium ? jumpToRandomSpot('science') : alert(t.locked)} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isUserPremium ? 1 : 0.5 }}>
+              <div style={{fontSize:'1.5rem'}}>{isUserPremium ? '🚀' : '🔒'}</div><div style={{color:'#d800ff', fontSize:'0.8rem'}}>{t.cat_science}</div>
             </div>
-            <div onClick={() => isUserPremium ? jumpToRandomSpot('art') : alert('🔒 プレミアム限定です')} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isUserPremium ? 1 : 0.5 }}>
-              <div style={{fontSize:'1.5rem'}}>{isUserPremium ? '🎨' : '🔒'}</div><div style={{color:'#ff0055', fontSize:'0.8rem'}}>芸術 (Pro)</div>
+            <div onClick={() => isUserPremium ? jumpToRandomSpot('art') : alert(t.locked)} style={{ background: '#222', padding: '15px', borderRadius: '10px', cursor: 'pointer', textAlign:'center', border:'1px solid #333', opacity: isUserPremium ? 1 : 0.5 }}>
+              <div style={{fontSize:'1.5rem'}}>{isUserPremium ? '🎨' : '🔒'}</div><div style={{color:'#ff0055', fontSize:'0.8rem'}}>{t.cat_art}</div>
             </div>
           </div>
         </div>
@@ -893,34 +966,31 @@ const GlobeContent = () => {
     if (activeTab === 'settings') {
       const content = (
         <div>
-          <h2 style={{ color: 'white', marginTop: 0, fontSize:'1.5rem', marginBottom:'20px' }}>設定</h2>
+          <h2 style={{ color: 'white', marginTop: 0, fontSize:'1.5rem', marginBottom:'20px' }}>{t.settings_title}</h2>
           
           {(!isPremium && !isVipUser(user?.email)) && (
             <div style={{ background: '#222', borderRadius: '16px', padding: '20px', marginBottom: '25px', boxShadow: '0 4px 15px rgba(0,0,0,0.5)', border: '1px solid #333', textAlign: 'left' }}>
               <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px' }}>
                 <div style={{ fontSize: '2.5rem', marginRight: '15px' }}>🌍</div>
-                <div><div style={{ color: 'white', fontSize: '1.2rem', fontWeight: 'bold' }}>GeoVoice</div><div style={{ color: '#00ffcc', fontSize: '1.4rem', fontWeight: 'bold', letterSpacing: '1px' }}>プレミアム</div></div>
+                <div><div style={{ color: 'white', fontSize: '1.2rem', fontWeight: 'bold' }}>GeoVoice</div><div style={{ color: '#00ffcc', fontSize: '1.4rem', fontWeight: 'bold', letterSpacing: '1px' }}>Premium</div></div>
               </div>
               <div style={{ color: '#ccc', marginBottom: '20px', fontSize: '0.9rem', lineHeight: '1.8' }}>
-                <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> 広告なしで快適に</div>
-                <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> 自然・現代・科学・芸術 カテゴリ解放</div>
-                <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> <b>約{premiumSpotCount}件</b>のスポットが追加されます！</div>
-                <div style={{ display: 'flex', alignItems: 'center' }}><span style={{ color: '#00ffcc', marginRight: '10px' }}>✓</span> ヒストリーライド＆AIガイド使い放題</div>
+                 {t.premium_desc}
               </div>
-              <button style={{ width: '100%', padding: '12px', background: '#00ffcc', color: 'black', border: 'none', borderRadius: '25px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', marginBottom: '10px' }}>プレミアムに参加する</button>
-              <div style={{ textAlign: 'center', color: '#888', fontSize: '0.8rem', cursor: 'pointer', textDecoration: 'underline' }}>購入を復元</div>
+              <button style={{ width: '100%', padding: '12px', background: '#00ffcc', color: 'black', border: 'none', borderRadius: '25px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', marginBottom: '10px' }}>{t.premium_join}</button>
+              <div style={{ textAlign: 'center', color: '#888', fontSize: '0.8rem', cursor: 'pointer', textDecoration: 'underline' }}>{t.restore}</div>
             </div>
           )}
 
           {(isPremium || isVipUser(user?.email)) && (
              <div style={{ background: 'linear-gradient(45deg, #00332a, #000)', borderRadius: '16px', padding: '20px', marginBottom: '25px', border: '1px solid #00ffcc', textAlign: 'center' }}>
                 <div style={{ color: '#00ffcc', fontWeight: 'bold', fontSize: '1.2rem', marginBottom: '5px' }}>💎 Premium Member</div>
-                <div style={{ color: '#ccc', fontSize: '0.9rem' }}>全ての機能が解放されています</div>
+                <div style={{ color: '#ccc', fontSize: '0.9rem' }}>Thank you for your support!</div>
              </div>
           )}
 
           <div style={{marginBottom: '20px'}}>
-            <div style={{color:'white', marginBottom:'5px'}}>言語設定 / Language</div>
+            <div style={{color:'white', marginBottom:'5px'}}>Language</div>
             <select value={currentLang} onChange={(e) => setCurrentLang(e.target.value)} style={{width:'100%', padding:'8px', background:'#333', color:'white', border:'1px solid #555', borderRadius:'5px'}}>
               {Object.values(LANGUAGES).map(L => <option key={L.code} value={L.code}>{L.label}</option>)}
             </select>
@@ -928,7 +998,7 @@ const GlobeContent = () => {
 
           <div style={{ padding: '15px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px', color: 'white', alignItems:'center' }}>
-                  <span>BGM Player</span>
+                  <span>{t.bgm_player}</span>
                   <button onClick={() => setIsBgmOn(!isBgmOn)} style={{ background: 'transparent', color: isBgmOn?'#00ffcc':'#666', border: 'none', cursor: 'pointer', fontWeight:'bold' }}>{isBgmOn ? 'ON' : 'OFF'}</button>
               </div>
               <div style={{background:'#111', padding:'10px', borderRadius:'8px', marginBottom:'15px', border:'1px solid #444'}}>
@@ -949,20 +1019,20 @@ const GlobeContent = () => {
                   </div>
               </div>
               <input type="range" min="0" max="1" step="0.1" value={bgmVolume} onChange={e => setBgmVolume(parseFloat(e.target.value))} style={{ width: '100%', marginBottom:'20px', accentColor:'#00ffcc' }} />
-              <div style={{ color: 'white', marginBottom: '10px' }}>ボイス音量</div>
+              <div style={{ color: 'white', marginBottom: '10px' }}>{t.voice_vol}</div>
               <input type="range" min="0" max="1" step="0.1" value={voiceVolume} onChange={e => setVoiceVolume(parseFloat(e.target.value))} style={{ width: '100%', accentColor:'#00ffcc' }} />
           </div>
           
           <div style={{ marginTop: '20px', padding: '15px 0', borderTop: '1px solid #333', display: 'flex', flexDirection: 'column', gap: '10px' }}>
             <button onClick={() => setShowContactModal(true)} style={{ width: '100%', padding: '12px', background: '#222', color: 'white', border: '1px solid #444', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center' }}>
-                <span style={{ marginRight: '10px', fontSize: '1.2rem' }}>📧</span> お問い合わせ
+                <span style={{ marginRight: '10px', fontSize: '1.2rem' }}>📧</span> {t.contact}
             </button>
             <button onClick={() => setShowRequestModal(true)} style={{ width: '100%', padding: '12px', background: '#222', color: 'white', border: '1px solid #444', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center' }}>
-                <span style={{ marginRight: '10px', fontSize: '1.2rem' }}>📍</span> 場所の追加依頼
+                <span style={{ marginRight: '10px', fontSize: '1.2rem' }}>📍</span> {t.request}
             </button>
           </div>
           
-          {user && <button onClick={() => { if(confirm('Logout?')) { supabase.auth.signOut(); clearUser(); handleTabChange('map'); }}} style={{ width: '100%', padding: '15px', background: '#222', color: '#ff3366', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 'bold', marginTop:'30px' }}>ログアウト</button>}
+          {user && <button onClick={() => { if(confirm('Logout?')) { supabase.auth.signOut(); clearUser(); handleTabChange('map'); }}} style={{ width: '100%', padding: '15px', background: '#222', color: '#ff3366', border: 'none', borderRadius: '10px', fontSize: '1rem', fontWeight: 'bold', marginTop:'30px' }}>{t.logout}</button>}
           <div style={{ height: '80px' }}></div> 
         </div>
       );
@@ -978,41 +1048,37 @@ const GlobeContent = () => {
       {showSplash && <SplashScreen onFinished={handleSplashFinish} />}
       {showTutorial && <TutorialOverlay onClose={() => setShowTutorial(false)} onLanguageSelect={handleLanguageSelect} />}
 
-      {/* お問い合わせモーダル - zIndexを最強に */}
+      {/* Contact Modal */}
       {showContactModal && (
         <div style={{ position:'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.8)', zIndex:9999, display:'flex', justifyContent:'center', alignItems:'center' }} onClick={() => setShowContactModal(false)}>
             <div style={{ width:'90%', maxWidth:'400px', background:'#222', padding:'20px', borderRadius:'15px', border:'1px solid #444' }} onClick={e => e.stopPropagation()}>
-                <h3 style={{color:'white', marginTop:0}}>📧 お問い合わせ</h3>
-                <div style={{color:'white', marginBottom:'5px'}}>メールアドレス (必須)</div>
-                <input type="email" value={formEmail} onChange={e => setFormEmail(e.target.value)} style={{width:'100%', padding:'10px', marginBottom:'15px', background:'#333', border:'1px solid #555', color:'white', borderRadius:'5px'}} />
-                <div style={{color:'white', marginBottom:'5px'}}>メッセージ</div>
-                <textarea value={formMessage} onChange={e => setFormMessage(e.target.value)} rows={5} style={{width:'100%', padding:'10px', marginBottom:'15px', background:'#333', border:'1px solid #555', color:'white', borderRadius:'5px'}}></textarea>
+                <h3 style={{color:'white', marginTop:0}}>{t.contact}</h3>
+                <input type="email" placeholder="Email" value={formEmail} onChange={e => setFormEmail(e.target.value)} style={{width:'100%', padding:'10px', marginBottom:'15px', background:'#333', border:'1px solid #555', color:'white', borderRadius:'5px'}} />
+                <textarea placeholder="Message" value={formMessage} onChange={e => setFormMessage(e.target.value)} rows={5} style={{width:'100%', padding:'10px', marginBottom:'15px', background:'#333', border:'1px solid #555', color:'white', borderRadius:'5px'}}></textarea>
                 <div style={{display:'flex', gap:'10px'}}>
-                    <button onClick={() => setShowContactModal(false)} style={{flex:1, padding:'10px', background:'#444', color:'white', border:'none', borderRadius:'5px'}}>キャンセル</button>
-                    <button onClick={handleContactSubmit} style={{flex:1, padding:'10px', background:'#00ffcc', color:'black', fontWeight:'bold', border:'none', borderRadius:'5px'}}>送信</button>
+                    <button onClick={() => setShowContactModal(false)} style={{flex:1, padding:'10px', background:'#444', color:'white', border:'none', borderRadius:'5px'}}>Cancel</button>
+                    <button onClick={handleContactSubmit} style={{flex:1, padding:'10px', background:'#00ffcc', color:'black', fontWeight:'bold', border:'none', borderRadius:'5px'}}>Send</button>
                 </div>
             </div>
         </div>
       )}
 
-      {/* 場所追加依頼モーダル - zIndexを最強に */}
+      {/* Request Modal */}
       {showRequestModal && (
         <div style={{ position:'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.8)', zIndex:9999, display:'flex', justifyContent:'center', alignItems:'center' }} onClick={() => setShowRequestModal(false)}>
             <div style={{ width:'90%', maxWidth:'400px', background:'#222', padding:'20px', borderRadius:'15px', border:'1px solid #444' }} onClick={e => e.stopPropagation()}>
-                <h3 style={{color:'white', marginTop:0}}>📍 場所の追加依頼</h3>
-                <div style={{color:'white', marginBottom:'5px'}}>場所の名前 / 住所</div>
-                <input type="text" value={formPlaceName} onChange={e => setFormPlaceName(e.target.value)} style={{width:'100%', padding:'10px', marginBottom:'15px', background:'#333', border:'1px solid #555', color:'white', borderRadius:'5px'}} />
-                <div style={{color:'white', marginBottom:'5px'}}>補足情報 (任意)</div>
-                <textarea value={formPlaceDesc} onChange={e => setFormPlaceDesc(e.target.value)} rows={3} style={{width:'100%', padding:'10px', marginBottom:'15px', background:'#333', border:'1px solid #555', color:'white', borderRadius:'5px'}}></textarea>
+                <h3 style={{color:'white', marginTop:0}}>{t.request}</h3>
+                <input type="text" placeholder="Place Name" value={formPlaceName} onChange={e => setFormPlaceName(e.target.value)} style={{width:'100%', padding:'10px', marginBottom:'15px', background:'#333', border:'1px solid #555', color:'white', borderRadius:'5px'}} />
+                <textarea placeholder="Details (Optional)" value={formPlaceDesc} onChange={e => setFormPlaceDesc(e.target.value)} rows={3} style={{width:'100%', padding:'10px', marginBottom:'15px', background:'#333', border:'1px solid #555', color:'white', borderRadius:'5px'}}></textarea>
                 <div style={{display:'flex', gap:'10px'}}>
-                    <button onClick={() => setShowRequestModal(false)} style={{flex:1, padding:'10px', background:'#444', color:'white', border:'none', borderRadius:'5px'}}>キャンセル</button>
-                    <button onClick={handleRequestSubmit} style={{flex:1, padding:'10px', background:'#00ffcc', color:'black', fontWeight:'bold', border:'none', borderRadius:'5px'}}>送信</button>
+                    <button onClick={() => setShowRequestModal(false)} style={{flex:1, padding:'10px', background:'#444', color:'white', border:'none', borderRadius:'5px'}}>Cancel</button>
+                    <button onClick={handleRequestSubmit} style={{flex:1, padding:'10px', background:'#00ffcc', color:'black', fontWeight:'bold', border:'none', borderRadius:'5px'}}>Send</button>
                 </div>
             </div>
         </div>
       )}
 
-      {/* ログインモーダル - zIndexを最強に */}
+      {/* Login Modal */}
       {showAuthModal && (
         <div style={{ position:'fixed', top:0, left:0, width:'100%', height:'100%', zIndex:9999 }}>
             <AuthModal onClose={() => setShowAuthModal(false)} onLoginSuccess={setupUser} />
@@ -1025,11 +1091,11 @@ const GlobeContent = () => {
 
       {!isPremium && !isVipUser(user?.email) && (
         <div style={{ position: 'absolute', top: '50px', left: '50%', transform: 'translateX(-50%)', zIndex: 90, width: '320px', height: '50px', background: 'rgba(255,255,255,0.1)', border: '1px dashed #666', color: '#888', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', pointerEvents: 'none' }}>
-          [ここに広告バナーが入ります]
+          [AD Banner]
         </div>
       )}
 
-      {/* 〇枠 */}
+      {/* Center Marker */}
       <div style={{ 
           position: 'absolute', 
           top: isPc ? '50%' : '30%', 
@@ -1061,27 +1127,26 @@ const GlobeContent = () => {
                <div style={{ padding: '15px', borderBottom:'1px solid #222' }}>
                   <div style={{ display: 'flex', gap: '5px' }}>
                     <input autoFocus type="text" value={inputTheme} onChange={e => setInputTheme(e.target.value)} placeholder={LANGUAGES[currentLang].placeholder} style={{ flex: 1, background: '#222', border: '1px solid #444', color: 'white', padding: '12px', borderRadius: '8px', fontSize:'1rem' }} onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
-                    <button onClick={handleGenerate} style={{ background: '#00ffcc', color: 'black', border: 'none', borderRadius: '8px', padding: '0 15px', fontWeight: 'bold' }}>Go</button>
+                    <button onClick={handleGenerate} style={{ background: '#00ffcc', color: 'black', border: 'none', borderRadius: '8px', padding: '0 15px', fontWeight: 'bold' }}>{t.go}</button>
                   </div>
                </div>
             )}
             <div style={{ display: 'flex', borderTop: '1px solid #222', height:'70px', alignItems:'center' }}>
-              <NavButton icon="🌍" label="探索" active={activeTab === 'explore'} onClick={() => handleTabChange('explore')} />
-              {/* PC用: ログイン状態による条件分岐 */}
+              <NavButton icon="🌍" label={t.explore} active={activeTab === 'explore'} onClick={() => handleTabChange('explore')} />
               {user ? (
-                <NavButton icon="♥" label="リスト" active={activeTab === 'fav'} onClick={() => handleTabChange('fav')} />
+                <NavButton icon="♥" label={t.list} active={activeTab === 'fav'} onClick={() => handleTabChange('fav')} />
               ) : (
-                <NavButton icon="👤" label="Sign In" active={false} onClick={() => setShowAuthModal(true)} />
+                <NavButton icon="👤" label={t.signin} active={false} onClick={() => setShowAuthModal(true)} />
               )}
-              <NavButton icon="🎲" label="ブラウズ" active={activeTab === 'browse'} onClick={() => handleTabChange('browse')} />
-              <NavButton icon="🔍" label="検索" active={activeTab === 'search'} onClick={() => handleTabChange('search')} />
-              <NavButton icon="⚙️" label="設定" active={activeTab === 'settings'} onClick={() => handleTabChange('settings')} />
+              <NavButton icon="🎲" label={t.browse} active={activeTab === 'browse'} onClick={() => handleTabChange('browse')} />
+              <NavButton icon="🔍" label={t.search} active={activeTab === 'search'} onClick={() => handleTabChange('search')} />
+              <NavButton icon="⚙️" label={t.settings} active={activeTab === 'settings'} onClick={() => handleTabChange('settings')} />
             </div>
           </div>
         </div>
       )}
 
-      {/* スマホ用ボトムシート */}
+      {/* Mobile Bottom Sheet */}
       {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== null && (
         <div style={{ 
             position: 'fixed', bottom: '80px', left: 0, width: '100%', height: '45vh', 
@@ -1096,21 +1161,18 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* スマホ用ナビゲーションバー */}
+      {/* Mobile Nav Bar */}
       {!isPc && (
         <div style={{ position: 'fixed', bottom: 0, left: 0, width: '100%', height: '80px', background: 'rgba(0, 0, 0, 0.95)', borderTop: '1px solid #333', display: 'flex', justifyContent: 'space-around', alignItems: 'center', zIndex: 100, paddingBottom: 'env(safe-area-inset-bottom)' }}>
-          <NavButton icon="🌍" label="探索" active={activeTab === 'explore'} onClick={() => handleTabChange('explore')} />
-          
-          {/* ★修正: モバイル用 ログイン状態による条件分岐 */}
+          <NavButton icon="🌍" label={t.explore} active={activeTab === 'explore'} onClick={() => handleTabChange('explore')} />
           {user ? (
-            <NavButton icon="♥" label="リスト" active={activeTab === 'fav'} onClick={() => handleTabChange('fav')} />
+            <NavButton icon="♥" label={t.list} active={activeTab === 'fav'} onClick={() => handleTabChange('fav')} />
           ) : (
-            <NavButton icon="👤" label="Sign In" active={false} onClick={() => setShowAuthModal(true)} />
+            <NavButton icon="👤" label={t.signin} active={false} onClick={() => setShowAuthModal(true)} />
           )}
-
-          <NavButton icon="🎲" label="ブラウズ" active={activeTab === 'browse'} onClick={() => handleTabChange('browse')} />
-          <NavButton icon="🔍" label="検索" active={activeTab === 'search'} onClick={() => handleTabChange('search')} />
-          <NavButton icon="⚙️" label="設定" active={activeTab === 'settings'} onClick={() => handleTabChange('settings')} />
+          <NavButton icon="🎲" label={t.browse} active={activeTab === 'browse'} onClick={() => handleTabChange('browse')} />
+          <NavButton icon="🔍" label={t.search} active={activeTab === 'search'} onClick={() => handleTabChange('search')} />
+          <NavButton icon="⚙️" label={t.settings} active={activeTab === 'settings'} onClick={() => handleTabChange('settings')} />
         </div>
       )}
 
@@ -1184,19 +1246,19 @@ const GlobeContent = () => {
             <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#ffccaa', marginBottom: '5px', flexShrink: 0 }}>{displayData.name.split('#')[0].trim()}</div>
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginBottom: '10px', flexShrink: 0, flexWrap: 'wrap' }}>
               {(displayData.country_ja || displayData.country) && (<span style={{ fontSize: '0.8rem', padding: '2px 10px', borderRadius: '12px', backgroundColor: '#333', border: '1px solid #888', color: '#eee', fontWeight: 'bold' }}>{displayData.country_ja || displayData.country}</span>)}
-              {(() => { const { tag, color } = getCategoryDetails(displayData.category); return (<span style={{ fontSize: '0.8rem', padding: '2px 10px', borderRadius: '12px', backgroundColor: color, color: '#000', fontWeight: 'bold', boxShadow: '0 0 5px '+color }}>#{tag}</span>); })()}
+              {(() => { const { tag, color } = getCategoryDetails(displayData.category, currentLang); return (<span style={{ fontSize: '0.8rem', padding: '2px 10px', borderRadius: '12px', backgroundColor: color, color: '#000', fontWeight: 'bold', boxShadow: '0 0 5px '+color }}>#{tag}</span>); })()}
               {displayData.needsTranslation && (<button onMouseDown={e => e.stopPropagation()} onClick={() => translateAndFix(displayData, currentLang)} style={{ background: '#00ffcc', color: 'black', border: 'none', borderRadius: '4px', padding: '2px 10px', fontSize: '0.8rem', fontWeight: 'bold', cursor: 'pointer' }}>🔄 翻訳</button>)}
             </div>
             <div style={{ overflowY: 'auto', flex: 1, touchAction: 'pan-y', paddingBottom: '10px' }} onMouseDown={e => e.stopPropagation()}>
               <p style={{ margin: 0, fontSize: '0.85rem', color: '#ddd', lineHeight: '1.6', textAlign: 'left' }}>{displayData.description}</p>
             </div>
-            {isPc && <button onClick={() => { if (!isRideMode) setIsRideMode(true); nextRideStep(); }} style={{ marginTop:'10px', width:'100%', padding:'10px', background:'#333', color:'white', border:'1px solid #555', borderRadius:'5px' }}>⏩ {isRideMode ? '次へスキップ' : 'ツアーを開始'}</button>}
-            {!isPc && isRideMode && <button onClick={handleNextRide} style={{ marginTop:'10px', width:'100%', padding:'10px', background:'#333', color:'white', border:'1px solid #555', borderRadius:'5px' }}>⏩ 次へスキップ</button>}
+            {isPc && <button onClick={() => { if (!isRideMode) setIsRideMode(true); nextRideStep(); }} style={{ marginTop:'10px', width:'100%', padding:'10px', background:'#333', color:'white', border:'1px solid #555', borderRadius:'5px' }}>⏩ {isRideMode ? 'Skip' : 'Start Tour'}</button>}
+            {!isPc && isRideMode && <button onClick={handleNextRide} style={{ marginTop:'10px', width:'100%', padding:'10px', background:'#333', color:'white', border:'1px solid #555', borderRadius:'5px' }}>⏩ Skip</button>}
           </div>
         </>
       )}
 
-      {/* メモ化マップの使用 (self-closing) */}
+      {/* Memoized Map (self-closing) */}
       <MemoizedMap 
         mapRef={mapRef} 
         mapboxAccessToken={MAPBOX_TOKEN} 
