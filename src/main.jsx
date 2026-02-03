@@ -2,6 +2,9 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
+// ★追加: これがないと実機で地図が表示されません！
+import 'mapbox-gl/dist/mapbox-gl.css'; 
+
 import { registerSW } from 'virtual:pwa-register';
 
 // PWAの自動更新設定
