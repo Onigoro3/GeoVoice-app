@@ -305,9 +305,11 @@ const GlobeContent = () => {
   useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
   useEffect(() => { visibleCategoriesRef.current = visibleCategories; }, [visibleCategories]);
   
+  // Refにも最新の状態を同期
   useEffect(() => { isRideModeRef.current = isRideMode; }, [isRideMode]);
   useEffect(() => { isHistoryModeRef.current = isHistoryMode; }, [isHistoryMode]);
   useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
+  useEffect(() => { rideCategoryRef.current = rideCategoryRef.current; }, []); // 初期化維持
 
   useEffect(() => {
     if (nearbySpots.length > 0) {
@@ -367,12 +369,9 @@ const GlobeContent = () => {
 
   const addLog = (msg) => { console.log(msg); setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 5)); };
 
-  // ★修正: 並列処理による爆速全件取得
   const fetchSpots = async () => {
     try {
       setStatusMessage("Loading Spots...");
-      
-      // 1. まず件数だけ取得してゴールを決める
       const countResult = await supabase.from('spots').select('*', { count: 'exact', head: true });
       const totalCount = countResult.count;
       
@@ -383,13 +382,11 @@ const GlobeContent = () => {
 
       console.log(`Total spots in DB: ${totalCount}`);
       
-      // 2. 並列リクエストの準備
-      const batchSize = 1000; // 安全なバッチサイズ
+      const batchSize = 1000; 
       const requests = [];
       const columns = 'id, lat, lon, category';
 
       for (let i = 0; i < totalCount; i += batchSize) {
-          // Promiseを配列に貯める（まだawaitしない）
           const request = supabase
               .from('spots')
               .select(columns)
@@ -404,19 +401,15 @@ const GlobeContent = () => {
           requests.push(request);
       }
 
-      // 3. 一気に実行！ (Promise.all)
       const results = await Promise.all(requests);
-      
-      // 4. 結果を結合
       const allSpots = results.flat().map(d => ({ 
           ...d, 
           category: d.category || 'history' 
       }));
 
-      // デバッグ用: 実際に取得できた数を表示
       addLog(`Loaded ${allSpots.length} / ${totalCount} spots`);
       setLocations(allSpots);
-      setStatusMessage(""); // クリア
+      setStatusMessage(""); 
 
     } catch (e) { 
         addLog(`Fetch Error: ${e.message}`); 
@@ -462,12 +455,13 @@ const GlobeContent = () => {
 
   const handleSelectFromList = (spot) => { fetchAndSelectSpot(spot.id); };
   
+  // ★重要修正: fetchAndSelectSpot の返り値を Promise<boolean> に変更（成功失敗を返す）
   const fetchAndSelectSpot = async (spotId, fromPreload=false) => {
     if (!fromPreload) {
         const spot = locationsRef.current.find(s => s.id === spotId);
         if (spot && PREMIUM_CATEGORIES.includes(spot.category) && !isPremium && !isVipUser(user?.email)) {
             alert(t.locked);
-            return;
+            return false; // 失敗
         }
     }
 
@@ -477,18 +471,22 @@ const GlobeContent = () => {
             fullSpot = nextSpotDataRef.current;
             nextSpotDataRef.current = null; 
         } else {
-            const { data } = await supabase.from('spots').select('*').eq('id', spotId).single();
-            if (data) {
-                fullSpot = { ...data, category: data.category || 'history' };
-            }
+            const { data, error } = await supabase.from('spots').select('*').eq('id', spotId).single();
+            if (error || !data) throw new Error("Load failed");
+            fullSpot = { ...data, category: data.category || 'history' };
         }
 
         if (fullSpot) {
             setSelectedLocation(fullSpot);
             mapRef.current?.flyTo({ center: [fullSpot.lon, fullSpot.lat], zoom: 6, speed: 2.0, curve: 1, essential: true });
             if (isRideModeRef.current) setTimeout(preloadNextSpot, 500); 
+            return true; // 成功
         }
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+        console.error("fetchAndSelectSpot Error:", e);
+        return false; // 失敗
+    }
+    return false;
   };
 
   const translateAndFix = async (spot, lang) => {
@@ -527,6 +525,7 @@ const GlobeContent = () => {
     }
   }, [displayData]); 
 
+  // ★重要修正: TTSにタイムアウトを追加して、止まるのを防ぐ
   const speak = async (text) => {
     if (!text) {
         setIsPlaying(false);
@@ -535,19 +534,29 @@ const GlobeContent = () => {
     try { await TextToSpeech.stop(); } catch(e){}
     setIsPlaying(true);
     isPlayingRef.current = true;
+    
+    // 長すぎる文章は分割
     const chunks = text.match(/[^。！？\n]+[。！？\n]+/g) || [text];
+    
     try {
         for (const chunk of chunks) {
             if (!isPlayingRef.current) break;
-            await TextToSpeech.speak({
+            
+            // TTSのタイムアウト設定（1文あたり最大10秒）
+            const ttsPromise = TextToSpeech.speak({
                 text: chunk,
                 lang: LANGUAGES[currentLang].ttsCode,
                 rate: 1.0,
                 pitch: 1.0,
                 volume: voiceVolume,
             });
+            
+            const timeoutPromise = new Promise(resolve => setTimeout(resolve, 10000));
+            await Promise.race([ttsPromise, timeoutPromise]);
         }
     } catch (e) {
+        // エラーでも止まらない
+        console.warn("TTS Skip", e);
         if (e.message && e.message.includes('not supported')) {
              const u = new SpeechSynthesisUtterance(text);
              u.lang = LANGUAGES[currentLang].ttsCode;
@@ -556,7 +565,9 @@ const GlobeContent = () => {
     } finally {
         setIsPlaying(false);
         isPlayingRef.current = false;
+        // ライドモードなら必ず次へ進む
         if (isRideModeRef.current) {
+             if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current);
              rideTimeoutRef.current = setTimeout(nextRideStep, 2000); 
         }
     }
@@ -573,7 +584,8 @@ const GlobeContent = () => {
   };
 
   const startRideMode = () => {
-    setIsRideMode(true); isRideModeRef.current = true;
+    setIsRideMode(true); 
+    isRideModeRef.current = true; // 即座にRefも更新
     setToastMessage('Tour Started 🚀');
     const hasPremium = isPremium || isVipUser(user?.email);
     if(hasPremium && window.cordova && window.cordova.plugins && window.cordova.plugins.backgroundMode) {
@@ -583,7 +595,8 @@ const GlobeContent = () => {
   };
 
   const stopRideMode = () => {
-    setIsRideMode(false); isRideModeRef.current = false;
+    setIsRideMode(false); 
+    isRideModeRef.current = false;
     if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current);
     try { TextToSpeech.stop(); } catch(e){}
     setToastMessage('Tour Stopped');
@@ -693,7 +706,6 @@ const GlobeContent = () => {
     setTimeout(() => { nextRideStep(); }, 50);
   };
 
-  // Capacitor Geolocation Pluginを使用
   const handleCurrentLocation = async () => {
     try {
         const permissions = await Geolocation.checkPermissions();
@@ -740,14 +752,24 @@ const GlobeContent = () => {
     setTimeout(() => { nextRideStep(); }, 100);
   };
 
+  // ★重要修正: カテゴリをセットしてから即座にライドを開始
   const jumpToRandomSpot = (cat=null) => { 
-    rideCategoryRef.current = cat; 
+    rideCategoryRef.current = cat; // Refに保存（非同期対策）
+    
     if (cat && PREMIUM_CATEGORIES.includes(cat) && !isPremium && !isVipUser(user?.email)) { alert(t.locked); return; }
-    if (cat) { const newFilters = { landmark: false, history: false, nature: false, modern: false, science: false, art: false }; newFilters[cat] = true; setVisibleCategories(newFilters); } 
-    else { setVisibleCategories({ landmark: true, history: true, nature: true, modern: true, science: true, art: true }); }
+    
+    if (cat) { 
+        const newFilters = { landmark: false, history: false, nature: false, modern: false, science: false, art: false }; 
+        newFilters[cat] = true; 
+        setVisibleCategories(newFilters); 
+    } else { 
+        setVisibleCategories({ landmark: true, history: true, nature: true, modern: true, science: true, art: true }); 
+    }
+    
     setIsHistoryMode(false); 
     startRideMode(); 
     setActiveTab('map'); 
+    // 確実に次へ
     setTimeout(() => { nextRideStep(); }, 100); 
   };
 
@@ -760,14 +782,18 @@ const GlobeContent = () => {
         historyIndexRef.current = idx + 1; 
         return spot;
     } else {
-        const currentFilters = visibleCategoriesRef.current || { history: true, nature: true, modern: true, science: true, art: true }; 
+        // ★修正: カテゴリRefを使って厳密にフィルタリング
         const targetCat = rideCategoryRef.current;
         let candidates = locationsRef.current.filter(loc => {
           const cat = loc.category || 'history';
           if (!profile?.is_premium && !isVipUser(user?.email) && PREMIUM_CATEGORIES.includes(cat)) return false;
-          if (targetCat) return cat === targetCat;
-          return currentFilters[cat];
+          
+          // 特定カテゴリが指定されている場合は、それに一致するものだけ
+          if (targetCat && cat !== targetCat) return false;
+          
+          return true;
         });
+        
         if (selectedLocationRef.current) candidates = candidates.filter(c => c.id !== selectedLocationRef.current.id);
         if (candidates.length === 0) return null;
         return candidates[Math.floor(Math.random() * candidates.length)];
@@ -791,14 +817,30 @@ const GlobeContent = () => {
     } catch (e) { console.error("Preload error", e); }
   };
 
+  // ★重要修正: 失敗したらリトライするロジック
   const nextRideStep = async () => {
     if (!isRideModeRef.current) return;
+    
+    let success = false;
+    
     if (nextSpotDataRef.current) {
-        await fetchAndSelectSpot(nextSpotDataRef.current.id, true);
+        success = await fetchAndSelectSpot(nextSpotDataRef.current.id, true);
     } else {
         const nextSpot = getNextSpotCandidate();
-        if (nextSpot) await fetchAndSelectSpot(nextSpot.id);
-        else stopRideMode();
+        if (nextSpot) {
+            success = await fetchAndSelectSpot(nextSpot.id);
+        } else {
+            console.log("No candidates found");
+            stopRideMode();
+            return;
+        }
+    }
+
+    // 読み込みに失敗したら、即座に次を試す（止まらないようにする）
+    if (!success && isRideModeRef.current) {
+        console.log("Load failed, retrying next...");
+        nextSpotDataRef.current = null;
+        setTimeout(nextRideStep, 100); 
     }
   };
 
@@ -1016,11 +1058,10 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* Mobile UI (修正箇所: バー被り防止のためbottom位置をさらに調整) */}
+      {/* Mobile UI */}
       {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== null && (
         <div style={{ 
             position: 'fixed', 
-            // ★110px + safe-area で余裕を持たせました
             bottom: 'calc(110px + env(safe-area-inset-bottom))', 
             left: 0, width: '100%', height: '45vh', 
             background: 'rgba(10, 10, 10, 0.95)', zIndex: 200, overflowY: 'auto', 
@@ -1072,7 +1113,6 @@ const GlobeContent = () => {
   );
 };
 
-// NavButton (必ずここに配置)
 const NavButton = ({ icon, label, active, onClick }) => (
   <div onClick={onClick} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent:'center', cursor: 'pointer', color: active ? '#00ffcc' : '#888', width: '20%', height:'100%', transition: 'all 0.2s', borderBottom: active ? '3px solid #00ffcc' : '3px solid transparent' }}>
     <div style={{ fontSize: active ? '1.5rem' : '1.3rem', marginBottom: '2px', transition: 'all 0.2s' }}>{icon}</div>
