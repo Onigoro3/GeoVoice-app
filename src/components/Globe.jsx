@@ -4,7 +4,6 @@ import { supabase } from '../supabaseClient';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { TextToSpeech } from '@capacitor-community/text-to-speech';
 import { App } from '@capacitor/app';
-// 位置情報プラグイン
 import { Geolocation } from '@capacitor/geolocation';
 
 import AuthModal from './AuthModal';
@@ -13,7 +12,6 @@ import SplashScreen from './SplashScreen';
 import TutorialOverlay from './TutorialOverlay';
 import { isVipUser } from '../vipList';
 
-// .envからトークンを読み込む設定（これがないと地図が出ません）
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
@@ -65,7 +63,6 @@ const BGM_LIBRARY = [
   { id: 'chill1', title: 'かえりみち', artist: 'Japan', genre: 'Chill', url: '/bgm/Chill1.mp3' }, 
 ];
 
-// 無料ユーザーが見られるカテゴリ
 const FREE_CATEGORIES = ['history', 'landmark'];
 const PREMIUM_CATEGORIES = ['nature', 'modern', 'science', 'art'];
 
@@ -228,7 +225,6 @@ const GlobeContent = () => {
     return locations.filter(l => PREMIUM_CATEGORIES.includes(l.category || 'history')).length;
   }, [locations]);
 
-  // スポット数の計算（無料/有料で出し分け）
   const accessibleSpotCount = useMemo(() => {
     const isUserPremium = isPremium || isVipUser(user?.email);
     if (isUserPremium) return locations.length;
@@ -371,31 +367,61 @@ const GlobeContent = () => {
 
   const addLog = (msg) => { console.log(msg); setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 5)); };
 
-  // ★修正: 1000件の壁を突破する軽量化フェッチ
+  // ★修正: 並列処理による爆速全件取得
   const fetchSpots = async () => {
     try {
-      let from = 0; 
-      const batchSize = 3000; 
-      let allSpots = [];
+      setStatusMessage("Loading Spots...");
       
-      // ★軽量化: id, lat, lon, category だけを先に取得（これが爆速の秘訣）
+      // 1. まず件数だけ取得してゴールを決める
+      const countResult = await supabase.from('spots').select('*', { count: 'exact', head: true });
+      const totalCount = countResult.count;
+      
+      if (totalCount === null || totalCount === 0) {
+          addLog("No spots found in DB");
+          return;
+      }
+
+      console.log(`Total spots in DB: ${totalCount}`);
+      
+      // 2. 並列リクエストの準備
+      const batchSize = 1000; // 安全なバッチサイズ
+      const requests = [];
       const columns = 'id, lat, lon, category';
 
-      while (true) {
-        // rangeを使ってバッチ取得
-        const { data, error } = await supabase.from('spots').select(columns).range(from, from + batchSize - 1);
-        
-        if (error) { console.error("Fetch error:", error); break; }
-        if (!data || data.length === 0) break;
-        
-        const validBatch = data.filter(d => d.lat && d.lon).map(d => ({ ...d, category: d.category || 'history' }));
-        allSpots.push(...validBatch);
-        
-        if (data.length < batchSize) break; // 取得数がバッチサイズ未満なら終了
-        from += batchSize;
+      for (let i = 0; i < totalCount; i += batchSize) {
+          // Promiseを配列に貯める（まだawaitしない）
+          const request = supabase
+              .from('spots')
+              .select(columns)
+              .range(i, i + batchSize - 1)
+              .then(({ data, error }) => {
+                  if (error) {
+                      console.error("Batch fetch error:", error);
+                      return [];
+                  }
+                  return data || [];
+              });
+          requests.push(request);
       }
+
+      // 3. 一気に実行！ (Promise.all)
+      const results = await Promise.all(requests);
+      
+      // 4. 結果を結合
+      const allSpots = results.flat().map(d => ({ 
+          ...d, 
+          category: d.category || 'history' 
+      }));
+
+      // デバッグ用: 実際に取得できた数を表示
+      addLog(`Loaded ${allSpots.length} / ${totalCount} spots`);
       setLocations(allSpots);
-    } catch (e) { addLog(`Fetch Error: ${e.message}`); }
+      setStatusMessage(""); // クリア
+
+    } catch (e) { 
+        addLog(`Fetch Error: ${e.message}`); 
+        setStatusMessage("Error Loading");
+    }
   };
 
   useEffect(() => {
@@ -436,7 +462,6 @@ const GlobeContent = () => {
 
   const handleSelectFromList = (spot) => { fetchAndSelectSpot(spot.id); };
   
-  // ★詳細データを取得（クリック時のみ）
   const fetchAndSelectSpot = async (spotId, fromPreload=false) => {
     if (!fromPreload) {
         const spot = locationsRef.current.find(s => s.id === spotId);
@@ -452,7 +477,6 @@ const GlobeContent = () => {
             fullSpot = nextSpotDataRef.current;
             nextSpotDataRef.current = null; 
         } else {
-            // ここで改めて全データを取得する
             const { data } = await supabase.from('spots').select('*').eq('id', spotId).single();
             if (data) {
                 fullSpot = { ...data, category: data.category || 'history' };
@@ -778,7 +802,6 @@ const GlobeContent = () => {
     }
   };
 
-  // 無料/有料の出し分け
   const filteredGeoJsonData = useMemo(() => {
     const isUserPremium = isPremium || isVipUser(user?.email);
     const filtered = locations.filter(loc => {
@@ -993,12 +1016,12 @@ const GlobeContent = () => {
         </div>
       )}
 
-      {/* Mobile UI (ここを修正して被らないようにしました) */}
+      {/* Mobile UI (修正箇所: バー被り防止のためbottom位置をさらに調整) */}
       {!isPc && activeTab !== 'map' && activeTab !== 'ride' && activeTab !== null && (
         <div style={{ 
             position: 'fixed', 
-            // ★修正: ホームバー(safe-area)を考慮してパネルを少し上に
-            bottom: 'calc(90px + env(safe-area-inset-bottom))', 
+            // ★110px + safe-area で余裕を持たせました
+            bottom: 'calc(110px + env(safe-area-inset-bottom))', 
             left: 0, width: '100%', height: '45vh', 
             background: 'rgba(10, 10, 10, 0.95)', zIndex: 200, overflowY: 'auto', 
             borderTopLeftRadius: '20px', borderTopRightRadius: '20px',
@@ -1049,7 +1072,7 @@ const GlobeContent = () => {
   );
 };
 
-// ★ここに追加しました！
+// NavButton (必ずここに配置)
 const NavButton = ({ icon, label, active, onClick }) => (
   <div onClick={onClick} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent:'center', cursor: 'pointer', color: active ? '#00ffcc' : '#888', width: '20%', height:'100%', transition: 'all 0.2s', borderBottom: active ? '3px solid #00ffcc' : '3px solid transparent' }}>
     <div style={{ fontSize: active ? '1.5rem' : '1.3rem', marginBottom: '2px', transition: 'all 0.2s' }}>{icon}</div>
