@@ -5,6 +5,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { TextToSpeech } from '@capacitor-community/text-to-speech';
 import { App } from '@capacitor/app';
 import { Geolocation } from '@capacitor/geolocation';
+import { Capacitor } from '@capacitor/core';
 
 import AuthModal from './AuthModal';
 import ErrorBoundary from './ErrorBoundary';
@@ -74,67 +75,16 @@ const MAP_CONTAINER_STYLE = { width: '100%', height: '100%' };
 
 const getCategoryDetails = (category, lang = 'ja') => {
   const t = TRANSLATIONS[lang] || TRANSLATIONS.ja;
+  const cat = (category || 'history').toLowerCase();
+  
   let tag = t.cat_history; let color = '#ffcc00';
-  if (category === 'landmark') { tag = t.cat_landmark; color = '#ff8800'; }
-  if (category === 'nature') { tag = t.cat_nature; color = '#00ff7f'; }
-  if (category === 'modern') { tag = t.cat_modern; color = '#00ffff'; }
-  if (category === 'science') { tag = t.cat_science; color = '#d800ff'; }
-  if (category === 'art') { tag = t.cat_art; color = '#ff0055'; }
+  if (cat === 'landmark') { tag = t.cat_landmark; color = '#ff8800'; }
+  if (cat === 'nature') { tag = t.cat_nature; color = '#00ff7f'; }
+  if (cat === 'modern') { tag = t.cat_modern; color = '#00ffff'; }
+  if (cat === 'science') { tag = t.cat_science; color = '#d800ff'; }
+  if (cat === 'art') { tag = t.cat_art; color = '#ff0055'; }
   return { tag, color };
 };
-
-const MemoizedMap = React.memo(({ mapRef, mapboxAccessToken, initialViewState, onMoveEnd, onClick, onMouseEnter, onMouseLeave, cursor, geoJsonData, onError, padding }) => {
-  return (
-    <Map
-      ref={mapRef}
-      mapboxAccessToken={mapboxAccessToken}
-      initialViewState={initialViewState}
-      projection="globe"
-      mapStyle={MAP_CONFIG.style}
-      onMoveEnd={onMoveEnd}
-      onClick={onClick}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      cursor={cursor} 
-      style={MAP_CONTAINER_STYLE}
-      onError={onError}
-      dragRotate={true}
-      touchZoomRotate={true}
-      padding={padding}
-      reuseMaps={true}
-      interactiveLayerIds={['point-glow', 'point-core']}
-    >
-      {geoJsonData && (
-        <Source id="my-locations" type="geojson" data={geoJsonData} tolerance={1.0} buffer={0}>
-          <Layer 
-            id="point-glow"
-            type="circle"
-            paint={{
-                'circle-radius': 6,
-                'circle-color': [
-                'match', ['get', 'category'],
-                'landmark', '#ff8800',
-                'nature', '#00ff7f',
-                'history', '#ffcc00',
-                'modern', '#00ffff',
-                'science', '#d800ff',
-                'art', '#ff0055',
-                '#ffcc00'
-                ],
-                'circle-opacity': 0.8,
-                'circle-blur': 0.4
-            }}
-          />
-          <Layer 
-            id="point-core"
-            type="circle"
-            paint={{ 'circle-radius': 3, 'circle-color': '#fff', 'circle-opacity': 1 }}
-          />
-        </Source>
-      )}
-    </Map>
-  );
-}, (prev, next) => prev.geoJsonData === next.geoJsonData && prev.padding === next.padding && prev.cursor === next.cursor);
 
 const GlobeContent = () => {
   const mapRef = useRef(null);
@@ -143,16 +93,18 @@ const GlobeContent = () => {
   const locationsRef = useRef([]);
   const selectedLocationRef = useRef(null);
   const isGeneratingRef = useRef(false);
+  
   const isRideModeRef = useRef(false);
   const isHistoryModeRef = useRef(false);
+  const rideCategoryRef = useRef(null);
   const historyIndexRef = useRef(0);
   const historySortedSpotsRef = useRef([]);
   const rideTimeoutRef = useRef(null);
-  const visibleCategoriesRef = useRef(null);
-  const rideCategoryRef = useRef(null);
+  
   const nextSpotDataRef = useRef(null);
   const imageCacheRef = useRef(new Set());
   const isPlayingRef = useRef(false);
+  const tutorialShownRef = useRef(false);
 
   const [locations, setLocations] = useState([]);
   const [selectedLocation, setSelectedLocation] = useState(null);
@@ -238,6 +190,9 @@ const GlobeContent = () => {
     let displayName = getLocalizedName(selectedLocation);
     const suffix = currentLang === 'ja' ? '_ja' : `_${currentLang}`;
     let displayDesc = selectedLocation[`description${suffix}`] || selectedLocation.description;
+    
+    if (!displayDesc) displayDesc = "No description available.";
+
     return { 
         ...selectedLocation, 
         name: displayName, 
@@ -274,8 +229,10 @@ const GlobeContent = () => {
 
   const handleSplashFinish = () => {
     setShowSplash(false);
+    if (tutorialShownRef.current) return;
     const hasSeen = localStorage.getItem('hasSeenTutorial');
     if (!hasSeen) {
+      tutorialShownRef.current = true; 
       setShowTutorial(true);
     }
   };
@@ -286,7 +243,17 @@ const GlobeContent = () => {
 
   const initialViewState = { longitude: 135.0, latitude: 35.0, zoom: 3.5 };
 
-  const toggleRideMode = () => setIsRideMode(prev => !prev);
+  const toggleRideMode = () => {
+      const newVal = !isRideMode;
+      setIsRideMode(newVal);
+      isRideModeRef.current = newVal;
+      
+      if (newVal) {
+          startRideMode();
+      } else {
+          stopRideMode();
+      }
+  };
 
   const handleTabChange = (tab) => {
     if (activeTab === tab) { setActiveTab(null); return; }
@@ -302,14 +269,11 @@ const GlobeContent = () => {
   useEffect(() => { if (isPc) setPopupPos({ x: window.innerWidth - 420, y: 20 }); }, [isPc]);
   useEffect(() => { locationsRef.current = locations; }, [locations]);
   useEffect(() => { selectedLocationRef.current = selectedLocation; }, [selectedLocation]);
-  useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
-  useEffect(() => { visibleCategoriesRef.current = visibleCategories; }, [visibleCategories]);
   
-  // Refにも最新の状態を同期
   useEffect(() => { isRideModeRef.current = isRideMode; }, [isRideMode]);
   useEffect(() => { isHistoryModeRef.current = isHistoryMode; }, [isHistoryMode]);
   useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
-  useEffect(() => { rideCategoryRef.current = rideCategoryRef.current; }, []); // 初期化維持
+  useEffect(() => { rideCategoryRef.current = rideCategoryRef.current; }, []); 
 
   useEffect(() => {
     if (nearbySpots.length > 0) {
@@ -369,51 +333,62 @@ const GlobeContent = () => {
 
   const addLog = (msg) => { console.log(msg); setLogs(prev => [`[${new Date().toLocaleTimeString()}] ${msg}`, ...prev].slice(0, 5)); };
 
+  // ★修正: 段階的読み込み（Progressive Loading）で体感速度をアップ
   const fetchSpots = async () => {
     try {
-      setStatusMessage("Loading Spots...");
+      setStatusMessage("Loading...");
       const countResult = await supabase.from('spots').select('*', { count: 'exact', head: true });
       const totalCount = countResult.count;
       
       if (totalCount === null || totalCount === 0) {
-          addLog("No spots found in DB");
+          addLog("No spots found");
           return;
       }
 
-      console.log(`Total spots in DB: ${totalCount}`);
-      
-      const batchSize = 1000; 
-      const requests = [];
+      // まず最初の2000件だけを即座に取得して表示する（これで起動が早くなる）
+      const firstBatchSize = 2000;
       const columns = 'id, lat, lon, category';
-
-      for (let i = 0; i < totalCount; i += batchSize) {
-          const request = supabase
-              .from('spots')
-              .select(columns)
-              .range(i, i + batchSize - 1)
-              .then(({ data, error }) => {
-                  if (error) {
-                      console.error("Batch fetch error:", error);
-                      return [];
-                  }
-                  return data || [];
-              });
-          requests.push(request);
+      
+      const { data: firstData } = await supabase.from('spots').select(columns).range(0, firstBatchSize - 1);
+      
+      let allSpots = [];
+      if (firstData) {
+          const processedFirst = firstData.map(d => ({ ...d, category: (d.category || 'history').toLowerCase() }));
+          allSpots = processedFirst;
+          setLocations(processedFirst); // ★ここで一度描画！
       }
 
-      const results = await Promise.all(requests);
-      const allSpots = results.flat().map(d => ({ 
-          ...d, 
-          category: d.category || 'history' 
-      }));
+      // 残りのデータを裏で取得
+      if (totalCount > firstBatchSize) {
+          const batchSize = 1000;
+          const requests = [];
+          
+          for (let i = firstBatchSize; i < totalCount; i += batchSize) {
+              const request = supabase
+                  .from('spots')
+                  .select(columns)
+                  .range(i, i + batchSize - 1)
+                  .then(({ data }) => data || []);
+              requests.push(request);
+          }
 
-      addLog(`Loaded ${allSpots.length} / ${totalCount} spots`);
-      setLocations(allSpots);
+          const results = await Promise.all(requests);
+          const restSpots = results.flat().map(d => ({ 
+              ...d, 
+              category: (d.category || 'history').toLowerCase() 
+          }));
+          
+          // 合体して再描画
+          const finalSpots = [...allSpots, ...restSpots];
+          setLocations(finalSpots);
+          addLog(`All ${finalSpots.length} spots loaded`);
+      }
+      
       setStatusMessage(""); 
 
     } catch (e) { 
         addLog(`Fetch Error: ${e.message}`); 
-        setStatusMessage("Error Loading");
+        setStatusMessage("Error");
     }
   };
 
@@ -455,13 +430,13 @@ const GlobeContent = () => {
 
   const handleSelectFromList = (spot) => { fetchAndSelectSpot(spot.id); };
   
-  // ★重要修正: fetchAndSelectSpot の返り値を Promise<boolean> に変更（成功失敗を返す）
   const fetchAndSelectSpot = async (spotId, fromPreload=false) => {
     if (!fromPreload) {
         const spot = locationsRef.current.find(s => s.id === spotId);
-        if (spot && PREMIUM_CATEGORIES.includes(spot.category) && !isPremium && !isVipUser(user?.email)) {
+        const cat = (spot?.category || 'history').toLowerCase();
+        if (spot && PREMIUM_CATEGORIES.includes(cat) && !isPremium && !isVipUser(user?.email)) {
             alert(t.locked);
-            return false; // 失敗
+            return false;
         }
     }
 
@@ -473,18 +448,18 @@ const GlobeContent = () => {
         } else {
             const { data, error } = await supabase.from('spots').select('*').eq('id', spotId).single();
             if (error || !data) throw new Error("Load failed");
-            fullSpot = { ...data, category: data.category || 'history' };
+            fullSpot = { ...data, category: (data.category || 'history').toLowerCase() };
         }
 
         if (fullSpot) {
             setSelectedLocation(fullSpot);
             mapRef.current?.flyTo({ center: [fullSpot.lon, fullSpot.lat], zoom: 6, speed: 2.0, curve: 1, essential: true });
             if (isRideModeRef.current) setTimeout(preloadNextSpot, 500); 
-            return true; // 成功
+            return true;
         }
     } catch (e) { 
         console.error("fetchAndSelectSpot Error:", e);
-        return false; // 失敗
+        return false;
     }
     return false;
   };
@@ -520,52 +495,64 @@ const GlobeContent = () => {
     const isCached = displayData.image_url && imageCacheRef.current.has(displayData.image_url);
     setImgLoading(!isCached);
 
+    if (displayData.name === "Loading...") return;
+
     if (!displayData.needsTranslation) { 
         speak(displayData.description); 
+    } else if (isRideModeRef.current) {
+        translateAndFix(displayData, currentLang);
     }
   }, [displayData]); 
 
-  // ★重要修正: TTSにタイムアウトを追加して、止まるのを防ぐ
   const speak = async (text) => {
-    if (!text) {
-        setIsPlaying(false);
+    if (!text || text === "No description available.") {
+        if (isRideModeRef.current) {
+             if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current);
+             rideTimeoutRef.current = setTimeout(nextRideStep, 1500);
+        }
         return;
     }
+    
     try { await TextToSpeech.stop(); } catch(e){}
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+
     setIsPlaying(true);
     isPlayingRef.current = true;
     
-    // 長すぎる文章は分割
     const chunks = text.match(/[^。！？\n]+[。！？\n]+/g) || [text];
-    
+    const isWeb = Capacitor.getPlatform() === 'web';
+
     try {
         for (const chunk of chunks) {
             if (!isPlayingRef.current) break;
             
-            // TTSのタイムアウト設定（1文あたり最大10秒）
-            const ttsPromise = TextToSpeech.speak({
-                text: chunk,
-                lang: LANGUAGES[currentLang].ttsCode,
-                rate: 1.0,
-                pitch: 1.0,
-                volume: voiceVolume,
-            });
-            
-            const timeoutPromise = new Promise(resolve => setTimeout(resolve, 10000));
-            await Promise.race([ttsPromise, timeoutPromise]);
+            if (isWeb) {
+                await new Promise((resolve) => {
+                    const u = new SpeechSynthesisUtterance(chunk);
+                    u.lang = LANGUAGES[currentLang].ttsCode;
+                    u.volume = voiceVolume;
+                    u.onend = resolve;
+                    u.onerror = resolve; 
+                    window.speechSynthesis.speak(u);
+                });
+            } else {
+                const ttsPromise = TextToSpeech.speak({
+                    text: chunk,
+                    lang: LANGUAGES[currentLang].ttsCode,
+                    rate: 1.0,
+                    pitch: 1.0,
+                    volume: voiceVolume,
+                });
+                const timeoutPromise = new Promise(resolve => setTimeout(resolve, 10000));
+                await Promise.race([ttsPromise, timeoutPromise]);
+            }
         }
     } catch (e) {
-        // エラーでも止まらない
-        console.warn("TTS Skip", e);
-        if (e.message && e.message.includes('not supported')) {
-             const u = new SpeechSynthesisUtterance(text);
-             u.lang = LANGUAGES[currentLang].ttsCode;
-             window.speechSynthesis.speak(u);
-        }
+        console.warn("TTS Error", e);
     } finally {
         setIsPlaying(false);
         isPlayingRef.current = false;
-        // ライドモードなら必ず次へ進む
+        
         if (isRideModeRef.current) {
              if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current);
              rideTimeoutRef.current = setTimeout(nextRideStep, 2000); 
@@ -575,9 +562,7 @@ const GlobeContent = () => {
 
   const stopSpeaking = async () => {
     try { await TextToSpeech.stop(); } catch(e){}
-    if (window.speechSynthesis && typeof window.speechSynthesis.cancel === 'function') {
-        window.speechSynthesis.cancel();
-    }
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
     setIsPlaying(false);
     isPlayingRef.current = false;
     if (isRideMode) stopRideMode();
@@ -585,12 +570,15 @@ const GlobeContent = () => {
 
   const startRideMode = () => {
     setIsRideMode(true); 
-    isRideModeRef.current = true; // 即座にRefも更新
+    isRideModeRef.current = true;
     setToastMessage('Tour Started 🚀');
+    
     const hasPremium = isPremium || isVipUser(user?.email);
     if(hasPremium && window.cordova && window.cordova.plugins && window.cordova.plugins.backgroundMode) {
        window.cordova.plugins.backgroundMode.enable();
     }
+    
+    if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current);
     nextRideStep(); 
   };
 
@@ -599,6 +587,7 @@ const GlobeContent = () => {
     isRideModeRef.current = false;
     if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current);
     try { TextToSpeech.stop(); } catch(e){}
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
     setToastMessage('Tour Stopped');
   };
 
@@ -702,12 +691,21 @@ const GlobeContent = () => {
   const handleNextRide = () => { 
     if (!isRideMode) return; 
     try { TextToSpeech.stop(); } catch(e){}
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+
     if (rideTimeoutRef.current) clearTimeout(rideTimeoutRef.current); 
     setTimeout(() => { nextRideStep(); }, 50);
   };
 
   const handleCurrentLocation = async () => {
     try {
+        if (Capacitor.getPlatform() === 'web') {
+             navigator.geolocation.getCurrentPosition((pos) => {
+                 mapRef.current?.flyTo({ center: [pos.coords.longitude, pos.coords.latitude], zoom: 9, speed: 1.5, curve: 1 });
+             }, () => alert("Location denied"));
+             return;
+        }
+        
         const permissions = await Geolocation.checkPermissions();
         if (permissions.location !== 'granted') {
             const req = await Geolocation.requestPermissions();
@@ -732,6 +730,10 @@ const GlobeContent = () => {
   
   const startHistoryRide = () => { 
     if (!isPremium && !isVipUser(user?.email)) { alert(t.locked); return; }
+    
+    isHistoryModeRef.current = true;
+    setIsHistoryMode(true); 
+    
     let candidates = locationsRef.current.filter(l => (l.category === 'history' || !l.category)); 
     if (historyCountry !== "ALL") { candidates = candidates.filter(l => l.country_ja === historyCountry); }
     if (historyYearInput) {
@@ -744,17 +746,18 @@ const GlobeContent = () => {
         });
     } else { candidates.sort(() => Math.random() - 0.5); }
     if (candidates.length === 0) { alert("No spots found."); return; }
+    
     historySortedSpotsRef.current = candidates;
     historyIndexRef.current = 0;
-    setIsHistoryMode(true); 
+    
     startRideMode(); 
     setActiveTab('map'); 
-    setTimeout(() => { nextRideStep(); }, 100);
   };
 
-  // ★重要修正: カテゴリをセットしてから即座にライドを開始
   const jumpToRandomSpot = (cat=null) => { 
-    rideCategoryRef.current = cat; // Refに保存（非同期対策）
+    rideCategoryRef.current = cat; 
+    isHistoryModeRef.current = false; 
+    setIsHistoryMode(false);
     
     if (cat && PREMIUM_CATEGORIES.includes(cat) && !isPremium && !isVipUser(user?.email)) { alert(t.locked); return; }
     
@@ -766,11 +769,8 @@ const GlobeContent = () => {
         setVisibleCategories({ landmark: true, history: true, nature: true, modern: true, science: true, art: true }); 
     }
     
-    setIsHistoryMode(false); 
     startRideMode(); 
     setActiveTab('map'); 
-    // 確実に次へ
-    setTimeout(() => { nextRideStep(); }, 100); 
   };
 
   const getNextSpotCandidate = () => {
@@ -782,13 +782,11 @@ const GlobeContent = () => {
         historyIndexRef.current = idx + 1; 
         return spot;
     } else {
-        // ★修正: カテゴリRefを使って厳密にフィルタリング
         const targetCat = rideCategoryRef.current;
         let candidates = locationsRef.current.filter(loc => {
           const cat = loc.category || 'history';
           if (!profile?.is_premium && !isVipUser(user?.email) && PREMIUM_CATEGORIES.includes(cat)) return false;
           
-          // 特定カテゴリが指定されている場合は、それに一致するものだけ
           if (targetCat && cat !== targetCat) return false;
           
           return true;
@@ -800,13 +798,14 @@ const GlobeContent = () => {
     }
   };
 
+  // ★修正: 画像プリロード強化
   const preloadNextSpot = async () => {
     const nextCandidate = getNextSpotCandidate();
     if (!nextCandidate) return;
     try {
         const { data } = await supabase.from('spots').select('*').eq('id', nextCandidate.id).single();
         if (data) {
-            const fullSpot = { ...data, category: data.category || 'history' };
+            const fullSpot = { ...data, category: (data.category || 'history').toLowerCase() };
             nextSpotDataRef.current = fullSpot;
             if (fullSpot.image_url) {
                 const img = new Image();
@@ -817,7 +816,6 @@ const GlobeContent = () => {
     } catch (e) { console.error("Preload error", e); }
   };
 
-  // ★重要修正: 失敗したらリトライするロジック
   const nextRideStep = async () => {
     if (!isRideModeRef.current) return;
     
@@ -836,7 +834,6 @@ const GlobeContent = () => {
         }
     }
 
-    // 読み込みに失敗したら、即座に次を試す（止まらないようにする）
     if (!success && isRideModeRef.current) {
         console.log("Load failed, retrying next...");
         nextSpotDataRef.current = null;
@@ -1007,21 +1004,57 @@ const GlobeContent = () => {
         </>
       )}
 
-      <MemoizedMap 
-        mapRef={mapRef} 
+      {/* Mapboxの最適化解除（全件表示） */}
+      <Map
+        ref={mapRef} 
         mapboxAccessToken={MAPBOX_TOKEN} 
         initialViewState={initialViewState} 
+        projection="globe"
+        mapStyle={MAP_CONFIG.style}
         onMoveEnd={handleMoveEnd} 
         onClick={handleMapClick}
-        geoJsonData={filteredGeoJsonData} 
-        onError={(e) => addLog(`Map Error: ${e.error.message}`)} 
-        padding={isPc ? {} : { bottom: window.innerHeight * 0.4 }} 
-        cursor={cursor}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
+        cursor={cursor} 
         style={MAP_CONTAINER_STYLE}
+        dragRotate={true}
+        touchZoomRotate={true}
+        padding={isPc ? {} : { bottom: window.innerHeight * 0.4 }} 
+        reuseMaps={true}
+        // メモリ消費軽減設定を追加
+        optimizeForTerrain={false}
         interactiveLayerIds={['point-glow', 'point-core']}
-      />
+      >
+        {filteredGeoJsonData && (
+          <Source id="my-locations" type="geojson" data={filteredGeoJsonData}>
+            <Layer 
+              id="point-glow"
+              type="circle"
+              paint={{
+                  'circle-radius': 4,
+                  'circle-color': [
+                  'match', ['get', 'category'],
+                  'landmark', '#ff8800',
+                  'nature', '#00ff7f',
+                  'history', '#ffcc00',
+                  'modern', '#00ffff',
+                  'science', '#d800ff',
+                  'art', '#ff0055',
+                  '#ffcc00'
+                  ],
+                  'circle-opacity': 0.8,
+                  'circle-blur': 0.4
+              }}
+            />
+            <Layer 
+              id="point-core"
+              type="circle"
+              paint={{ 'circle-radius': 2, 'circle-color': '#fff', 'circle-opacity': 1 }}
+            />
+          </Source>
+        )}
+      </Map>
+
       {/* PC UI */}
       {isPc && (
         <div className="pc-ui-container" style={{ position: 'absolute', bottom: '20px', left: '20px', width: '360px', zIndex: 100, display: 'flex', flexDirection: 'column', pointerEvents: 'none' }}>
